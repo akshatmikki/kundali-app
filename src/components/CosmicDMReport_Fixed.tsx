@@ -171,200 +171,353 @@ JSON data for this planet: ${JSON.stringify(planet)}
 };
 
 // --- Utility function for paragraphs ---
-const addParagraphs = (doc: any, text: any, startX: any, startY: any) => {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const maxWidth = pageWidth - startX - 40;
-  const lineHeight = 16;
-  const maxHeight = 750; // bottom margin cutoff
-  const lines = doc.splitTextToSize(text, maxWidth);
-  let y = startY;
+// const addParagraphs = (doc: any, text: any, startX: any, startY: any) => {
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const maxWidth = pageWidth - startX - 40;
+//   const lineHeight = 16;
+//   const maxHeight = 750; // bottom margin cutoff
+//   const lines = doc.splitTextToSize(text, maxWidth);
+//   let y = startY;
 
-  for (let i = 0; i < lines.length; i++) {
-    if (y > maxHeight) {
-      doc.addPage();
-      doc.setDrawColor("#a16a21");
-      doc.setLineWidth(1.5);
-      doc.rect(25, 25, 545, 792, "S");
-      y = 50; // reset Y position for new page
+//   for (let i = 0; i < lines.length; i++) {
+//     if (y > maxHeight) {
+//       doc.addPage();
+//       doc.setDrawColor("#a16a21");
+//       doc.setLineWidth(1.5);
+//       doc.rect(25, 25, 545, 792, "S");
+//       y = 50; // reset Y position for new page
+//     }
+//     doc.text(lines[i], startX, y);
+//     y += lineHeight;
+//   }
+// };
+
+function addParagraphs(doc: any, text: string, x: number, y: number, maxWidth: number) {
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 40;
+  const bottomLimit = pageHeight - margin; // space to stop before bottom
+  const lineHeight = 20;
+  const paragraphGap = 10;
+
+  const paragraphs = text.split(/\n+/);
+
+  paragraphs.forEach((para) => {
+    const lines = doc.splitTextToSize(para.trim(), maxWidth);
+
+    for (let i = 0; i < lines.length; i++) {
+      // Check if next line will go beyond page height
+      if (y + lineHeight > bottomLimit) {
+        // --- Add new page ---
+        doc.addPage();
+        doc.setDrawColor("#a16a21");
+        doc.setLineWidth(1.5);
+        doc.rect(25, 25, 545, 792, "S");
+
+        y = margin + 10; // Reset Y position after adding new page
+      }
+
+      // Print the line
+      doc.text(lines[i], x, y);
+      y += lineHeight;
     }
-    doc.text(lines[i], startX, y);
-    y += lineHeight;
-  }
-};
 
-type PlanetInfo = {
-  name: string;
-  zodiac: string;
-  rasi_no: number;
-  house: number;
-  retro: boolean;
-  full_name: string;
-  local_degree: number;
-};
+    // Add space between paragraphs
+    y += paragraphGap;
+  });
 
-type ChartJson = {
-  [key: string]: PlanetInfo | string;
-  chart: string;
-  chart_name: string;
-};
-
-// 1️⃣ Generate SVG chart
-function generateChartSVG(chartJson: ChartJson): string {
-  const width = 400;
-  const height = 400;
-  const border = 10;
-  const cx = width / 2;
-  const cy = height / 2;
-  const lineColor = "#a16a21";
-  const retroColor = "#c0392b";
-  const planetColor = "#f0e68c";
-  const svgBackground = "#000";
-
-  const svgParts: string[] = [
-    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" style="background:${svgBackground}">`,
-    `<rect x="${border}" y="${border}" width="${width - 2 * border}" height="${height - 2 * border}" fill="none" stroke="${lineColor}" stroke-width="1.5"/>`
-  ];
-
-  // Draw the diamond layout (North Indian style)
-  const top = border;
-  const bottom = height - border;
-  const left = border;
-  const right = width - border;
-
-  svgParts.push(`
-    <line x1="${cx}" y1="${top}" x2="${right}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
-    <line x1="${right}" y1="${cy}" x2="${cx}" y2="${bottom}" stroke="${lineColor}" stroke-width="1"/>
-    <line x1="${cx}" y1="${bottom}" x2="${left}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
-    <line x1="${left}" y1="${cy}" x2="${cx}" y2="${top}" stroke="${lineColor}" stroke-width="1"/>
-    <line x1="${left}" y1="${cy}" x2="${right}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
-    <line x1="${cx}" y1="${top}" x2="${cx}" y2="${bottom}" stroke="${lineColor}" stroke-width="1"/>
-  `);
-
-  // Define approximate house centers for text placement
-  const offset = (width - 2 * border) / 4;
-  const houseCenters: Record<number, [number, number]> = {
-    1: [cx, cy + offset * 0.8], // bottom center
-    2: [cx - offset * 0.6, cy + offset * 0.6],
-    3: [cx - offset, cy],
-    4: [cx - offset * 0.6, cy - offset * 0.6],
-    5: [cx, cy - offset * 0.8], // top center
-    6: [cx + offset * 0.6, cy - offset * 0.6],
-    7: [cx + offset, cy],
-    8: [cx + offset * 0.6, cy + offset * 0.6],
-    9: [cx + offset * 0.2, cy + offset * 0.2],
-    10: [cx, cy],
-    11: [cx - offset * 0.2, cy - offset * 0.2],
-    12: [cx - offset * 0.2, cy + offset * 0.2]
-  };
-
-  const houseOccupancy: Record<number, number> = {};
-
-  // Draw planets in their houses
-  for (const key in chartJson) {
-    if (key === "chart" || key === "chart_name") continue;
-    const planet = chartJson[key] as PlanetInfo;
-    const baseCoords = houseCenters[planet.house];
-    if (!baseCoords) continue;
-
-    const occupancy = houseOccupancy[planet.house] || 0;
-    const yOffset = occupancy * 14 - 8; // vertical stacking
-    houseOccupancy[planet.house] = occupancy + 1;
-
-    const fillColor = planet.retro ? retroColor : planetColor;
-
-    svgParts.push(`
-      <text 
-        x="${baseCoords[0]}" 
-        y="${baseCoords[1] + yOffset}" 
-        text-anchor="middle" 
-        font-size="12" 
-        fill="${fillColor}" 
-        font-family="Arial"
-      >
-        ${planet.name}
-      </text>
-    `);
-  }
-
-  // Chart title at bottom
-  svgParts.push(`
-    <text 
-      x="${cx}" 
-      y="${height - 10}" 
-      text-anchor="middle" 
-      font-size="14" 
-      fill="${lineColor}" 
-      font-weight="bold" 
-      font-family="Arial"
-    >
-      ${chartJson.chart_name || chartJson.chart || ""}
-    </text>
-  `);
-
-  svgParts.push(`</svg>`);
-  return svgParts.join("");
+  return y; // return final Y position for chaining
 }
 
-// 2️⃣ Convert SVG to PNG over background
-async function svgToBase64WithBackground(
-  svgData: string,
-  backgroundImagePath: string,
+// // 1️⃣ Generate SVG chart
+// function generateChartSVG(chartJson: ChartJson): string {
+//   const width = 400;
+//   const height = 400;
+//   const border = 10;
+//   const cx = width / 2;
+//   const cy = height / 2;
+//   const lineColor = "#a16a21";
+//   const retroColor = "#c0392b";
+//   const planetColor = "#f0e68c";
+//   const svgBackground = "#000";
+
+//   const svgParts: string[] = [
+//     `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" style="background:${svgBackground}">`,
+//     `<rect x="${border}" y="${border}" width="${width - 2 * border}" height="${height - 2 * border}" fill="none" stroke="${lineColor}" stroke-width="1.5"/>`
+//   ];
+
+//   // Draw the diamond layout (North Indian style)
+//   const top = border;
+//   const bottom = height - border;
+//   const left = border;
+//   const right = width - border;
+
+//   svgParts.push(`
+//     <line x1="${cx}" y1="${top}" x2="${right}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
+//     <line x1="${right}" y1="${cy}" x2="${cx}" y2="${bottom}" stroke="${lineColor}" stroke-width="1"/>
+//     <line x1="${cx}" y1="${bottom}" x2="${left}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
+//     <line x1="${left}" y1="${cy}" x2="${cx}" y2="${top}" stroke="${lineColor}" stroke-width="1"/>
+//     <line x1="${left}" y1="${cy}" x2="${right}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
+//     <line x1="${cx}" y1="${top}" x2="${cx}" y2="${bottom}" stroke="${lineColor}" stroke-width="1"/>
+//   `);
+
+//   // Define approximate house centers for text placement
+//   const offset = (width - 2 * border) / 4;
+//   const houseCenters: Record<number, [number, number]> = {
+//     1: [cx, cy + offset * 0.8], // bottom center
+//     2: [cx - offset * 0.6, cy + offset * 0.6],
+//     3: [cx - offset, cy],
+//     4: [cx - offset * 0.6, cy - offset * 0.6],
+//     5: [cx, cy - offset * 0.8], // top center
+//     6: [cx + offset * 0.6, cy - offset * 0.6],
+//     7: [cx + offset, cy],
+//     8: [cx + offset * 0.6, cy + offset * 0.6],
+//     9: [cx + offset * 0.2, cy + offset * 0.2],
+//     10: [cx, cy],
+//     11: [cx - offset * 0.2, cy - offset * 0.2],
+//     12: [cx - offset * 0.2, cy + offset * 0.2]
+//   };
+
+//   const houseOccupancy: Record<number, number> = {};
+
+//   // Draw planets in their houses
+//   for (const key in chartJson) {
+//     if (key === "chart" || key === "chart_name") continue;
+//     const planet = chartJson[key] as PlanetInfo;
+//     const baseCoords = houseCenters[planet.house];
+//     if (!baseCoords) continue;
+
+//     const occupancy = houseOccupancy[planet.house] || 0;
+//     const yOffset = occupancy * 14 - 8; // vertical stacking
+//     houseOccupancy[planet.house] = occupancy + 1;
+
+//     const fillColor = planet.retro ? retroColor : planetColor;
+
+//     svgParts.push(`
+//       <text 
+//         x="${baseCoords[0]}" 
+//         y="${baseCoords[1] + yOffset}" 
+//         text-anchor="middle" 
+//         font-size="12" 
+//         fill="${fillColor}" 
+//         font-family="Arial"
+//       >
+//         ${planet.name}
+//       </text>
+//     `);
+//   }
+
+//   // Chart title at bottom
+//   svgParts.push(`
+//     <text 
+//       x="${cx}" 
+//       y="${height - 10}" 
+//       text-anchor="middle" 
+//       font-size="14" 
+//       fill="${lineColor}" 
+//       font-weight="bold" 
+//       font-family="Arial"
+//     >
+//       ${chartJson.chart_name || chartJson.chart || ""}
+//     </text>
+//   `);
+
+//   svgParts.push(`</svg>`);
+//   return svgParts.join("");
+// }
+
+// async function svgToBase64WithBackground(
+//   svgText: string,
+//   backgroundImagePath: string,
+//   width: number,
+//   height: number
+// ): Promise<string> {
+//   return new Promise<string>((resolve, reject) => {
+//     // Create canvas
+//     const canvas = document.createElement("canvas");
+//     canvas.width = width;
+//     canvas.height = height;
+//     const ctx = canvas.getContext("2d");
+//     if (!ctx) return reject("Canvas context not available");
+
+//     // Load background image
+//     const bgImg = new Image();
+//     bgImg.crossOrigin = "anonymous";
+//     bgImg.src = backgroundImagePath;
+
+//     bgImg.onload = () => {
+//       // Draw background
+//       ctx.drawImage(bgImg, 0, 0, width, height);
+
+//       // Create SVG image
+//       const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+//       const url = URL.createObjectURL(svgBlob);
+//       const svgImg = new Image();
+//       svgImg.crossOrigin = "anonymous";
+//       svgImg.src = url;
+
+//       svgImg.onload = () => {
+//         // Draw SVG on top of background
+//         ctx.drawImage(svgImg, 0, 0, width, height);
+//         URL.revokeObjectURL(url);
+
+//         // Convert to Base64
+//         const base64 = canvas.toDataURL("image/png");
+//         resolve(base64);
+//       };
+
+//       svgImg.onerror = (err) => {
+//         URL.revokeObjectURL(url);
+//         reject("Error loading SVG image: " + err);
+//       };
+//     };
+
+//     bgImg.onerror = (err) => {
+//       reject("Error loading background image: " + err);
+//     };
+//   });
+// }
+
+// async function addAllDivisionalChartsFromJSON(
+//   doc: any,
+//   divisionalChartsData: any[],
+//   backgroundImagePath: string
+// ) {
+//   const chartsPerPage = 2;
+//   const imgWidth = 340;
+//   const imgHeight = 300;
+//   const spacingY = 50;
+//   const marginTop = 100;
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const pageHeight = doc.internal.pageSize.getHeight();
+//   const textColor = "#f0e68c";
+
+//   for (let i = 0; i < divisionalChartsData.length; i++) {
+//     const chartData = divisionalChartsData[i];
+
+//     // Construct SVG URL
+//     const chartType =
+//       chartData.chart_name?.toLowerCase() ||
+//       chartData.title?.toLowerCase() ||
+//       chartData.chart?.toLowerCase() ||
+//       "chalit";
+//     const cleanChartType = chartType.replace(/\s+/g, "").replace(/[^a-z0-9_]/g, "");
+//     const svgUrl = `https://kundali.s3.ap-south-1.amazonaws.com/chart-image/d/website/${cleanChartType}/6706532ae537cb10d068d30c.svg`;
+
+//     if (i % chartsPerPage === 0) {
+//       if (i > 0) doc.addPage();
+//       doc.setDrawColor("#a16a21");
+//       doc.setLineWidth(1.5);
+//       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+
+//       // Header
+//       doc.setFont("Times", "bold");
+//       doc.setFontSize(22);
+//       doc.setTextColor("#a16a21");
+//       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
+//     }
+
+//     const positionInPage = i % chartsPerPage;
+//     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
+
+//     // Chart title
+//     doc.setFont("Times", "bold");
+//     doc.setFontSize(16);
+//     doc.setTextColor(textColor);
+//     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, {
+//       align: "center",
+//     });
+
+//     try {
+//       // Fetch SVG
+//       const response = await fetch(svgUrl);
+//       const svgText = await response.text();
+
+//       // Convert SVG to Base64 with background
+//       const base64 = await svgToBase64WithBackground(svgText, backgroundImagePath, imgWidth, imgHeight);
+
+//       const xPos = (pageWidth - imgWidth) / 2;
+//       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
+//     } catch (err) {
+//       console.error(`Error rendering chart ${chartData.chart_name}`, err);
+//       doc.setFont("Times", "normal");
+//       doc.setFontSize(14);
+//       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, {
+//         align: "center",
+//       });
+//     }
+//   }
+
+//   // Add headers/footers
+//   const totalPages = doc.getNumberOfPages();
+//   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+//     doc.setPage(pageNum);
+//     addHeaderFooter(doc, pageNum);
+//   }
+// }
+
+async function loadSVGAsImage(svgUrl: string): Promise<HTMLImageElement> {
+  // Fetch the SVG as text
+  const response = await fetch(svgUrl);
+  if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
+  const svgText = await response.text();
+
+  // Encode as base64 data URL
+  const base64 = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
+
+  // Create image element
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = base64;
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(new Error("Failed to parse SVG into image: " + e));
+  });
+}
+
+async function svgToBase64WithBackgroundCached(
+  svgText: string,
+  backgroundImage: HTMLImageElement,
   width: number,
   height: number
 ): Promise<string> {
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Cannot get canvas context");
+  return new Promise<string>((resolve, reject) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return reject("Canvas context not available");
 
-  // Load background image
-  const bgImage = new Image();
-  bgImage.src = backgroundImagePath;
-  await new Promise((resolve, reject) => {
-    bgImage.onload = resolve;
-    bgImage.onerror = reject;
+    // Draw the background (which can now safely be SVG)
+    ctx.drawImage(backgroundImage, 0, 0, width, height);
+
+    // If overlay SVG exists, draw it
+    if (svgText && svgText.trim() !== "") {
+      const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+      const overlay = new Image();
+      overlay.crossOrigin = "anonymous";
+      overlay.src = url;
+
+      overlay.onload = () => {
+        ctx.drawImage(overlay, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL("image/png"));
+      };
+
+      overlay.onerror = (err) => {
+        URL.revokeObjectURL(url);
+        reject("Error loading overlay SVG: " + err);
+      };
+    } else {
+      resolve(canvas.toDataURL("image/png"));
+    }
   });
-
-  ctx.drawImage(bgImage, 0, 0, width, height);
-
-  // Convert SVG to image
-  const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(svgBlob);
-  const svgImage = new Image();
-  svgImage.src = url;
-  await new Promise((resolve, reject) => {
-    svgImage.onload = resolve;
-    svgImage.onerror = reject;
-  });
-
-  ctx.drawImage(svgImage, 0, 0, width, height);
-  URL.revokeObjectURL(url);
-
-  return canvas.toDataURL("image/png");
 }
 
-// 3️⃣ Add all divisional charts to PDF
 async function addAllDivisionalChartsFromJSON(
   doc: any,
-  divisionalChartsData: any[],
-  backgroundImagePath: string
+  divisionalChartsData: any[]
 ) {
-  const chartsToAdd: { data: string; title: string }[] = [];
-
-  // Generate SVGs
-  for (const chartData of divisionalChartsData) {
-    try {
-      const svg = generateChartSVG(chartData);
-      chartsToAdd.push({
-        data: svg,
-        title: chartData.chart_name || chartData.title || chartData.chart || "Divisional Chart",
-      });
-    } catch (error) {
-      console.error(`Error generating chart ${chartData.chart_name}:`, error);
-    }
-  }
-
   const chartsPerPage = 2;
   const imgWidth = 340;
   const imgHeight = 300;
@@ -372,16 +525,21 @@ async function addAllDivisionalChartsFromJSON(
   const marginTop = 100;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const textColor = "#f0e68c";
+  const textColor = "#a16a21";
 
-  for (let i = 0; i < chartsToAdd.length; i++) {
+  // ✅ Fetch and convert your Google Drive SVG once
+  const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
+  const backgroundImage = await loadSVGAsImage(backgroundSvgUrl);
+
+  for (let i = 0; i < divisionalChartsData.length; i++) {
+    const chartData = divisionalChartsData[i];
+
     if (i % chartsPerPage === 0) {
       if (i > 0) doc.addPage();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
-      // Header
       doc.setFont("Times", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#a16a21");
@@ -391,29 +549,22 @@ async function addAllDivisionalChartsFromJSON(
     const positionInPage = i % chartsPerPage;
     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
 
-    // Chart title
     doc.setFont("Times", "bold");
     doc.setFontSize(16);
     doc.setTextColor(textColor);
-    doc.text(chartsToAdd[i].title, pageWidth / 2, currentY - 10, { align: "center" });
+    doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
 
     try {
-      const chartBase64 = await svgToBase64WithBackground(
-        chartsToAdd[i].data,
-        backgroundImagePath,
-        imgWidth,
-        imgHeight
-      );
-
+      // Use cached SVG background
+      const overlaySvgText = chartData.svg || chartData.chart_svg || "";
+      const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
       const xPos = (pageWidth - imgWidth) / 2;
-      doc.addImage(chartBase64, "PNG", xPos, currentY, imgWidth, imgHeight);
+      doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
     } catch (err) {
-      console.error(`Error rendering chart ${chartsToAdd[i].title}`, err);
+      console.error(`Error rendering chart ${chartData.chart_name}`, err);
       doc.setFont("Times", "normal");
       doc.setFontSize(14);
-      doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, {
-        align: "center",
-      });
+      doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
     }
   }
 
@@ -425,6 +576,15 @@ async function addAllDivisionalChartsFromJSON(
   }
 }
 
+// // Helper: Convert Blob → Base64
+// async function blobToBase64(blob: Blob): Promise<string> {
+//   return new Promise((resolve, reject) => {
+//     const reader = new FileReader();
+//     reader.onloadend = () => resolve(reader.result as string);
+//     reader.onerror = reject;
+//     reader.readAsDataURL(blob);
+//   });
+// }
 
 const generateHouseReports = async (doc: any, houses: House[]) => {
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -501,18 +661,22 @@ JSON data: ${JSON.stringify(house)}
     const leftPadding = 10;
     const rightPadding = 10;
     const maxTextWidth = contentWidth - leftPadding - rightPadding;
-    const lines = doc.splitTextToSize(houseText, maxTextWidth);
 
     // Write text with automatic page breaks
+    const textMarginX = marginX + 15; // small internal left margin
+    const usableWidth = pageWidth - marginX * 2 - 30; // space for both 
+
+    const lines = doc.splitTextToSize(houseText, usableWidth);
+
     for (const line of lines) {
       if (cursorY + lineHeight > bottomLimit - 10) {
         doc.addPage();
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
-        cursorY = marginY + 20; // reset cursor for new page
+        cursorY = marginY + 30; // reset after border
       }
-      doc.text(line, marginX + leftPadding, cursorY);
+      doc.text(line, textMarginX, cursorY);
       cursorY += lineHeight;
     }
   }
@@ -576,14 +740,15 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     // 3️⃣ Create PDF
     const doc = new jsPDF("p", "pt", "a4");
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const lineHeight = 26; // slightly increased spacing for bigger text
 
     // --- COVER PAGE SECTION ---
-    const coverImageMale = "/assets/cover_male.jpg";     // male cover in /public/assets/
+    const coverImageMale = "/assets/cover_male.jpg";
     const coverImageFemale = "/assets/cover_female.jpg";
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const lineHeight = 18;
+
     // Determine which image to use based on gender
-    let selectedCoverImage = coverImageMale; // default
+    let selectedCoverImage = coverImageMale;
     if (userData?.sex?.toLowerCase() === "female") {
       selectedCoverImage = coverImageFemale;
     }
@@ -601,15 +766,15 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       doc.addImage(img, "JPEG", 0, 0, pageWidth, pageHeight);
     } catch (error) {
       console.warn("Cover image failed to load:", error);
-      // Fallback background
-      doc.setFillColor(245, 245, 245); // light gray
+      doc.setFillColor(245, 245, 245);
       doc.rect(0, 0, pageWidth, pageHeight, "F");
     }
 
-    // Assuming you already have pageWidth and pageHeight
-    const marginRight = 40; // distance from right edge
-    const marginBottom = 60;
-    const reportDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+    // --- TEXT ON RIGHT SIDE ---
+    const marginRight = 50;
+    const marginBottom = 80;
+    const reportDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long" });
+
     // Define text lines
     const textLines = [
       `${userData?.name || "Unknown"}`,
@@ -618,21 +783,32 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       `${reportDate || "September 2025"}`
     ];
 
-    // Font settings
-    doc.setFont("Times", "normal");
-    doc.setFontSize(14);
-    doc.setTextColor(255, 255, 255); // white text (good for dark background)
+    // Set text color to white (for dark covers)
+    doc.setTextColor(255, 255, 255);
 
-    // Calculate starting Y position from bottom
+    // Starting Y position from bottom
     let yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
-    // Draw text right-aligned
+    // Draw text right-aligned with varied font sizes
     textLines.forEach((line, i) => {
+      if (i === 0) {
+        // Name - largest and bold
+        doc.setFont("Times", "bold");
+        doc.setFontSize(32);
+      } else if (i === textLines.length - 1) {
+        // Date - smaller and lighter
+        doc.setFont("Times", "italic");
+        doc.setFontSize(18);
+      } else {
+        // Middle lines - medium size
+        doc.setFont("Times", "normal");
+        doc.setFontSize(22);
+      }
+
       doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, {
         align: "right",
       });
     });
-
 
     // --- Generate Disclaimer Page using AI ---
     const disclaimerPrompt =
@@ -672,7 +848,13 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setFont("Times", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
-    addParagraphs(doc, disclaimerText, 50, 110);
+    const leftMargin = 50;
+    const rightMargin = 50;
+    const usableWidth = pageWidth - leftMargin - rightMargin;
+
+    addParagraphs(doc, disclaimerText, leftMargin, 50, usableWidth);
+
+    // addParagraphs(doc, disclaimerText, 50, 110);
 
     // --- Generate Author Message using AI ---
     const authorPrompt =
@@ -712,7 +894,8 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setFont("Times", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
-    addParagraphs(doc, authorText, 55, 110);
+
+    addParagraphs(doc, authorText, 50, 50, pageWidth - 50 - 50);
 
     // --- Generate Study Guide using AI ---
     const studyPrompt =
@@ -752,8 +935,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setFont("Times", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
-    addParagraphs(doc, studyText, 55, 110);
-
+    addParagraphs(doc, studyText, 50, 50, pageWidth - 50 - 50);
     // --- Generate Table of Contents using AI ---
     let tocText = `
 01 Immediate Personal Insights
@@ -825,8 +1007,44 @@ export async function generateAndDownloadFullCosmicReportWithTable(
    - Frequently Asked Questions
    - Next Steps: Using Insights & Remedies for Personal Growth
 `;
+
     tocText = removeMarkdown(tocText);
 
+    // --- ✅ Add subheading numbers like 1.1, 1.2 ---
+    const lines = tocText.split("\n");
+    let currentMain = "";
+    let subCount = 0;
+    let finalToc = "";
+
+    for (let line of lines) {
+      line = line.trim();
+      if (!line) {
+        finalToc += "\n";
+        continue;
+      }
+
+      // Detect main heading (starts with number)
+      if (/^\d{2}/.test(line)) {
+        const match = line.match(/^(\d{2})\s+(.*)/);
+        if (match) {
+          currentMain = String(parseInt(match[1])); // convert 01 -> 1
+          subCount = 0;
+          finalToc += `${currentMain}. ${match[2]}\n`;
+        }
+      }
+      // Detect subheading (starts with "-")
+      else if (line.startsWith("-")) {
+        subCount++;
+        const subNumber = `${currentMain}.${subCount}`;
+        finalToc += `   ${subNumber} ${line.replace(/^-+\s*/, "")}\n`;
+      } else {
+        finalToc += `${line}\n`;
+      }
+    }
+
+    tocText = finalToc;
+
+    // --- PDF Rendering ---
     doc.addPage();
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
@@ -840,7 +1058,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setFont("Times", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
-    addParagraphs(doc, tocText, 55, 110);
+    addParagraphs(doc, tocText, 50, 50, pageWidth - 50 - 50);
 
     // --- Add Table Content Page with Real API Data ---
     if (kundliData) {
@@ -3275,34 +3493,35 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       "chart": "transit",
       "chart_name": "Transit Chart"
     };
+
     await addAllDivisionalChartsFromJSON(doc, [
-      d1ChartJson,
-      d2ChartJson,
-      d4ChartJson,
-      d5ChartJson,
-      d7ChartJson,
-      d8ChartJson,
-      d9ChartJson,
-      d10ChartJson,
-      d10rChartJson,
-      d12ChartJson,
-      d16ChartJson,
-      d20ChartJson,
-      d24ChartJson,
-      d24rChartJson,
-      d27ChartJson,
-      d30ChartJson,
-      d40ChartJson,
-      d45ChartJson,
-      d60ChartJson,
-      chalitChartJson,
-      sunChartJson,
-      moonChartJson,
-      kpchalitChartJson,
-      transitChartJson,
-      d3sChartJson,
-      d3ChartJson
-    ], "/assets/houses/chart-image.png");
+      { chart_name: "chalit" },
+      { chart_name: "d9" },
+      { chart_name: "d10" },
+      { chart_name: "d7" },
+      { chart_name: "d45" },
+      { chart_name: "d27" },
+      { chart_name: "d5" },
+      { chart_name: "d8" },
+      { chart_name: "d24r" },
+      { chart_name: "d10r" },
+      { chart_name: "d20" },
+      { chart_name: "d4" },
+      { chart_name: "d1" },
+      { chart_name: "d2" },
+      { chart_name: "d12" },
+      { chart_name: "d16" },
+      { chart_name: "d30" },
+      { chart_name: "d60" },
+      { chart_name: "d3s" },
+      { chart_name: "d3" },
+      { chart_name: "sun" },
+      { chart_name: "moon" },
+      { chart_name: "kp_chalit" },
+      { chart_name: "transit" },
+
+    ]);
+
     doc.addPage();
     await generateHouseReports(doc, houses);
 
@@ -4736,7 +4955,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       doc.setFont("Times", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 55, 110);
+      addParagraphs(doc, studyText, 50, 50, pageWidth - 50 - 50);
     }
     doc.addPage();
 
@@ -5584,7 +5803,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       doc.setFont("Times", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 55, 110);
+      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
     }
 
     doc.addPage();
@@ -6302,7 +6521,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       doc.setFont("Times", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 55, 110);
+      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
     }
     doc.addPage();
 
@@ -8023,7 +8242,7 @@ Rahu:{
       doc.setFont("Times", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 55, 110);
+      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
     }
 
     // Generate "09 Timing & Predictive Insights" section
@@ -8887,11 +9106,9 @@ JSON: {
         doc.setFontSize(12);
         doc.setTextColor("#444");
 
-        const explanation =
-          "The above table shows the major planetary periods (Mahadashas) and their starting dates. These periods influence major life phases and opportunities, highlighting the native's growth trajectory and key experiences.";
         const pageWidth = doc.internal.pageSize.getWidth();
-        const textWidth = doc.getTextWidth(explanation);
-        doc.text(explanation, (pageWidth - textWidth) / 2, cursorY + LINE_HEIGHT);
+        //const textWidth = doc.getTextWidth(explanation);
+        //doc.text(explanation, (pageWidth - textWidth) / 2, cursorY + LINE_HEIGHT);
         cursorY += 2 * LINE_HEIGHT;
       }
 
@@ -8917,11 +9134,11 @@ JSON: {
           doc.setFont("Times", "italic");
           doc.setFontSize(12);
           doc.setTextColor("#444");
-          const explanation = `The table above represents the sub-periods (Antardashas) of ${mahaName} Mahadasha. These finer periods influence day-to-day experiences, decisions, and personal growth.`;
+          //const explanation = `The table above represents the sub-periods (Antardashas) of ${mahaName} Mahadasha. These finer periods influence day-to-day experiences, decisions, and personal growth.`;
 
           const pageWidth = doc.internal.pageSize.getWidth();
-          const textWidth = doc.getTextWidth(explanation);
-          doc.text(explanation, (pageWidth - textWidth) / 2, cursorY + LINE_HEIGHT);
+          // const textWidth = doc.getTextWidth(explanation);
+          // doc.text(explanation, (pageWidth - textWidth) / 2, cursorY + LINE_HEIGHT);
           cursorY += 2 * LINE_HEIGHT;
         });
       }
@@ -8930,70 +9147,114 @@ JSON: {
       doc.setFont("Times", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 55, cursorY);
+      addParagraphs(doc, text, 50, cursorY, pageWidth - 50 - 50);
     }
 
     // --- Helper: addPaginatedTable ---
-    function addPaginatedTable(doc: any, headers: any, data: any, startY: number, pageHeight: number) {
+    function addPaginatedTable(
+      doc: any,
+      headers: string[],
+      data: any[],
+      startY: number,
+      pageHeight: number
+    ): number {
       const tableWidth = 400;
       const colWidth = tableWidth / headers.length;
       const pageWidth = doc.internal.pageSize.getWidth();
+      const pageNumber = () => doc.internal.getCurrentPageInfo().pageNumber;
       const startX = (pageWidth - tableWidth) / 2;
-      let y = startY;
 
+      const LINE_HEIGHT = 22;
+      const PAGE_MARGIN = 50;
+      const textPaddingY = 6;
+
+      // --- DRAW BORDER AROUND PAGE ---
+      const drawPageBorder = () => {
+        doc.setDrawColor("#a16a21");
+        doc.setLineWidth(1.5);
+        doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+      };
+
+      // --- DRAW FOOTER WITH PAGE NUMBER ---
       const drawFooter = () => {
-        const footerY = pageHeight - 15;
+        const footerY = pageHeight - 20;
         doc.setFont("Times", "italic");
         doc.setFontSize(10);
         doc.setTextColor("#999");
-        doc.text(`Page ${doc.internal.getCurrentPageInfo().pageNumber}`, pageWidth / 2, footerY, { align: "center" });
+        doc.text(
+          `Page ${pageNumber()}`,
+          pageWidth / 2,
+          footerY,
+          { align: "center" }
+        );
       };
 
-      const drawHeader = () => {
+      // --- DRAW HEADER ROW ---
+      const drawHeader = (yPos: number) => {
         doc.setFont("Times", "bold");
         doc.setFontSize(13);
         doc.setFillColor(161, 106, 33);
         doc.setTextColor(255, 255, 255);
-        doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT, "F");
-        headers.forEach((header: string, i: number) => {
-          doc.text(header, startX + i * colWidth + 5, y);
+        doc.rect(startX, yPos - 7, tableWidth, LINE_HEIGHT, "F");
+
+        headers.forEach((header, i) => {
+          doc.text(header, startX + i * colWidth + 10, yPos, {
+            align: "left",
+            baseline: "middle",
+          });
         });
-        y += LINE_HEIGHT;
+
+        return yPos + LINE_HEIGHT;
       };
 
-      // Draw table header
-      drawHeader();
+      // --- INITIALIZE PAGE ---
+      drawPageBorder();
+      let y = drawHeader(startY);
 
       doc.setFont("Times", "normal");
+      doc.setFontSize(12);
       doc.setTextColor(0);
 
+      // --- DRAW TABLE ROWS ---
       for (let i = 0; i < data.length; i++) {
-        if (y + LINE_HEIGHT > pageHeight - PAGE_MARGIN) {
+        // Check if next row fits; if not, add new page
+        if (y + LINE_HEIGHT + PAGE_MARGIN > pageHeight) {
           drawFooter();
           doc.addPage();
+          drawPageBorder();
           y = PAGE_MARGIN;
-          drawHeader();
+          y = drawHeader(y);
           doc.setFont("Times", "normal");
+          doc.setFontSize(12);
           doc.setTextColor(0);
         }
 
-        // Row background for alternate rows
+        // Alternate background
         if (i % 2 === 0) {
-          doc.setFillColor(245, 245, 245);
+          doc.setFillColor(245, 232, 215);
           doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT, "F");
         }
 
-        // Draw row border
+        // Row border
         doc.setDrawColor(200);
         doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT);
 
+        // Text cells
         data[i].forEach((cell: string, j: number) => {
-          doc.text(cell, startX + j * colWidth + 5, y);
+          const align = j === 1 ? "right" : "left";
+          doc.text(cell, startX + j * colWidth + 10, y + textPaddingY, {
+            align,
+            baseline: "middle",
+          });
         });
+
         y += LINE_HEIGHT;
       }
 
-      drawFooter(); // draw footer for the last page
+      // --- Final footer and border ---
+      drawFooter();
+      drawPageBorder();
+
       return y;
     }
     doc.addPage();
@@ -10053,7 +10314,7 @@ Rahu:{
       doc.setFont("Times", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 55, 110);
+      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
     }
     doc.addPage();
 
@@ -11487,7 +11748,7 @@ JSON: {
       doc.setFont("Times", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 55, 110);
+      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
     }
 
     // Generate "12 Q&A & Personalized Advice" secti
@@ -11496,83 +11757,84 @@ JSON: {
     // --- Helper ---
     const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-// --- Generate 12–15 Personalized Questions ---
-async function generateQuestions(fullData: Record<string, any>) {
-  const questionPrompt = `
+    // --- Generate 12–15 Personalized Questions (Categorized) ---
+    async function generateQuestions(fullData: Record<string, any>) {
+      const questionPrompt = `
 You are an expert Vedic astrologer and holistic consultant.
 Analyze the following *complete client data* — including multi-chart birth data (D1, D9, D10, D60, D2, D3, D4),
-plus any personal or contextual data provided (like location, date/time, and gender).
-Generate 12–15 *personalized, specific* client questions they might ask 
-about career, health, wealth, relationships, fame, and spiritual growth.
+plus any personal or contextual data provided (location, date/time, gender).
 
-Base your questions on:
-- Major Yogas and their meanings
-- Dashas and Antardashas
-- Planetary strengths/weaknesses
-- Doshas and Ashtakvarga patterns
-- Other client data provided
+Generate 12–15 *personalized, specific* client questions organized in categories:
+
+CAREER:
+- 2–3 questions
+
+LOVE & RELATIONSHIPS:
+- 2–3 questions
+
+HEALTH:
+- 2 questions
+
+WEALTH:
+- 2 questions
+
+FAME & SOCIAL RECOGNITION:
+- 1–2 questions
+
+SPIRITUAL GROWTH:
+- 1–2 questions
 
 Format:
+CAREER:
 1. <question>
 2. <question>
 ...
 
-JSON Input (structured): ${JSON.stringify(fullData, null, 2)}
+Remove any markdown or special characters in the output.
+
+JSON Input: ${JSON.stringify(fullData, null, 2)}
 `;
 
-  const res = await fetch("/api/gemini", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: questionPrompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 3000 }
-    })
-  });
+      const res = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: questionPrompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 3000 }
+        })
+      });
 
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  return text
-    .split(/\n+/)
-    .map((line: any) => line.replace(/^\d+\.\s*/, "").trim())
-    .filter(Boolean);
-}
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-// --- Helper: Split formatted text nicely for PDF ---
-function formatTextForPDF(rawText: string): string[] {
-  const normalized = rawText
-    .replace(/\r\n/g, "\n")
-    .replace(/\n\s*\n/g, "\n\n")
-    .trim();
+      // Split by category headings
+      const sections: Record<string, string[]> = {};
+      let currentSection = "";
+      text.split(/\n+/).forEach((line: any) => {
+        line = line.trim();
+        if (!line) return;
 
-  const paragraphs = normalized.split(/\n\n+/);
-  const maxLineLength = 120;
-  const lines: string[] = [];
-
-  for (const para of paragraphs) {
-    if (para.length <= maxLineLength) {
-      lines.push(para);
-    } else {
-      let start = 0;
-      while (start < para.length) {
-        let end = start + maxLineLength;
-        if (end >= para.length) end = para.length;
-        else {
-          const lastSpace = para.lastIndexOf(" ", end);
-          if (lastSpace > start) end = lastSpace;
+        const categoryMatch = line.match(/^(CAREER|LOVE & RELATIONSHIPS|HEALTH|WEALTH|FAME & SOCIAL RECOGNITION|SPIRITUAL GROWTH):$/i);
+        if (categoryMatch) {
+          currentSection = categoryMatch[1].toUpperCase();
+          sections[currentSection] = [];
+          return;
         }
-        lines.push(para.slice(start, end).trim());
-        start = end + 1;
-      }
-    }
-    lines.push("");
-  }
-  return lines;
-}
 
-// --- Generate Detailed Answer ---
-async function generateAnswer(question: string, fullData: Record<string, any>, retryCount = 0): Promise<string> {
-  const prompt = `
-You are an empathetic and wise Vedic astrologer. Based on this client's *complete data* 
+        if (currentSection) {
+          // Remove numbering
+          line = line.replace(/^\d+\.\s*/, "");
+          if (line) sections[currentSection].push(line);
+        }
+      });
+
+      return sections;
+    }
+
+    // --- Generate Detailed Answers per Question ---
+    async function generateAnswer(question: string, fullData: Record<string, any>, retryCount = 0): Promise<string> {
+      const prompt = `
+You are an empathetic and wise Vedic astrologer. Based on this client's complete data
 (including all divisional charts: D1, D9, D10, D60, D2, D3, D4, plus personal metadata),
 write a detailed, client-friendly answer to the question below.
 
@@ -11580,106 +11842,106 @@ Include:
 - Relevant planetary influences (mention houses and planets)
 - Yogas and Dashas affecting this area
 - Remedies, insights, and spiritual guidance
-- Keep tone warm, intuitive, and deeply insightful
+- Keep tone warm, intuitive, deeply insightful
+- Do NOT use any markdown or special formatting
 
-Q: "${question}"
+Question: "${question}"
 
 Full JSON Data: ${JSON.stringify(fullData, null, 2)}
 `;
 
-  try {
-    const response = await fetch("/api/gemini", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.85, maxOutputTokens: 1500 }
-      })
-    });
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  } catch (err) {
-    if (retryCount < 2) {
-      await sleep(2000);
-      return generateAnswer(question, fullData, retryCount + 1);
+      try {
+        const response = await fetch("/api/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.85, maxOutputTokens: 1500 }
+          })
+        });
+
+        const data = await response.json();
+        let ans = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        return ans.replace(/[*_~`]/g, ""); // Remove any leftover markdown
+      } catch (err) {
+        if (retryCount < 2) {
+          await sleep(2000);
+          return generateAnswer(question, fullData, retryCount + 1);
+        }
+        return `Question: ${question}\nAnswer: Unable to generate answer.`;
+      }
     }
-    return `Q: ${question}\nA: Unable to generate answer.`;
-  }
-}
 
-// --- Helper: Add paragraphs with consistent styling ---
-function addParagraphs(doc: any, text: string, x: number, yStart: number) {
-  const lines = formatTextForPDF(text);
-  const lineHeight = 16;
-  let y = yStart;
+    // // --- Add Paragraphs to PDF ---
+    // function addParagraphs(doc: any, text: string, x: number, yStart: number) {
+    //   const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+    //   const lineHeight = 16;
+    //   let y = yStart;
 
-  for (const line of lines) {
-    if (y > 780) {
+    //   for (const line of lines) {
+    //     if (y > 780) {
+    //       doc.addPage();
+    //       doc.setDrawColor("#a16a21");
+    //       doc.setLineWidth(1.5);
+    //       doc.rect(25, 25, 545, 792, "S");
+    //       y = 110;
+    //     }
+    //     doc.text(line, x, y);
+    //     y += lineHeight;
+    //   }
+    // }
+
+    // --- Main Function to Generate Q&A PDF ---
+    async function generateQAPDF(doc: any, fullData: Record<string, any>) {
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      // Step 1: Generate Questions by Category
+      const questionSections = await generateQuestions(fullData);
+      console.log("Generated Questions:", questionSections);
+
+      // Step 2: Generate Answers for each Section
+      const qaTextSections: string[] = [];
+
+      for (const [section, questions] of Object.entries(questionSections)) {
+        qaTextSections.push(section + ":\n");
+        for (const question of questions) {
+          const answer = await generateAnswer(question, fullData);
+          qaTextSections.push(`Question: ${question}\nAnswer: ${answer}\n`);
+          await sleep(500); // Slight delay to avoid overwhelming API
+        }
+      }
+
+      const fullQA = qaTextSections.join("\n");
+
+      // Step 3: Add Page Styling & Title
       doc.addPage();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      y = 110;
+
+      doc.setFont("Times", "bold");
+      doc.setFontSize(22);
+      doc.setTextColor("#000");
+      doc.text("Q&A & Personalized Guidance", pageWidth / 2, 60, { align: "center" });
+
+      doc.setFont("Times", "normal");
+      doc.setFontSize(13);
+      doc.setTextColor("#a16a21");
+
+      // Step 4: Add all content
+      addParagraphs(doc, fullQA, 50, 50, pageWidth - 50 - 50);
+
+      // Step 5: Footer
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(10);
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, 830, { align: "center" });
+      }
+
+      return doc;
     }
-    doc.text(line, x, y);
-    y += lineHeight;
-  }
-}
 
-// --- Main Function ---
-async function generateQAPDF(doc: any, fullData: Record<string, any>) {
-  const pageWidth = doc.internal.pageSize.getWidth();
-
-  // Step 1: Generate Questions
-  const questions = await generateQuestions(fullData);
-  console.log("Generated Questions:", questions);
-
-  // Step 2: Generate Answers (2 concurrent)
-  const concurrencyLimit = 2;
-  const qaPairs: string[] = [];
-
-  for (let i = 0; i < questions.length; i += concurrencyLimit) {
-    const chunk = questions.slice(i, i + concurrencyLimit);
-    const results = await Promise.allSettled(
-      chunk.map((q: any) => generateAnswer(q, fullData))
-    );
-    results.forEach(r => {
-      if (r.status === "fulfilled") qaPairs.push(r.value);
-    });
-    await sleep(2500);
-  }
-
-  // Step 3: Combine all Q&As
-  const qaText = qaPairs.join("\n\n").replace(/Q:/g, "\nQ:").replace(/A:/g, "\nA:");
-
-  // Step 4: Add Page Styling & Title
-  doc.addPage();
-  doc.setDrawColor("#a16a21");
-  doc.setLineWidth(1.5);
-  doc.rect(25, 25, 545, 792, "S");
-
-  doc.setFont("Times", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor("#000");
-  doc.text("Q&A & Personalized Guidance", pageWidth / 2, 60, { align: "center" });
-
-  doc.setFont("Times", "normal");
-  doc.setFontSize(13);
-  doc.setTextColor("#a16a21");
-
-  // Step 5: Add all content using the same styled paragraph format
-  addParagraphs(doc, qaText, 55, 110);
-
-  // Step 6: Footer
-  const pageCount = doc.internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(10);
-    doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, 830, { align: "center" });
-  }
-
-  return doc;
-}
 
     // ✅ Usage
     await generateQAPDF(doc, {
@@ -11820,5 +12082,3 @@ export const generateTableContentForReport = async ({
     };
   }
 };
-
-// --- Function to generate report using cached JSON data ---
