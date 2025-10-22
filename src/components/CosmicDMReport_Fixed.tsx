@@ -105,7 +105,7 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
   });
 }
 
-const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>, font:string) => {
+const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>, font: string) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -643,7 +643,7 @@ async function addAllDivisionalChartsFromJSON(
 //   });
 // }
 
-const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>, font:string) => {
+const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>, font: string) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -834,58 +834,58 @@ export async function generateAndDownloadFullCosmicReportWithTable(
 
     const language = typeof userObj.language === "string" ? userObj.language : "en";
 
-    
-// Helper function to fetch font as base64
-async function loadFont(url: string): Promise<string> {
-  const response = await fetch(url);
-  const buffer = await response.arrayBuffer();
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
 
-// Map each language code to its font file and name
+    // Helper function to fetch font as base64
+    async function loadFont(url: string): Promise<string> {
+      const response = await fetch(url);
+      const buffer = await response.arrayBuffer();
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
 
-const translations: Record<string, { dob: string; location: string }> = { en: { dob: "DOB", location: "Location not available" }, hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" }, fr: { dob: "Date de naissance", location: "Lieu non disponible" }, be: { dob: "Нарадзіўся", location: "Месца недаступна" }, ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" }, ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }, };
-// Determine user language
- 
-//  const lang = (userObj.language as string) || "en";
-//   const t = translations[lang] || translations.en;
+    // Map each language code to its font file and name
 
-  // --- Load the correct font ---
-  const lang = (userObj.language as string) || "en";
-const t = translations[lang] || translations.en;
-const font = FONT_MAP[lang] || "helvetica";
+    const translations: Record<string, { dob: string; location: string }> = { en: { dob: "DOB", location: "Location not available" }, hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" }, fr: { dob: "Date de naissance", location: "Lieu non disponible" }, be: { dob: "Нарадзіўся", location: "Месца недаступна" }, ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" }, ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }, };
+    // Determine user language
 
-  // --- Text lines ---
-  const reportDate = new Date().toLocaleDateString(lang, {
-    year: "numeric",
-    month: "long",
-  });
+    //  const lang = (userObj.language as string) || "en";
+    //   const t = translations[lang] || translations.en;
 
-  const textLines = [
-    `${userObj?.name || "Unknown"}`,
-    `${userObj?.dob ? t.dob + ": " + userObj.dob : "N/A"} ${userObj?.time || ""}`,
-    `${userObj?.place || t.location}`,
-    `${reportDate}`,
-  ];
+    // --- Load the correct font ---
+    const lang = (userObj.language as string) || "en";
+    const t = translations[lang] || translations.en;
+    const font = FONT_MAP[lang] || "helvetica";
 
-  // --- Draw text on PDF ---
-  const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
-  textLines.forEach((line, i) => {
-    doc.setFont(font, "normal");
-    if (i === 0) doc.setFontSize(32);
-    else if (i === textLines.length - 1) doc.setFontSize(18);
-    else doc.setFontSize(22);
+    // --- Text lines ---
+    const reportDate = new Date().toLocaleDateString(lang, {
+      year: "numeric",
+      month: "long",
+    });
 
-    doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, { align: "right" });
-  });
+    const textLines = [
+      `${userObj?.name || "Unknown"}`,
+      `${userObj?.dob ? t.dob + ": " + userObj.dob : "N/A"} ${userObj?.time || ""}`,
+      `${userObj?.place || t.location}`,
+      `${reportDate}`,
+    ];
+
+    // --- Draw text on PDF ---
+    const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+    textLines.forEach((line, i) => {
+      doc.setFont(font, "normal");
+      if (i === 0) doc.setFontSize(32);
+      else if (i === textLines.length - 1) doc.setFontSize(18);
+      else doc.setFontSize(22);
+
+      doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, { align: "right" });
+    });
 
     // --- Translation map ---
-   
+
 
     // const lang = (userObj.language as string) || "en";
     // const t = translations[lang as keyof typeof translations] || translations.en;
@@ -913,7 +913,7 @@ const font = FONT_MAP[lang] || "helvetica";
     // doc.addFileToVFS("NotoSansDevanagari.ttf", notoDevanagari);
     // doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     // // Choose font based on language family
-   
+
 
     // Register fonts
     // doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
@@ -1008,7 +1008,7 @@ intuition, and create the life you desire.
     // addParagraphs(doc, disclaimerText, 50, 110);
 
     // --- Generate Author Message using AI ---
-    const authortext =`
+    const authortext = `
       Dearest Friend,
 Welcome! It fills me with joy to present you with your personalized Vedic Astrology Report.
 Consider this not just a document, but a cosmic roadmap designed uniquely for you,
@@ -1033,7 +1033,7 @@ self-discovery with an open mind and a curious heart. Allow these insights to il
 path towards personal growth and fulfillment.
 Wishing you a journey filled with clarity, wisdom, and boundless possibilities.
 With warmth and cosmic blessings,
-${userObj?.name }
+${userObj?.name}
 Vedic Astrologer`;
 
     doc.addPage();
@@ -1083,7 +1083,7 @@ this knowledge to make informed decisions, navigate challenges with grace, and c
 aligned with your highest potential. Your destiny is not fixed, but rather a canvas you paint
 with awareness and intention`;
 
-    
+
     doc.addPage();
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
@@ -1173,40 +1173,40 @@ with awareness and intention`;
 
     // --- ✅ Add subheading numbers like 1.1, 1.2 ---
     const lines = tocText.split("\n");
-let currentMain = "";
-let subCount = 0;
-let finalToc = "";
+    let currentMain = "";
+    let subCount = 0;
+    let finalToc = "";
 
-for (let line of lines) {
-  line = line.trim();
-  if (!line) {
-    finalToc += "\n";
-    continue;
-  }
+    for (let line of lines) {
+      line = line.trim();
+      if (!line) {
+        finalToc += "\n";
+        continue;
+      }
 
-  // Detect main heading (starts with number)
-  const mainMatch = line.match(/^(\d{2})\s+(.*)/);
-  if (mainMatch) {
-    currentMain = String(parseInt(mainMatch[1])); // 01 -> 1
-    subCount = 0;
-    finalToc += `${currentMain}. ${mainMatch[2]}\n`;
-    continue;
-  }
+      // Detect main heading (starts with number)
+      const mainMatch = line.match(/^(\d{2})\s+(.*)/);
+      if (mainMatch) {
+        currentMain = String(parseInt(mainMatch[1])); // 01 -> 1
+        subCount = 0;
+        finalToc += `${currentMain}. ${mainMatch[2]}\n`;
+        continue;
+      }
 
-  // Detect subheading (starts with "-"), allowing spaces before "-"
-  const subMatch = line.match(/^[-–]\s*(.*)/); // handles "-" or "–" (en dash)
-  if (subMatch) {
-    subCount++;
-    const subNumber = `${currentMain}.${subCount}`;
-    finalToc += `   ${subNumber} ${subMatch[1]}\n`;
-    continue;
-  }
+      // Detect subheading (starts with "-"), allowing spaces before "-"
+      const subMatch = line.match(/^[-–]\s*(.*)/); // handles "-" or "–" (en dash)
+      if (subMatch) {
+        subCount++;
+        const subNumber = `${currentMain}.${subCount}`;
+        finalToc += `   ${subNumber} ${subMatch[1]}\n`;
+        continue;
+      }
 
-  // Any other line
-  finalToc += `${line}\n`;
-}
+      // Any other line
+      finalToc += `${line}\n`;
+    }
 
-tocText = finalToc;
+    tocText = finalToc;
 
     // --- PDF Rendering ---
     doc.addPage();
