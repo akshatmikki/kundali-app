@@ -6,12 +6,27 @@ import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js"
 import "../../public/fonts/NotoSansDevanagari-VariableFont_wdth,wght-normal.js"
 
 interface Planet {
-  planetId: string; full_name: string; name: string; nakshatra: string; nakshatra_no: number; nakshatra_pada: number; retro: boolean;
-};
+  planetId: string;
+  full_name: string;
+  name: string;
+  nakshatra: string;
+  nakshatra_no: number;
+  nakshatra_pada: number;
+  retro: boolean;
+}
 
 interface House {
-  house: string; rasi_no: number; zodiac: string; aspected_by_planet: string[]; aspected_by_planet_index: number[]; planets: Planet[]; cusp_sub_lord: string; cusp_sub_sub_lord: string; bhavmadhya: number;
-};
+  house: string;
+  rasi_no: number;
+  zodiac: string;
+  aspected_by_planet: string[];
+  aspected_by_planet_index: number[];
+  planets: Planet[];
+  cusp_sub_lord: string;
+  cusp_sub_sub_lord: string;
+  bhavmadhya: number;
+}
+
 const houses: House[] = [
   { house: '1', rasi_no: 10, zodiac: 'Capricorn', aspected_by_planet: [], aspected_by_planet_index: [], planets: [{ planetId: '0', full_name: 'Ascendant', name: 'As', nakshatra: 'Vishakha', nakshatra_no: 16, nakshatra_pada: 2, retro: false }, { planetId: '7', full_name: 'Saturn', name: 'Sa', nakshatra: 'Jyeshtha', nakshatra_no: 18, nakshatra_pada: 2, retro: false }], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 23.888 },
   { house: '2', rasi_no: 11, zodiac: 'Aquarius', aspected_by_planet: ['Moon', 'Rahu'], aspected_by_planet_index: [2, 8], planets: [], cusp_sub_lord: 'Rahu', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 24.682 },
@@ -517,10 +532,18 @@ async function svgToBase64WithBackgroundCached(
   });
 }
 
+
 async function addAllDivisionalChartsFromJSON(
   doc: jsPDF,
   divisionalChartsData: Array<string | number | boolean | null | object>,
 ) {
+  interface DivisionalChart {
+    chart_name?: string;
+    svg?: string;
+    chart_svg?: string;
+    [key: string]: unknown;
+  }
+
   const chartsPerPage = 2;
   const imgWidth = 340;
   const imgHeight = 300;
@@ -530,12 +553,11 @@ async function addAllDivisionalChartsFromJSON(
   const pageHeight = doc.internal.pageSize.getHeight();
   const textColor = "#a16a21";
 
-  // ✅ Fetch and convert your Google Drive SVG once
   const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
   const backgroundImage = await loadSVGAsImage(backgroundSvgUrl);
 
   for (let i = 0; i < divisionalChartsData.length; i++) {
-    const chartData = divisionalChartsData[i];
+    const chartData = divisionalChartsData[i] as DivisionalChart;
 
     if (i % chartsPerPage === 0) {
       if (i > 0) doc.addPage();
@@ -543,7 +565,7 @@ async function addAllDivisionalChartsFromJSON(
       doc.setLineWidth(1.5);
       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
-      doc.setFont("NatoSans", "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#a16a21");
       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
@@ -552,44 +574,33 @@ async function addAllDivisionalChartsFromJSON(
     const positionInPage = i % chartsPerPage;
     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
 
-    doc.setFont("NatoSans", "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(16);
     doc.setTextColor(textColor);
-    doc.text(
-      chartData && typeof chartData === "object" && "chart_name" in chartData && chartData.chart_name
-        ? String((chartData as any).chart_name).toUpperCase()
-        : "Divisional Chart",
-      pageWidth / 2,
-      currentY - 10,
-      { align: "center" }
-    );
+
+    const chartName = chartData?.chart_name?.toUpperCase() ?? "Divisional Chart";
+    doc.text(chartName, pageWidth / 2, currentY - 10, { align: "center" });
 
     try {
-      // Use cached SVG background
-      const overlaySvgText = chartData && typeof chartData === "object"
-        ? (("svg" in chartData && (chartData as any).svg) || ("chart_svg" in chartData && (chartData as any).chart_svg) || "")
-        : "";
+      const overlaySvgText = chartData?.svg ?? chartData?.chart_svg ?? "";
       const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
       const xPos = (pageWidth - imgWidth) / 2;
       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
     } catch (err) {
-      const chartName = (chartData && typeof chartData === "object" && "chart_name" in chartData)
-        ? (chartData as any).chart_name
-        : "Unknown Chart";
       console.error(`Error rendering chart ${chartName}`, err);
-      doc.setFont("NatoSans", "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(14);
       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
     }
   }
 
-  // Add headers/footers
   const totalPages = doc.getNumberOfPages();
   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
     doc.setPage(pageNum);
     addHeaderFooter(doc, pageNum);
   }
 }
+
 
 // // Helper: Convert Blob → Base64
 // async function blobToBase64(blob: Blob): Promise<string> {
@@ -758,16 +769,16 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
 const lineHeight = 26; // slightly increased spacing for bigger text
-const userObj = (userData ? Object.fromEntries(userData) : {}) as Record<string, any>;
-    // --- COVER PAGE SECTION ---
-    const coverImageMale = "/assets/cover_male.jpg";
-    const coverImageFemale = "/assets/cover_female.jpg";
+// Convert userData to an object safely
+const userObj: Record<string, unknown> = userData ? Object.fromEntries(userData) : {};
 
-    // Determine which image to use based on gender
-    let selectedCoverImage = coverImageMale;
-    if (userObj?.sex?.toLowerCase() === "female") {
-      selectedCoverImage = coverImageFemale;
-    }
+// Ensure sex is a string before calling toLowerCase
+const userSex = typeof userObj.sex === "string" ? userObj.sex.toLowerCase() : "male";
+
+// Select cover image based on gender
+const coverImageMale = "/assets/cover_male.jpg";
+const coverImageFemale = "/assets/cover_female.jpg";
+const selectedCoverImage = userSex === "female" ? coverImageFemale : coverImageMale;
 
     // Try loading the image
     try {
@@ -790,10 +801,13 @@ const userObj = (userData ? Object.fromEntries(userData) : {}) as Record<string,
     const marginRight = 50;
     const marginBottom = 80;
 
-    const reportDate = new Date().toLocaleDateString(userObj.language || "en-US", {
-      year: "numeric",
-      month: "long"
-    });
+    const language = typeof userObj.language === "string" ? userObj.language : "en";
+
+const reportDate = new Date().toLocaleDateString(language, {
+  year: "numeric",
+  month: "long"
+});
+
 
     // --- Translation map ---
     const translations = {
@@ -805,12 +819,31 @@ const userObj = (userData ? Object.fromEntries(userData) : {}) as Record<string,
       ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }
     };
 
-    
-  const language = (userObj.language as string) || "en";
-    // Pick language or fallback
     const lang = (userObj.language as string) || "en";
     const t = translations[lang as keyof typeof translations] || translations.en;
+// Helper function to fetch font as base64
+async function loadFont(url: string): Promise<string> {
+  const response = await fetch(url);
+  const buffer = await response.arrayBuffer();
+  // Convert ArrayBuffer to base64
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
+const notoSans = await loadFont("/fonts/NotoSans-VariableFont_wdth,wght.ttf");
+const notoDevanagari = await loadFont("/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf");
+
+// Add fonts to jsPDF
+doc.addFileToVFS("NotoSans.ttf", notoSans);
+doc.addFont("NotoSans.ttf", "NotoSans", "normal");
+
+doc.addFileToVFS("NotoSansDevanagari.ttf", notoDevanagari);
+doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     // Choose font based on language family
     let selectedFont = "NotoSans"; // default Latin font
     if (["hi", "ka", "ml"].includes(lang)) {
@@ -3720,6 +3753,7 @@ const userObj = (userData ? Object.fromEntries(userData) : {}) as Record<string,
           "rasi_no": 4,
           "zodiac": "Cancer",
           "house": 4,
+          "speed_radians_per_day": 0, // Added property
           "retro": true,
           "nakshatra": "Ashlesha",
           "nakshatra_lord": "Mercury",
@@ -3740,6 +3774,7 @@ const userObj = (userData ? Object.fromEntries(userData) : {}) as Record<string,
           "rasi_no": 10,
           "zodiac": "Capricorn",
           "house": 10,
+          "speed_radians_per_day": 0, // Added property
           "retro": true,
           "nakshatra": "Sravana",
           "nakshatra_lord": "Moon",
@@ -3896,10 +3931,12 @@ const userObj = (userData ? Object.fromEntries(userData) : {}) as Record<string,
         }
       }
     };
+    const planetsRaw: Record<string, Omit<Planet, "planetId">> = planetData.planets;
+
     // Ensure each planet object includes required 'planetId' field expected by generatePlanetReportsWithImages
-    const planetsWithId = Object.fromEntries(
-      Object.entries(planetData.planets).map(([id, p]) => [id, { planetId: id, ...(p as any) }])
-    ) as Record<string, Planet>;
+    const planetsWithId: Record<string, Planet> = Object.fromEntries(
+  Object.entries(planetsRaw).map(([id, p]) => [id, { planetId: id, ...p }])
+);
 
     await generatePlanetReportsWithImages(doc, planetsWithId, userData);
     // Add initial "Love and Marriage" page
@@ -3954,7 +3991,7 @@ const userObj = (userData ? Object.fromEntries(userData) : {}) as Record<string,
         You are a highly experienced Vedic astrologer specializing in Love & Marriage astrology.
         Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
         ${sectionPrompt}
-        language: ${userData.language}
+        language: ${userObj.language}
         JSON: {
         "0": {
             "name": "As",
