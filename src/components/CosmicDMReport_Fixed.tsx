@@ -5,6 +5,20 @@ import Default from "../app/data/Default.json";
 import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js"
 import "../../public/fonts/NotoSansDevanagari-VariableFont_wdth,wght-normal.js"
 
+const FONT_MAP: Record<string, { file: string; name: string }> = {
+  en: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' },
+  hi: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
+  mr: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
+  ne: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
+  ka: { file: '/fonts/NotoSansKannada-VariableFont_wdth,wght.ttf', name: 'NotoSansKannada' },
+  ml: { file: '/fonts/NotoSansMalayalam-VariableFont_wdth,wght.ttf', name: 'NotoSansMalayalam' },
+  ta: { file: '/fonts/NotoSansTamil-VariableFont_wdth,wght.ttf', name: 'NotoSansTamil' },
+  te: { file: '/fonts/NotoSansTelugu-VariableFont_wdth,wght.ttf', name: 'NotoSansTelugu' },
+  gu: { file: '/fonts/NotoSansGujarati-VariableFont_wdth,wght.ttf', name: 'NotoSansGujarati' },
+  be: { file: '/fonts/NotoSansBengali-VariableFont_wdth,wght.ttf', name: 'NotoSansBengali' },
+  fr: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' }, // Latin fallback
+};
+
 interface Planet {
   planetId: string;
   full_name: string;
@@ -91,7 +105,7 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
   });
 }
 
-const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>, fontInfo.name: string) => {
+const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>, fontInfo: { file: string; name: string }) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -630,7 +644,7 @@ async function addAllDivisionalChartsFromJSON(
 //   });
 // }
 
-const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>, fontInfo.name: string) => {
+const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>, fontInfo: { file: string; name: string }) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -835,25 +849,10 @@ async function loadFont(url: string): Promise<string> {
 }
 
 // Map each language code to its font file and name
-const FONT_MAP: Record<string, { file: string; name: string }> = {
-  en: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' },
-  hi: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
-  mr: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
-  ne: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
-  ka: { file: '/fonts/NotoSansKannada-VariableFont_wdth,wght.ttf', name: 'NotoSansKannada' },
-  ml: { file: '/fonts/NotoSansMalayalam-VariableFont_wdth,wght.ttf', name: 'NotoSansMalayalam' },
-  ta: { file: '/fonts/NotoSansTamil-VariableFont_wdth,wght.ttf', name: 'NotoSansTamil' },
-  te: { file: '/fonts/NotoSansTelugu-VariableFont_wdth,wght.ttf', name: 'NotoSansTelugu' },
-  gu: { file: '/fonts/NotoSansGujarati-VariableFont_wdth,wght.ttf', name: 'NotoSansGujarati' },
-  be: { file: '/fonts/NotoSansBengali-VariableFont_wdth,wght.ttf', name: 'NotoSansBengali' },
-  fr: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' }, // Latin fallback
-};
+
 const translations: Record<string, { dob: string; location: string }> = { en: { dob: "DOB", location: "Location not available" }, hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" }, fr: { dob: "Date de naissance", location: "Lieu non disponible" }, be: { dob: "Нарадзіўся", location: "Месца недаступна" }, ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" }, ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }, };
 // Determine user language
- let fontInfo.name = "NotoSans"; // default Latin font
-    if (["hi", "ka", "ml"].includes(lang)) {
-      fontInfo.name = "NotoSansDevanagari";
-    }
+ 
  const lang = (userObj.language as string) || "en";
   const t = translations[lang] || translations.en;
 
@@ -3697,7 +3696,7 @@ tocText = finalToc;
     ]);
 
     doc.addPage();
-    await generateHouseReports(doc, houses, userData, fontInfo.name);
+    await generateHouseReports(doc, houses, userData, fontInfo);
 
     const planetData = {
       "planets": {
@@ -4041,7 +4040,7 @@ tocText = finalToc;
       Object.entries(planetsRaw).map(([id, p]) => [id, { planetId: id, ...p }])
     );
 
-    await generatePlanetReportsWithImages(doc, planetsWithId, userData, fontInfo.name);
+    await generatePlanetReportsWithImages(doc, planetsWithId, userData, fontInfo);
     // Add initial "Love and Marriage" page
     doc.addPage();
     const margin = 25;
