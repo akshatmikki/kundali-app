@@ -76,7 +76,7 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
   });
 }
 
-const generatePlanetReportsWithImages = async (doc: any, planets: Record<string, any>, userData: any) => {
+const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, unknown>, userData: Array<[string, unknown]>) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -195,7 +195,7 @@ language: ${userData.language || "English"}.
 //   }
 // };
 
-function addParagraphs(doc: any, text: string, x: number, y: number, maxWidth: number) {
+function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth: number) {
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 40;
   const bottomLimit = pageHeight - margin; // space to stop before bottom
@@ -518,8 +518,8 @@ async function svgToBase64WithBackgroundCached(
 }
 
 async function addAllDivisionalChartsFromJSON(
-  doc: any,
-  divisionalChartsData: any[]
+  doc: jsPDF,
+  divisionalChartsData: Array<string | number | boolean | null | object>,
 ) {
   const chartsPerPage = 2;
   const imgWidth = 340;
@@ -589,7 +589,7 @@ async function addAllDivisionalChartsFromJSON(
 //   });
 // }
 
-const generateHouseReports = async (doc: any, houses: House[],userData:any) => {
+const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -694,7 +694,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
   place: string,
   lat: number,
   lon: number,
-  userData: any = {}
+  userData: Array<[string, unknown]> = []
 ) {
   try {
 
@@ -777,9 +777,13 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     // --- TEXT ON RIGHT SIDE ---
     const marginRight = 50;
     const marginBottom = 80;
-    const reportDate = new Date().toLocaleDateString(userData.language || "en-US", { year: "numeric", month: "long" });
 
-    // Translation map for static text (you can expand for more languages)
+    const reportDate = new Date().toLocaleDateString(userData.language || "en-US", {
+      year: "numeric",
+      month: "long"
+    });
+
+    // --- Translation map ---
     const translations = {
       en: { dob: "DOB", location: "Location not available" },
       hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" },
@@ -789,32 +793,41 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }
     };
 
-    // Pick language or fallback to English
-    const lang = userData.language || "en";
-    const t = translations[lang] || translations.en;
+    const userObj = userData ? Object.fromEntries(userData) : {};
+  const language = (userObj.language as string) || "en";
+    // Pick language or fallback
+    const lang = (userObj.language as string) || "en";
+    const t = translations[lang as keyof typeof translations] || translations.en;
 
-    // Define text lines in user’s language
+    // Choose font based on language family
+    let selectedFont = "NotoSans"; // default Latin font
+    if (["hi", "ka", "ml"].includes(lang)) {
+      selectedFont = "NotoSansDevanagari";
+    }
+
+    // Register fonts
+    // doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
+    // doc.addFont("NotoSansDevanagari-VariableFont_wdth,wght.ttf", "NotoSansDevanagari", "normal");
+
+    // Text lines
     const textLines = [
-      `${userData?.name || "Unknown"}`,
-      `${userData?.dob ? t.dob + ": " + userData.dob : "N/A"} ${userData?.time || ""}`,
-      `${userData?.place || t.location}`,
+      `${userObj?.name || "Unknown"}`,
+      `${userObj?.dob ? t.dob + ": " + userObj.dob : "N/A"} ${userObj?.time || ""}`,
+      `${userObj?.place || t.location}`,
       `${reportDate}`
     ];
 
-    doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
     doc.setTextColor(255, 255, 255);
 
     let yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
     textLines.forEach((line, i) => {
+      doc.setFont(selectedFont, "normal");
       if (i === 0) {
-        doc.setFont("NotoSans", "bold");
         doc.setFontSize(32);
       } else if (i === textLines.length - 1) {
-        doc.setFont("NotoSans", "italic");
         doc.setFontSize(18);
       } else {
-        doc.setFont("NotoSans", "normal");
         doc.setFontSize(22);
       }
 
@@ -834,7 +847,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       "6. Include appropriate legal disclaimers about liability. " +
       "7. End with an encouraging, cosmic perspective message. " +
       "Write in a warm, professional tone that maintains the mystical nature of astrology while being legally sound. Keep it comprehensive but readable, around 300–400 words. " +
-      "Language: " + (userData.language || "English") + ".";
+      "Language: " + (userObj.language || "English") + ".";
 
     const disclaimerResponse = await fetch("/api/gemini", {
       method: "POST",
@@ -852,12 +865,12 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("NotoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("DISCLAIMER", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont("NotoSans", "normal");
+    doc.setFont(selectedFont, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     const leftMargin = 50;
@@ -871,7 +884,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     // --- Generate Author Message using AI ---
     const authorPrompt =
       "You are a professional Vedic astrologer writing a personal message to introduce a comprehensive astrology report. " +
-      "Write a warm, personal message from the author in " + (userData.language || "English") + " language for a Vedic astrology report. The message should: " +
+      "Write a warm, personal message from the author in " + (userObj.language || "English") + " language for a Vedic astrology report. The message should: " +
       "1. Welcome the reader to their personalized cosmic report. " +
       "2. Share the author's experience and passion for astrology. " +
       "3. Explain how the report blends ancient wisdom with practical insights. " +
@@ -880,7 +893,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       "6. Focus on self-awareness and personal growth. " +
       "7. End with warm wishes and professional signature. " +
       "Write in a personal, warm tone that feels like a letter from a trusted astrologer. Keep it around 250–300 words. " +
-      "Language: " + (userData.language || "English") + ".";
+      "Language: " + (userObj.language || "English") + ".";
 
     const authorResponse = await fetch("/api/gemini", {
       method: "POST",
@@ -898,12 +911,12 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("MESSAGE FROM THE AUTHOR", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont("NatoSans", "normal");
+    doc.setFont(selectedFont, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
@@ -912,8 +925,8 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     // --- Generate Study Guide using AI ---
     const studyPrompt =
       "You are an expert Vedic astrologer writing a study guide for a comprehensive astrology report. " +
-      "Write a helpful study guide in " + (userData.language || "English") + " language that explains how to best read and use a Vedic astrology report. The guide should: " +
-      "1. Explain the importance of reading the report multiple NatoSans. " +
+      "Write a helpful study guide in " + (userObj.language || "English") + " language that explains how to best read and use a Vedic astrology report. The guide should: " +
+      "1. Explain the importance of reading the report multiple times. " +
       "2. Emphasize the layered nature of cosmic insights. " +
       "3. Suggest creating a calm, focused mindset before reading. " +
       "4. Recommend taking notes and reflecting on insights. " +
@@ -921,7 +934,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       "6. Encourage revisiting the report over time. " +
       "7. Emphasize personal empowerment and decision-making. " +
       "Write in an encouraging, educational tone that helps readers maximize the value of their astrology report. Keep it around 250–300 words. " +
-      "Language: " + (userData.language || "English") + ".";
+      "Language: " + (userObj.language || "English") + ".";
 
     const studyResponse = await fetch("/api/gemini", {
       method: "POST",
@@ -939,12 +952,12 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("BEST WAY TO STUDY THE REPORT", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont("NatoSans", "normal");
+    doc.setFont(selectedFont, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     addParagraphs(doc, studyText, 50, 100, pageWidth - 50 - 50);
@@ -1019,7 +1032,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
    - Frequently Asked Questions
    - Next Steps: Using Insights & Remedies for Personal Growth
 `
-"Language: " + (userData.language || "English") + ".";
+    "Language: " + (userObj.language || "English") + ".";
 
     tocText = removeMarkdown(tocText);
 
@@ -1063,12 +1076,12 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
 
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont("NatoSans", "normal");
+    doc.setFont(selectedFont, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     addParagraphs(doc, tocText, 50, 100, pageWidth - 50 - 50);
@@ -3536,7 +3549,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     ]);
 
     doc.addPage();
-    await generateHouseReports(doc, houses,userData);
+    await generateHouseReports(doc, houses, userData);
 
     const planetData = {
       "planets": {
@@ -3871,7 +3884,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         }
       }
     };
-    await generatePlanetReportsWithImages(doc, planetData.planets,userData);
+    await generatePlanetReportsWithImages(doc, planetData.planets, userData);
     // Add initial "Love and Marriage" page
     doc.addPage();
     const margin = 25;
@@ -5015,7 +5028,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         You are a highly experienced Vedic astrologer specializing in Career & Profession astrology.
         Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
         ${sectionPrompt}
-        language:${userData.language}
+        language:${userObj.language}
         JSON: {
     "0": {
       "name": "As",
@@ -5865,7 +5878,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         You are an expert Vedic astrologer specializing in health and wellbeing.
         Using the provided JSON input, generate a professional, detailed report for this section:
         ${sectionPrompt}
-        language:${userData.language}
+        language:${userObj.language}
         JSON: {
           "manglik_by_mars": true,
           "bot_response": "You are 6% manglik. ",
@@ -6568,7 +6581,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     You are an expert Vedic astrologer specializing in karmic insights and life purpose.
     Using the provided JSON input, generate a professional, detailed report for this section:
     ${sectionPrompt}
-    language: ${userData.language}
+    language: ${userObj.language}
     JSON: "response": { Sun:{
         "bot_response": "The Sun and Moon are always direct ",
         "status": true},
@@ -8311,7 +8324,7 @@ Rahu:{
     You are an expert, narrative-focused Vedic astrologer. 
     Generate a lavishly detailed, highly personalized astrology report section titled:
     "${sectionPrompt}"
-    language: ${userData.language}
+    language: ${userObj.language}
     based on the given JSON birth data.
 JSON: {
     "mahadasha": [
@@ -9169,112 +9182,113 @@ JSON: {
     }
 
     // --- Helper: addPaginatedTable ---
-    function addPaginatedTable(
-      doc: any,
-      headers: string[],
-      data: any[],
-      startY: number,
-      pageHeight: number
-    ): number {
-      const tableWidth = 400;
-      const colWidth = tableWidth / headers.length;
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageNumber = () => doc.internal.getCurrentPageInfo().pageNumber;
-      const startX = (pageWidth - tableWidth) / 2;
 
-      const LINE_HEIGHT = 22;
-      const PAGE_MARGIN = 50;
-      const textPaddingY = 6;
+type TableRow = (string | number)[]; // each row = array of cell values
 
-      // --- DRAW BORDER AROUND PAGE ---
-      const drawPageBorder = () => {
-        doc.setDrawColor("#a16a21");
-        doc.setLineWidth(1.5);
-        doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
-      };
+ function addPaginatedTable(
+  doc: jsPDF,
+  headers: string[],
+  data: TableRow[],
+  startY: number,
+  pageHeight: number
+): number {
+  const tableWidth = 400;
+  const colWidth = tableWidth / headers.length;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageNumber = () => doc.getNumberOfPages();
+  const startX = (pageWidth - tableWidth) / 2;
 
-      // --- DRAW FOOTER WITH PAGE NUMBER ---
-      const drawFooter = () => {
-        const footerY = pageHeight - 20;
-        doc.setFont("NatoSans", "italic");
-        doc.setFontSize(10);
-        doc.setTextColor("#999");
-        doc.text(
-          `Page ${pageNumber()}`,
-          pageWidth / 2,
-          footerY,
-          { align: "center" }
-        );
-      };
+  const LINE_HEIGHT = 22;
+  const PAGE_MARGIN = 50;
+  const textPaddingY = 6;
 
-      // --- DRAW HEADER ROW ---
-      const drawHeader = (yPos: number) => {
-        doc.setFont("NatoSans", "bold");
-        doc.setFontSize(13);
-        doc.setFillColor(161, 106, 33);
-        doc.setTextColor(255, 255, 255);
-        doc.rect(startX, yPos - 7, tableWidth, LINE_HEIGHT, "F");
+  // --- DRAW BORDER AROUND PAGE ---
+  const drawPageBorder = (): void => {
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+  };
 
-        headers.forEach((header, i) => {
-          doc.text(header, startX + i * colWidth + 10, yPos, {
-            align: "left",
-            baseline: "middle",
-          });
-        });
+  // --- DRAW FOOTER WITH PAGE NUMBER ---
+  const drawFooter = (): void => {
+    const footerY = pageHeight - 20;
+    doc.setFont("NotoSans", "italic");
+    doc.setFontSize(10);
+    doc.setTextColor("#999");
+    doc.text(`Page ${pageNumber()}`, pageWidth / 2, footerY, {
+      align: "center",
+    });
+  };
 
-        return yPos + LINE_HEIGHT;
-      };
+  // --- DRAW HEADER ROW ---
+  const drawHeader = (yPos: number): number => {
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(13);
+    doc.setFillColor(161, 106, 33);
+    doc.setTextColor(255, 255, 255);
+    doc.rect(startX, yPos - 7, tableWidth, LINE_HEIGHT, "F");
 
-      // --- INITIALIZE PAGE ---
+    headers.forEach((header, i) => {
+      doc.text(header, startX + i * colWidth + 10, yPos, {
+        align: "left",
+        baseline: "middle",
+      });
+    });
+
+    return yPos + LINE_HEIGHT;
+  };
+
+  // --- INITIALIZE PAGE ---
+  drawPageBorder();
+  let y = drawHeader(startY);
+
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(12);
+  doc.setTextColor(0);
+
+  // --- DRAW TABLE ROWS ---
+  for (let i = 0; i < data.length; i++) {
+    // Check if next row fits; if not, add new page
+    if (y + LINE_HEIGHT + PAGE_MARGIN > pageHeight) {
+      drawFooter();
+      doc.addPage();
       drawPageBorder();
-      let y = drawHeader(startY);
-
-      doc.setFont("NatoSans", "normal");
+      y = PAGE_MARGIN;
+      y = drawHeader(y);
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(12);
       doc.setTextColor(0);
-
-      // --- DRAW TABLE ROWS ---
-      for (let i = 0; i < data.length; i++) {
-        // Check if next row fits; if not, add new page
-        if (y + LINE_HEIGHT + PAGE_MARGIN > pageHeight) {
-          drawFooter();
-          doc.addPage();
-          drawPageBorder();
-          y = PAGE_MARGIN;
-          y = drawHeader(y);
-          doc.setFont("NatoSans", "normal");
-          doc.setFontSize(12);
-          doc.setTextColor(0);
-        }
-
-        // Alternate background
-        if (i % 2 === 0) {
-          doc.setFillColor(245, 232, 215);
-          doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT, "F");
-        }
-
-        // Row border
-        doc.setDrawColor(200);
-        doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT);
-
-        // Text cells
-        data[i].forEach((cell: string, j: number) => {
-          const align = j === 1 ? "right" : "left";
-          doc.text(cell, startX + j * colWidth + 10, y + textPaddingY, {
-            align,
-            baseline: "middle",
-          });
-        });
-
-        y += LINE_HEIGHT;
-      }
-
-      // --- Final footer and border ---
-      drawFooter();
-      drawPageBorder();
-
-      return y;
     }
+
+    // Alternate background
+    if (i % 2 === 0) {
+      doc.setFillColor(245, 232, 215);
+      doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT, "F");
+    }
+
+    // Row border
+    doc.setDrawColor(200);
+    doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT);
+
+    // Text cells
+    data[i].forEach((cell, j) => {
+      const align = j === 1 ? "right" : "left";
+      doc.text(String(cell), startX + j * colWidth + 10, y + textPaddingY, {
+        align,
+        baseline: "middle",
+      });
+    });
+
+    y += LINE_HEIGHT;
+  }
+
+  // --- Final footer and border ---
+  drawFooter();
+  drawPageBorder();
+
+  return y;
+}
+
     doc.addPage();
 
     // Draw border
@@ -9318,7 +9332,7 @@ JSON: {
     You are an expert, narrative-focused Vedic astrologer.
     Generate a lavishly detailed, highly personalized astrology remedies section titled:
     "${sectionPrompt}"
-    language:${userData.language}
+    language:${userObj.language}
     based on the given JSON birth data.
 
     Include practical remedies such as mantras, gemstones, rituals, donations, yantras, and lifestyle adjustments.
@@ -10539,7 +10553,7 @@ Rahu:{
 You are an expert, narrative-focused Vedic astrologer.
 Generate a lavishly detailed, highly personalized astrology section titled:
 "${section.title}"
-language:${userData.language}
+language:${userObj.language}
 based on the given JSON birth data.
 
 Include precise calculations, interpretations, and insights from planetary positions, houses, yogas, dashas, transits, and doshas.
@@ -11778,12 +11792,12 @@ JSON: {
     const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
     // --- Generate 12–15 Personalized Questions (Categorized) ---
-    async function generateQuestions(fullData: Record<string, any>) {
+    async function generateQuestions(fullData: Record<string,unknown>) {
       const questionPrompt = `
 You are an expert Vedic astrologer and holistic consultant.
 Analyze the following *complete client data* — including multi-chart birth data (D1, D9, D10, D60, D2, D3, D4),
 plus any personal or contextual data provided (location, date/time, gender).
-language:${userData.language}
+language:${userObj.language}
 Generate 12–15 *personalized, specific* client questions organized in categories:
 
 CAREER:
@@ -11830,7 +11844,7 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
       // Split by category headings
       const sections: Record<string, string[]> = {};
       let currentSection = "";
-      text.split(/\n+/).forEach((line: any) => {
+      text.split(/\n+/).forEach((line: string) => {
         line = line.trim();
         if (!line) return;
 
@@ -11852,12 +11866,12 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
     }
 
     // --- Generate Detailed Answers per Question ---
-    async function generateAnswer(question: string, fullData: Record<string, any>, retryCount = 0): Promise<string> {
+    async function generateAnswer(question: string, fullData: Record<string, unknown>, retryCount = 0): Promise<string> {
       const prompt = `
 You are an empathetic and wise Vedic astrologer. Based on this client's complete data
 (including all divisional charts: D1, D9, D10, D60, D2, D3, D4, plus personal metadata),
 write a detailed, client-friendly answer to the question below.
-language:${userData.language}
+language:${userObj.language}
 Include:
 - Relevant planetary influences (mention houses and planets)
 - Yogas and Dashas affecting this area
@@ -11912,7 +11926,7 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
     // }
 
     // --- Main Function to Generate Q&A PDF ---
-    async function generateQAPDF(doc: any, fullData: Record<string, any>) {
+    async function generateQAPDF(doc: jsPDF, fullData: Record<string, unknown>) {
       const pageWidth = doc.internal.pageSize.getWidth();
 
       // Step 1: Generate Questions by Category
@@ -11952,7 +11966,7 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       addParagraphs(doc, fullQA, 50, 100, pageWidth - 50 - 50);
 
       // Step 5: Footer
-      const pageCount = doc.internal.getNumberOfPages();
+      const pageCount = doc.internal.pages.length - 1;
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(10);
@@ -12004,7 +12018,7 @@ export const generateTableContentForReport = async ({
   place,
   lat,
   lon,
-  userData = {}
+  userData = []
 }: {
   name: string;
   dob: string;
@@ -12012,7 +12026,7 @@ export const generateTableContentForReport = async ({
   place: string;
   lat: number;
   lon: number;
-  userData?: any;
+  userData?: Array<[string, unknown]>;
 }) => {
   try {
     console.log("Fetching real API data for table content prompt...");

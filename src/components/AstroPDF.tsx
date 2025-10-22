@@ -1,18 +1,18 @@
 import { useState, useEffect } from "react";
-import { 
-  Container, 
-  Paper, 
-  Typography, 
-  TextField, 
-  Button, 
-  Box, 
-  FormControl, 
-  InputLabel, 
-  Select, 
-  MenuItem, 
-  Alert 
+import {
+  Container,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  Box,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Alert
 } from "@mui/material";
-import { generateAndDownloadFullCosmicReportWithTable } from "./CosmicDMReport_Fixed"; 
+import { generateAndDownloadFullCosmicReportWithTable } from "./CosmicDMReport_Fixed";
 
 const LANGUAGE_OPTIONS = [
   { code: 'en', name: 'English' }, // Added English as a common default
@@ -43,7 +43,7 @@ export default function AstroPDF() {
   const [dob, setDob] = useState("");
   const [time, setTime] = useState("");
   // Lat/Lon are only set via the useEffect hook based on location input
-  const [lat, setLat] = useState(""); 
+  const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
   const [name, setName] = useState("");
   const [sex, setSex] = useState("");
@@ -51,14 +51,14 @@ export default function AstroPDF() {
   const [state, setState] = useState("");
   const [country, setCountry] = useState("");
   // Initializing language state with the default code 'en'
-  const [language, setLanguage] = useState('en'); 
+  const [language, setLanguage] = useState('en');
   const [loading, setLoading] = useState(false);
   const [fetchingCoords, setFetchingCoords] = useState(false);
   const [error, setError] = useState<string | null>(null); // State for error message
 
   // We are using a variable to hold the debounce timer ID globally 
   // for the component instance, managed by useEffect cleanup.
-  let debounceTimer: ReturnType<typeof setTimeout>; 
+  let debounceTimer: ReturnType<typeof setTimeout>;
 
   // Fetch lat/lon automatically when place/state/country changes
   useEffect(() => {
@@ -81,9 +81,17 @@ export default function AstroPDF() {
         const response = await fetch(url, { headers: { "User-Agent": "trustastrology-app" } });
         const data = await response.json();
 
-        let result = data.find((item: any) => item.addresstype === "city");
-        if (!result) result = data.find((item: any) => item.addresstype === "administrative");
-        if (!result) result = data[0]; // Fallback to the first result
+        interface LocationItem {
+          addresstype: string;
+          lat: string;
+          lon: string;
+          // add more fields if your API includes them
+        }
+
+        const result =
+          data.find((item: LocationItem) => item.addresstype === "city") ??
+          data.find((item: LocationItem) => item.addresstype === "administrative") ??
+          data[0];
 
         if (result) {
           setLat(result.lat);
@@ -91,7 +99,9 @@ export default function AstroPDF() {
         } else {
           setLat("");
           setLon("");
-          setError("Location not found. Please try a different spelling or input coordinates manually (not implemented here).");
+          setError(
+            "Location not found. Please try a different spelling or input coordinates manually (not implemented here)."
+          );
         }
       } catch (error) {
         console.error("Geocoding failed:", error);
@@ -105,7 +115,7 @@ export default function AstroPDF() {
 
     // Cleanup function: clears the timer when the component unmounts or dependencies change
     return () => clearTimeout(debounceTimer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [place, state, country]); // Dependencies for useEffect
 
 
@@ -121,17 +131,17 @@ export default function AstroPDF() {
     setLoading(true);
     try {
       // Prepare user data with all form inputs
-      const userData = { 
-        name, 
-        sex, 
-        dob, 
-        time, 
-        place, 
-        state, 
-        country, 
-        latitude: Number(lat), 
-        longitude: Number(lon), 
-        language 
+      const userData = {
+        name,
+        sex,
+        dob,
+        time,
+        place,
+        state,
+        country,
+        latitude: Number(lat),
+        longitude: Number(lon),
+        language
       };
 
       // Call the enhanced function with table content integration
@@ -144,7 +154,7 @@ export default function AstroPDF() {
         Number(lon),
         userData
       );
-      
+
       setError("Report generated successfully with Avakahada Chakra table! Check your downloads.");
     } catch (err) {
       console.error("Report generation failed:", err);
@@ -156,16 +166,16 @@ export default function AstroPDF() {
 
 
   return (
-    <Container 
-      maxWidth="sm" 
-      sx={{ 
-        minHeight: "100vh", 
-        display: "flex", 
-        alignItems: "center", 
-        justifyContent: "center", 
+    <Container
+      maxWidth="sm"
+      sx={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
         // Custom vibrant gradient background
-        background: "linear-gradient(to bottom right, #4c1d95, #9333ea, #ec4899)", 
-        py: 4 
+        background: "linear-gradient(to bottom right, #4c1d95, #9333ea, #ec4899)",
+        py: 4
       }}
     >
       <Paper elevation={8} sx={{ p: 4, borderRadius: 3, width: "100%", maxWidth: '450px' }}>
@@ -175,7 +185,7 @@ export default function AstroPDF() {
           <Typography variant="h5" fontWeight="bold" color="primary">TrustAstrology</Typography>
           <Typography variant="body2" color="text.secondary">Generate Your Cosmic Report</Typography>
         </Box>
-        
+
         {/* Error Message Display */}
         {error && (
           <Alert severity={error.includes("successfully") ? "success" : "error"} sx={{ mb: 2 }}>
@@ -186,48 +196,48 @@ export default function AstroPDF() {
         {/* Personal Details */}
         <Box mb={3}>
           <Typography variant="subtitle1" fontWeight="bold" color="primary" mb={1}>Personal Details</Typography>
-          <TextField 
-            fullWidth 
-            label="Full Name" 
-            value={name} 
-            onChange={(e) => setName(e.target.value)} 
-            margin="dense" 
+          <TextField
+            fullWidth
+            label="Full Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            margin="dense"
             size="small"
           />
-          <TextField 
-            fullWidth 
-            label="Sex (e.g., Male/Female)" 
-            value={sex} 
-            onChange={(e) => setSex(e.target.value)} 
-            margin="dense" 
+          <TextField
+            fullWidth
+            label="Sex (e.g., Male/Female)"
+            value={sex}
+            onChange={(e) => setSex(e.target.value)}
+            margin="dense"
             size="small"
           />
-          <TextField 
-            fullWidth 
-            label="Place (City)" 
-            value={place} 
-            onChange={(e) => setPlace(e.target.value)} 
-            margin="dense" 
+          <TextField
+            fullWidth
+            label="Place (City)"
+            value={place}
+            onChange={(e) => setPlace(e.target.value)}
+            margin="dense"
             size="small"
           />
-          <TextField 
-            fullWidth 
-            label="State/Region (Optional)" 
-            value={state} 
-            onChange={(e) => setState(e.target.value)} 
-            margin="dense" 
+          <TextField
+            fullWidth
+            label="State/Region (Optional)"
+            value={state}
+            onChange={(e) => setState(e.target.value)}
+            margin="dense"
             size="small"
           />
-          <TextField 
-            fullWidth 
-            label="Country" 
-            value={country} 
-            onChange={(e) => setCountry(e.target.value)} 
-            margin="dense" 
+          <TextField
+            fullWidth
+            label="Country"
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            margin="dense"
             size="small"
             helperText={
-              fetchingCoords ? "Fetching coordinates..." : 
-              (lat && lon ? `Coordinates fetched: Lat ${parseFloat(lat).toFixed(4)}, Lon ${parseFloat(lon).toFixed(4)}` : "Enter location to fetch coordinates")
+              fetchingCoords ? "Fetching coordinates..." :
+                (lat && lon ? `Coordinates fetched: Lat ${parseFloat(lat).toFixed(4)}, Lon ${parseFloat(lon).toFixed(4)}` : "Enter location to fetch coordinates")
             }
           />
         </Box>
@@ -235,28 +245,28 @@ export default function AstroPDF() {
         {/* Birth Details */}
         <Box mb={3}>
           <Typography variant="subtitle1" fontWeight="bold" color="primary" mb={1}>Birth Details</Typography>
-          <TextField 
-            fullWidth 
-            type="date" 
+          <TextField
+            fullWidth
+            type="date"
             label="Date of Birth"
-            value={dob} 
-            onChange={(e) => setDob(e.target.value)} 
-            margin="dense" 
+            value={dob}
+            onChange={(e) => setDob(e.target.value)}
+            margin="dense"
             size="small"
-            InputLabelProps={{ shrink: true }} 
+            InputLabelProps={{ shrink: true }}
           />
-          <TextField 
-            fullWidth 
-            type="time" 
+          <TextField
+            fullWidth
+            type="time"
             label="Time of Birth"
-            value={time} 
-            onChange={(e) => setTime(e.target.value)} 
-            margin="dense" 
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            margin="dense"
             size="small"
-            InputLabelProps={{ shrink: true }} 
+            InputLabelProps={{ shrink: true }}
           />
         </Box>
-        
+
         {/* Language Dropdown */}
         <Box mb={4}>
           <FormControl fullWidth margin="dense" size="small">
@@ -282,8 +292,8 @@ export default function AstroPDF() {
           fullWidth
           variant="contained"
           color="secondary"
-          sx={{ 
-            py: 1.5, 
+          sx={{
+            py: 1.5,
             background: "linear-gradient(to right, #9333ea, #ec4899)",
             '&:hover': {
               background: "linear-gradient(to right, #ec4899, #9333ea)",
