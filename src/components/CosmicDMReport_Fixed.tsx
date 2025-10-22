@@ -91,7 +91,7 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
   });
 }
 
-const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>, selectedFont: string) => {
+const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>, fontInfo.name: string) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -144,7 +144,7 @@ language: ${userObj.language || "English"}.
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
     // Planet title
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text(`${planet.full_name} (${planet.name}) Report`, pageWidth / 2, 95, { align: "center" });
@@ -162,7 +162,7 @@ language: ${userObj.language || "English"}.
 
     // Text starting after image
     let cursorY = imageY + imageHeight + 20; // padding below image
-    doc.setFont(selectedFont, "normal");
+    doc.setFont(fontInfo.name, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     const lineHeight = doc.getFontSize() * 1.5;
@@ -446,7 +446,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
 //       // Header
-//       doc.setFont(selectedFont, "bold");
+//       doc.setFont(fontInfo.name, "bold");
 //       doc.setFontSize(22);
 //       doc.setTextColor("#a16a21");
 //       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
@@ -456,7 +456,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
 
 //     // Chart title
-//     doc.setFont(selectedFont, "bold");
+//     doc.setFont(fontInfo.name, "bold");
 //     doc.setFontSize(16);
 //     doc.setTextColor(textColor);
 //     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, {
@@ -475,7 +475,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
 //     } catch (err) {
 //       console.error(`Error rendering chart ${chartData.chart_name}`, err);
-//       doc.setFont(selectedFont, "normal");
+//       doc.setFont(fontInfo.name, "normal");
 //       doc.setFontSize(14);
 //       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, {
 //         align: "center",
@@ -630,7 +630,7 @@ async function addAllDivisionalChartsFromJSON(
 //   });
 // }
 
-const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>, selectedFont: string) => {
+const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>, fontInfo.name: string) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -680,7 +680,7 @@ Language: ${userObj.language || "English"}.
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
     // Title
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 95, { align: "center" });
@@ -698,7 +698,7 @@ Language: ${userObj.language || "English"}.
 
     // Setup for text
     let cursorY = imageY + imageHeight + 20; // spacing below image
-    doc.setFont(selectedFont, "normal");
+    doc.setFont(fontInfo.name, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
@@ -821,11 +821,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
 
     const language = typeof userObj.language === "string" ? userObj.language : "en";
 
-    const reportDate = new Date().toLocaleDateString(language, {
-      year: "numeric",
-      month: "long"
-    });
-
+    
 // Helper function to fetch font as base64
 async function loadFont(url: string): Promise<string> {
   const response = await fetch(url);
@@ -852,48 +848,45 @@ const FONT_MAP: Record<string, { file: string; name: string }> = {
   be: { file: '/fonts/NotoSansBengali-VariableFont_wdth,wght.ttf', name: 'NotoSansBengali' },
   fr: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' }, // Latin fallback
 };
-
+const translations: Record<string, { dob: string; location: string }> = { en: { dob: "DOB", location: "Location not available" }, hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" }, fr: { dob: "Date de naissance", location: "Lieu non disponible" }, be: { dob: "Нарадзіўся", location: "Месца недаступна" }, ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" }, ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }, };
 // Determine user language
-const lang = (userObj.language as string) || 'en';
- let selectedFont = "NotoSans"; // default Latin font
+ let fontInfo.name = "NotoSans"; // default Latin font
     if (["hi", "ka", "ml"].includes(lang)) {
-      selectedFont = "NotoSansDevanagari";
+      fontInfo.name = "NotoSansDevanagari";
     }
-const fontInfo = FONT_MAP[lang] || FONT_MAP['en'];
- const translations: Record<string, { dob: string; location: string }> = {
-  en: { dob: "DOB", location: "Location not available" },
-  hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" },
-  fr: { dob: "Date de naissance", location: "Lieu non disponible" },
-  be: { dob: "Нарадзіўся", location: "Месца недаступна" },
-  ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" },
-  ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" },
-};
+ const lang = (userObj.language as string) || "en";
+  const t = translations[lang] || translations.en;
 
-// Load font dynamically
-const fontBase64 = await loadFont(fontInfo.file);
-doc.addFileToVFS(`${fontInfo.name}.ttf`, fontBase64);
-doc.addFont(`${fontInfo.name}.ttf`, fontInfo.name, 'normal');
+  // --- Load the correct font ---
+  const fontInfo = FONT_MAP[lang] || FONT_MAP["en"];
+  const fontBase64 = await loadFont(fontInfo.file);
+  doc.addFileToVFS(`${fontInfo.name}.ttf`, fontBase64);
+  doc.addFont(`${fontInfo.name}.ttf`, fontInfo.name, "normal");
+  doc.setFont(fontInfo.name, "normal");
 
-// Set selected font for text
-doc.setFont(fontInfo.name, 'normal');
+  // --- Text lines ---
+  const reportDate = new Date().toLocaleDateString(lang, {
+    year: "numeric",
+    month: "long",
+  });
 
-// --- Now you can write text dynamically ---
-const textLines = [
-  `${userObj?.name || 'Unknown'}`,
-  `${userObj?.dob ? translations[lang]?.dob + ': ' + userObj.dob : 'N/A'} ${userObj?.time || ''}`,
-  `${userObj?.place || translations[lang]?.location || 'Location not available'}`,
-  `${new Date().toLocaleDateString(lang, { year: 'numeric', month: 'long' })}`,
-];
+  const textLines = [
+    `${userObj?.name || "Unknown"}`,
+    `${userObj?.dob ? t.dob + ": " + userObj.dob : "N/A"} ${userObj?.time || ""}`,
+    `${userObj?.place || t.location}`,
+    `${reportDate}`,
+  ];
 
-const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
-textLines.forEach((line, i) => {
-  doc.setFont(fontInfo.name, 'normal');
-  if (i === 0) doc.setFontSize(32);
-  else if (i === textLines.length - 1) doc.setFontSize(18);
-  else doc.setFontSize(22);
+  // --- Draw text on PDF ---
+  const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+  textLines.forEach((line, i) => {
+    doc.setFont(fontInfo.name, "normal");
+    if (i === 0) doc.setFontSize(32);
+    else if (i === textLines.length - 1) doc.setFontSize(18);
+    else doc.setFontSize(22);
 
-  doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, { align: 'right' });
-});
+    doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, { align: "right" });
+  });
 
     // --- Translation map ---
    
@@ -943,7 +936,7 @@ textLines.forEach((line, i) => {
     // const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
     // textLines.forEach((line, i) => {
-    //   doc.setFont(selectedFont, "normal");
+    //   doc.setFont(fontInfo.name, "normal");
     //   if (i === 0) {
     //     doc.setFontSize(32);
     //   } else if (i === textLines.length - 1) {
@@ -1006,12 +999,12 @@ intuition, and create the life you desire.
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
 
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("DISCLAIMER", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont(selectedFont, "normal");
+    doc.setFont(fontInfo.name, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
@@ -1057,12 +1050,12 @@ Vedic Astrologer`;
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("MESSAGE FROM THE AUTHOR", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont(selectedFont, "normal");
+    doc.setFont(fontInfo.name, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
@@ -1105,12 +1098,12 @@ with awareness and intention`;
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("BEST WAY TO STUDY THE REPORT", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont(selectedFont, "normal");
+    doc.setFont(fontInfo.name, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     addParagraphs(doc, studyText, 50, 100, pageWidth - 50 - 50);
@@ -1231,12 +1224,12 @@ tocText = finalToc;
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
 
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont(selectedFont, "normal");
+    doc.setFont(fontInfo.name, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     addParagraphs(doc, tocText, 50, 100, pageWidth - 50 - 50);
@@ -3704,7 +3697,7 @@ tocText = finalToc;
     ]);
 
     doc.addPage();
-    await generateHouseReports(doc, houses, userData, selectedFont);
+    await generateHouseReports(doc, houses, userData, fontInfo.name);
 
     const planetData = {
       "planets": {
@@ -4048,7 +4041,7 @@ tocText = finalToc;
       Object.entries(planetsRaw).map(([id, p]) => [id, { planetId: id, ...p }])
     );
 
-    await generatePlanetReportsWithImages(doc, planetsWithId, userData, selectedFont);
+    await generatePlanetReportsWithImages(doc, planetsWithId, userData, fontInfo.name);
     // Add initial "Love and Marriage" page
     doc.addPage();
     const margin = 25;
@@ -4082,7 +4075,7 @@ tocText = finalToc;
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Love and Marriage", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -5138,12 +5131,12 @@ tocText = finalToc;
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(selectedFont, "bold");
+      doc.setFont(fontInfo.name, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, studyText, 50, 100, pageWidth - 50 - 50);
@@ -5175,7 +5168,7 @@ tocText = finalToc;
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Career & Profession", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -5987,12 +5980,12 @@ tocText = finalToc;
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(selectedFont, "bold");
+      doc.setFont(fontInfo.name, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -6025,7 +6018,7 @@ tocText = finalToc;
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Health & Wellbeing", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -6706,12 +6699,12 @@ tocText = finalToc;
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(selectedFont, "bold");
+      doc.setFont(fontInfo.name, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -6728,7 +6721,7 @@ tocText = finalToc;
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Karmic & Purpose Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -8428,12 +8421,12 @@ Rahu:{
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(selectedFont, "bold");
+      doc.setFont(fontInfo.name, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -8468,7 +8461,7 @@ Rahu:{
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Timing & Predictive Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -9273,13 +9266,13 @@ JSON: {
       doc.rect(25, 25, 545, 792, "S");
 
       // --- Section Title ---
-      doc.setFont(selectedFont, "bold");
+      doc.setFont(fontInfo.name, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       // --- Section Subtitle ---
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       doc.text(sectionPrompt.split(":")[1] || "", pageWidth / 2, 80, { align: "center" });
@@ -9297,7 +9290,7 @@ JSON: {
 
         cursorY = addPaginatedTable(doc, ["Planet", "Start Date"], mahaData, cursorY, PAGE_HEIGHT);
 
-        doc.setFont(selectedFont, "italic");
+        doc.setFont(fontInfo.name, "italic");
         doc.setFontSize(12);
         doc.setTextColor("#444");
 
@@ -9326,7 +9319,7 @@ JSON: {
             PAGE_HEIGHT
           );
 
-          doc.setFont(selectedFont, "italic");
+          doc.setFont(fontInfo.name, "italic");
           doc.setFontSize(12);
           doc.setTextColor("#444");
           //const explanation = `The table above represents the sub-periods (Antardashas) of ${mahaName} Mahadasha. These finer periods influence day-to-day experiences, decisions, and personal growth.`;
@@ -9339,7 +9332,7 @@ JSON: {
       }
 
       // --- Regular content paragraphs ---
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, cursorY, pageWidth - 50 - 50);
@@ -9479,7 +9472,7 @@ JSON: {
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Remedies & Spiritual Guidance", pageWidth / 2, pageHeight / 2 + 40, { align: "center", baseline: "middle" });
@@ -10503,12 +10496,12 @@ Rahu:{
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(selectedFont, "bold");
+      doc.setFont(fontInfo.name, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -10540,7 +10533,7 @@ Rahu:{
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Set font and color
-    doc.setFont(selectedFont, "bold");
+    doc.setFont(fontInfo.name, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
 
@@ -11938,12 +11931,12 @@ JSON: {
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      doc.setFont(selectedFont, "bold");
+      doc.setFont(fontInfo.name, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(section.title, pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -12117,12 +12110,12 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      doc.setFont(selectedFont, "bold");
+      doc.setFont(fontInfo.name, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text("Q&A & Personalized Guidance", pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(selectedFont, "normal");
+      doc.setFont(fontInfo.name, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
 
