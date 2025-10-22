@@ -213,7 +213,7 @@ language: ${userObj.language || "English"}.
 function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth: number) {
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 40;
-  const bottomLimit = pageHeight - margin; // space to stop before bottom
+  const bottomLimit = pageHeight - margin;
   const lineHeight = 20;
   const paragraphGap = 10;
 
@@ -222,28 +222,46 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
   paragraphs.forEach((para) => {
     const lines = doc.splitTextToSize(para.trim(), maxWidth);
 
-    for (let i = 0; i < lines.length; i++) {
+    lines.forEach((line: string, index: number) => {
       // Check if next line will go beyond page height
       if (y + lineHeight > bottomLimit) {
-        // --- Add new page ---
         doc.addPage();
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(25, 25, 545, 792, "S");
-
-        y = margin + 10; // Reset Y position after adding new page
+        y = margin + 10;
       }
 
-      // Print the line
-      doc.text(lines[i], x, y);
-      y += lineHeight;
-    }
+      // Justify all lines except last line of paragraph
+      if (index < lines.length - 1) {
+        const words = line.split(" ");
+        const lineText = words.join(" ");
+        const textWidth = doc.getTextWidth(lineText);
+        const spaceCount = words.length - 1;
+        let extraSpace = 0;
 
-    // Add space between paragraphs
+        if (spaceCount > 0) {
+          extraSpace = (maxWidth - textWidth) / spaceCount;
+        }
+
+        let currentX = x;
+        words.forEach((word, wIndex) => {
+          doc.text(word, currentX, y);
+          const wordWidth = doc.getTextWidth(word);
+          currentX += wordWidth + extraSpace;
+        });
+      } else {
+        // Last line: left-aligned
+        doc.text(line, x, y);
+      }
+
+      y += lineHeight;
+    });
+
     y += paragraphGap;
   });
 
-  return y; // return final Y position for chaining
+  return y;
 }
 
 // // 1️⃣ Generate SVG chart
