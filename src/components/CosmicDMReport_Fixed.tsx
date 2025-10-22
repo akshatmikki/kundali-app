@@ -91,14 +91,14 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
   });
 }
 
-const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>) => {
+const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>, selectedFont: string) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
   const marginY = 25;
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
-const userObj = userData ? Object.fromEntries(userData) : {};
+  const userObj = userData ? Object.fromEntries(userData) : {};
   for (const planetKey in planets) {
     if (!Object.prototype.hasOwnProperty.call(planets, planetKey)) continue;
     const planet = planets[planetKey] as Planet;
@@ -144,7 +144,7 @@ language: ${userObj.language || "English"}.
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
     // Planet title
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text(`${planet.full_name} (${planet.name}) Report`, pageWidth / 2, 95, { align: "center" });
@@ -162,7 +162,7 @@ language: ${userObj.language || "English"}.
 
     // Text starting after image
     let cursorY = imageY + imageHeight + 20; // padding below image
-    doc.setFont("NatoSans", "normal");
+    doc.setFont(selectedFont, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     const lineHeight = doc.getFontSize() * 1.5;
@@ -428,7 +428,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
 //       // Header
-//       doc.setFont("NatoSans", "bold");
+//       doc.setFont(selectedFont, "bold");
 //       doc.setFontSize(22);
 //       doc.setTextColor("#a16a21");
 //       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
@@ -438,7 +438,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
 
 //     // Chart title
-//     doc.setFont("NatoSans", "bold");
+//     doc.setFont(selectedFont, "bold");
 //     doc.setFontSize(16);
 //     doc.setTextColor(textColor);
 //     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, {
@@ -457,7 +457,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
 //     } catch (err) {
 //       console.error(`Error rendering chart ${chartData.chart_name}`, err);
-//       doc.setFont("NatoSans", "normal");
+//       doc.setFont(selectedFont, "normal");
 //       doc.setFontSize(14);
 //       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, {
 //         align: "center",
@@ -612,14 +612,14 @@ async function addAllDivisionalChartsFromJSON(
 //   });
 // }
 
-const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>) => {
+const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>, selectedFont: string) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
   const marginY = 25;
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
- const userObj = userData ? Object.fromEntries(userData) : {};
+  const userObj = userData ? Object.fromEntries(userData) : {};
   // Generate reports sequentially for cleaner structure (similar to planet version)
   for (const house of houses) {
     const housePrompt = `
@@ -662,7 +662,7 @@ Language: ${userObj.language || "English"}.
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
     // Title
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 95, { align: "center" });
@@ -680,7 +680,7 @@ Language: ${userObj.language || "English"}.
 
     // Setup for text
     let cursorY = imageY + imageHeight + 20; // spacing below image
-    doc.setFont("NatoSans", "normal");
+    doc.setFont(selectedFont, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
@@ -768,17 +768,17 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     const doc = new jsPDF("p", "pt", "a4");
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-const lineHeight = 26; // slightly increased spacing for bigger text
-// Convert userData to an object safely
-const userObj: Record<string, unknown> = userData ? Object.fromEntries(userData) : {};
+    const lineHeight = 26; // slightly increased spacing for bigger text
+    // Convert userData to an object safely
+    const userObj: Record<string, unknown> = userData ? Object.fromEntries(userData) : {};
 
-// Ensure sex is a string before calling toLowerCase
-const userSex = typeof userObj.sex === "string" ? userObj.sex.toLowerCase() : "male";
+    // Ensure sex is a string before calling toLowerCase
+    const userSex = typeof userObj.sex === "string" ? userObj.sex.toLowerCase() : "male";
 
-// Select cover image based on gender
-const coverImageMale = "/assets/cover_male.jpg";
-const coverImageFemale = "/assets/cover_female.jpg";
-const selectedCoverImage = userSex === "female" ? coverImageFemale : coverImageMale;
+    // Select cover image based on gender
+    const coverImageMale = "/assets/cover_male.jpg";
+    const coverImageFemale = "/assets/cover_female.jpg";
+    const selectedCoverImage = userSex === "female" ? coverImageFemale : coverImageMale;
 
     // Try loading the image
     try {
@@ -803,10 +803,10 @@ const selectedCoverImage = userSex === "female" ? coverImageFemale : coverImageM
 
     const language = typeof userObj.language === "string" ? userObj.language : "en";
 
-const reportDate = new Date().toLocaleDateString(language, {
-  year: "numeric",
-  month: "long"
-});
+    const reportDate = new Date().toLocaleDateString(language, {
+      year: "numeric",
+      month: "long"
+    });
 
 
     // --- Translation map ---
@@ -821,29 +821,29 @@ const reportDate = new Date().toLocaleDateString(language, {
 
     const lang = (userObj.language as string) || "en";
     const t = translations[lang as keyof typeof translations] || translations.en;
-// Helper function to fetch font as base64
-async function loadFont(url: string): Promise<string> {
-  const response = await fetch(url);
-  const buffer = await response.arrayBuffer();
-  // Convert ArrayBuffer to base64
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
+    // Helper function to fetch font as base64
+    async function loadFont(url: string): Promise<string> {
+      const response = await fetch(url);
+      const buffer = await response.arrayBuffer();
+      // Convert ArrayBuffer to base64
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
 
-const notoSans = await loadFont("/fonts/NotoSans-VariableFont_wdth,wght.ttf");
-const notoDevanagari = await loadFont("/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf");
+    const notoSans = await loadFont("/fonts/NotoSans-VariableFont_wdth,wght.ttf");
+    const notoDevanagari = await loadFont("/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf");
 
-// Add fonts to jsPDF
-doc.addFileToVFS("NotoSans.ttf", notoSans);
-doc.addFont("NotoSans.ttf", "NotoSans", "normal");
+    // Add fonts to jsPDF
+    doc.addFileToVFS("NotoSans.ttf", notoSans);
+    doc.addFont("NotoSans.ttf", "NotoSans", "normal");
 
-doc.addFileToVFS("NotoSansDevanagari.ttf", notoDevanagari);
-doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
+    doc.addFileToVFS("NotoSansDevanagari.ttf", notoDevanagari);
+    doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     // Choose font based on language family
     let selectedFont = "NotoSans"; // default Latin font
     if (["hi", "ka", "ml"].includes(lang)) {
@@ -864,7 +864,7 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
 
     doc.setTextColor(255, 255, 255);
 
-   const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+    const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
     textLines.forEach((line, i) => {
       doc.setFont(selectedFont, "normal");
@@ -881,35 +881,55 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
       });
     });
     // --- Generate Disclaimer Page using AI ---
-    const disclaimerPrompt =
-      "You are an expert Vedic astrologer writing a disclaimer for a comprehensive astrology report. " +
-      "Write a professional, comprehensive disclaimer for a Vedic astrology report in " + (userObj.language || "English") + " language. The disclaimer should: " +
-      "1. Explain that the report is based on Vedic astrology principles. " +
-      "2. Clarify that astrology is for guidance, not deterministic predictions. " +
-      "3. Mention that interpretations may vary across astrologers and traditions. " +
-      "4. State that remedies and suggestions are not substitutes for medical or legal advice. " +
-      "5. Emphasize that results vary for each individual. " +
-      "6. Include appropriate legal disclaimers about liability. " +
-      "7. End with an encouraging, cosmic perspective message. " +
-      "Write in a warm, professional tone that maintains the mystical nature of astrology while being legally sound. Keep it comprehensive but readable, around 300–400 words. " +
-      "Language: " + (userObj.language || "English") + ".";
+    const disclaimerText = `
+This Vedic Astrology Report ("Report") is prepared based on the principles and practices of
+Vedic Astrology, also known as Jyotisha, an ancient Indian system of astrology. It is intended
+to provide personalized insights and guidance based on your birth details and planetary
+positions at the time of your birth.
 
-    const disclaimerResponse = await fetch("/api/gemini", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: disclaimerPrompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
-      })
-    });
+Please understand that astrological interpretations are not definitive predictions of the future.
+Astrology should be regarded as a tool for self-understanding, personal growth, and navigating
+life's potential challenges and opportunities. The insights provided in this Report are intended
+to offer a broader perspective and potential influences, but they do not dictate or determine
+specific outcomes.
 
-    const disclaimerData = await disclaimerResponse.json();
-    let disclaimerText = disclaimerData.candidates?.[0]?.content?.parts?.[0]?.text || "Disclaimer content could not be generated.";
-    disclaimerText = removeMarkdown(disclaimerText);
+It is important to acknowledge that interpretations of astrological charts can vary among
+different astrologers and across different Vedic astrological traditions. The interpretations
+presented in this Report are based on the understanding and application of Vedic astrological
+principles by the astrologer who prepared it.
+
+Any remedies, suggestions, or recommendations provided in this Report, including but not
+limited to gemstone recommendations, mantra chanting, or lifestyle adjustments, are offered
+for informational purposes only. They should not be considered a substitute for professional
+medical, legal, financial, or psychological advice. Always consult with qualified professionals
+in these fields for any health concerns, legal matters, financial decisions, or mental health
+needs.
+
+The effects of astrological influences and remedies are highly individual and dependent on
+various factors, including your personal efforts, free will, and the interplay of other karmic
+influences. Results may vary significantly from person to person, and there is no guarantee that
+specific outcomes will be achieved.
+
+Legal Disclaimer: The information provided in this Report is for entertainment and
+informational purposes only. The astrologer and the provider of this Report shall not be liable
+for any direct, indirect, incidental, consequential, or punitive damages arising out of or relating
+to the use of or reliance on the information contained in this Report. You agree to indemnify
+and hold harmless the astrologer and the provider of this Report from any and all claims,
+liabilities, damages, and expenses (including attorneys' fees) arising out of your use of or
+reliance on this Report. By proceeding to read and utilize this Report, you acknowledge and
+agree to the terms of this disclaimer.
+
+We hope this Report provides you with valuable insights and helps you navigate your life
+journey with greater awareness and understanding. Remember that you are the master of your
+destiny, and the stars are merely guiding lights on your path. Embrace the cosmos, trust your
+intuition, and create the life you desire.
+`;
+
     doc.addPage();
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
+
     doc.setFont(selectedFont, "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
@@ -918,40 +938,45 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     doc.setFont(selectedFont, "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
+
     const leftMargin = 50;
     const rightMargin = 50;
     const usableWidth = pageWidth - leftMargin - rightMargin;
 
+    // `addParagraphs` handles line splitting and pagination
     addParagraphs(doc, disclaimerText, leftMargin, 100, usableWidth);
 
     // addParagraphs(doc, disclaimerText, 50, 110);
 
     // --- Generate Author Message using AI ---
-    const authorPrompt =
-      "You are a professional Vedic astrologer writing a personal message to introduce a comprehensive astrology report. " +
-      "Write a warm, personal message from the author in " + (userObj.language || "English") + " language for a Vedic astrology report. The message should: " +
-      "1. Welcome the reader to their personalized cosmic report. " +
-      "2. Share the author's experience and passion for astrology. " +
-      "3. Explain how the report blends ancient wisdom with practical insights. " +
-      "4. Emphasize the importance of intuition and personal connection. " +
-      "5. Encourage open-minded exploration of the insights. " +
-      "6. Focus on self-awareness and personal growth. " +
-      "7. End with warm wishes and professional signature. " +
-      "Write in a personal, warm tone that feels like a letter from a trusted astrologer. Keep it around 250–300 words. " +
-      "Language: " + (userObj.language || "English") + ".";
+    const authortext =`
+      Dearest Friend,
+Welcome! It fills me with joy to present you with your personalized Vedic Astrology Report.
+Consider this not just a document, but a cosmic roadmap designed uniquely for you,
+illuminated by the ancient wisdom of the stars.
+For years, I've been captivated by the profound language of Vedic Astrology, a system that
+unveils the intricate dance between the planets and our lives. It's more than just prediction; it's
+a powerful tool for self-discovery and understanding our place in the grand cosmic tapestry.
+My journey has been one of constant learning and amazement at the accuracy and depth this
+system offers.
+Within these pages, you'll find a blend of traditional Vedic principles and practical
+interpretations tailored to your specific birth chart. I've strived to translate complex astrological
+concepts into accessible language, providing you with insights that are both enlightening and
+actionable. This report is designed to help you understand your strengths, navigate your
+challenges, and ultimately, live a more fulfilling and authentic life.
+However, remember that this report is a guide, not a rigid prescription. Astrology is a
+framework, and your own intuition and personal connection to the insights are crucial. Trust
+your inner wisdom as you explore these readings. Allow the knowledge within these pages to
+spark reflection and encourage you to connect with your own soul's purpose.
+My hope is that this report serves as a catalyst for greater self-awareness, empowering you to
+make conscious choices that align with your true nature and potential. Embrace this journey of
+self-discovery with an open mind and a curious heart. Allow these insights to illuminate your
+path towards personal growth and fulfillment.
+Wishing you a journey filled with clarity, wisdom, and boundless possibilities.
+With warmth and cosmic blessings,
+${userObj?.name }
+Vedic Astrologer`;
 
-    const authorResponse = await fetch("/api/gemini", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: authorPrompt }] }],
-        generationConfig: { temperature: 0.8, maxOutputTokens: 1000 }
-      })
-    });
-
-    const authorData = await authorResponse.json();
-    let authorText = authorData.candidates?.[0]?.content?.parts?.[0]?.text || "Author message could not be generated.";
-    authorText = removeMarkdown(authorText);
     doc.addPage();
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
@@ -965,34 +990,41 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
-    addParagraphs(doc, authorText, 50, 100, pageWidth - 50 - 50);
+    addParagraphs(doc, authortext, 50, 100, pageWidth - 50 - 50);
 
     // --- Generate Study Guide using AI ---
-    const studyPrompt =
-      "You are an expert Vedic astrologer writing a study guide for a comprehensive astrology report. " +
-      "Write a helpful study guide in " + (userObj.language || "English") + " language that explains how to best read and use a Vedic astrology report. The guide should: " +
-      "1. Explain the importance of reading the report multiple times. " +
-      "2. Emphasize the layered nature of cosmic insights. " +
-      "3. Suggest creating a calm, focused mindset before reading. " +
-      "4. Recommend taking notes and reflecting on insights. " +
-      "5. Explain how to apply the guidance practically. " +
-      "6. Encourage revisiting the report over time. " +
-      "7. Emphasize personal empowerment and decision-making. " +
-      "Write in an encouraging, educational tone that helps readers maximize the value of their astrology report. Keep it around 250–300 words. " +
-      "Language: " + (userObj.language || "English") + ".";
+    const studyText =
+      `Unlocking Your Cosmic Blueprint: A Guide to Your Vedic Astrology Report
+Congratulations on receiving your personalized Vedic Astrology report! This document is a
+powerful tool for self-discovery and navigating life's journey with greater awareness. To truly
+unlock its potential, remember that it’s not a one-time read, but a resource to be explored and
+revisited.
+The Layered Nature of Insight: Think of your report as an onion – each layer reveals deeper
+understanding. The initial reading provides a broad overview, but subsequent readings will
+uncover nuances and connections you may have missed initially. Vedic astrology is a complex
+system, and its insights are layered and interconnected.
+Creating the Right Atmosphere: Before delving in, find a quiet space where you can relax and
+focus. Take a few deep breaths to center yourself and approach the report with an open mind
+and a receptive heart. A calm mindset will allow you to absorb the information more
+effectively.
+Engage Actively: Don't just passively read the report. Take notes! Jot down key phrases,
+recurring themes, and anything that resonates with you. Reflect on how these insights relate to
+your past experiences, current challenges, and future aspirations.
+Practical Application: The true value lies in applying the guidance practically. The report
+might highlight strengths to leverage, challenges to overcome, or periods requiring extra
+caution. Consider how you can consciously integrate this knowledge into your daily life.
+Maybe it suggests focusing on certain skills, modifying your approach to relationships, or
+being more mindful during specific transits.
+A Living Document: Your Vedic astrology report isn't static; revisit it periodically, especially
+during significant life events. As you evolve, your understanding of the report will also
+deepen, revealing new layers of meaning.
+Empowerment Through Understanding: Ultimately, your report is a tool for
+self-empowerment. It provides valuable insights, but you remain the captain of your ship. Use
+this knowledge to make informed decisions, navigate challenges with grace, and create a life
+aligned with your highest potential. Your destiny is not fixed, but rather a canvas you paint
+with awareness and intention`;
 
-    const studyResponse = await fetch("/api/gemini", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: studyPrompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
-      })
-    });
-
-    const studyData = await studyResponse.json();
-    let studyText = studyData.candidates?.[0]?.content?.parts?.[0]?.text || "Study guide could not be generated.";
-    studyText = removeMarkdown(studyText);
+    
     doc.addPage();
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
@@ -1076,8 +1108,7 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
 12 Q&A & Personalized Advice
    - Frequently Asked Questions
    - Next Steps: Using Insights & Remedies for Personal Growth
-`
-    "Language: " + (userObj.language || "English") + ".";
+`;
 
     tocText = removeMarkdown(tocText);
 
@@ -3594,7 +3625,7 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     ]);
 
     doc.addPage();
-    await generateHouseReports(doc, houses, userData);
+    await generateHouseReports(doc, houses, userData, selectedFont);
 
     const planetData = {
       "planets": {
@@ -3935,10 +3966,10 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
 
     // Ensure each planet object includes required 'planetId' field expected by generatePlanetReportsWithImages
     const planetsWithId: Record<string, Planet> = Object.fromEntries(
-  Object.entries(planetsRaw).map(([id, p]) => [id, { planetId: id, ...p }])
-);
+      Object.entries(planetsRaw).map(([id, p]) => [id, { planetId: id, ...p }])
+    );
 
-    await generatePlanetReportsWithImages(doc, planetsWithId, userData);
+    await generatePlanetReportsWithImages(doc, planetsWithId, userData, selectedFont);
     // Add initial "Love and Marriage" page
     doc.addPage();
     const margin = 25;
@@ -3972,7 +4003,7 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Love and Marriage", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -5028,12 +5059,12 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("NatoSans", "bold");
+      doc.setFont(selectedFont, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, studyText, 50, 100, pageWidth - 50 - 50);
@@ -5065,7 +5096,7 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Career & Profession", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -5877,12 +5908,12 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("NatoSans", "bold");
+      doc.setFont(selectedFont, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -5915,7 +5946,7 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Health & Wellbeing", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -6596,12 +6627,12 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("NatoSans", "bold");
+      doc.setFont(selectedFont, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -6618,7 +6649,7 @@ doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Karmic & Purpose Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -8318,12 +8349,12 @@ Rahu:{
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("NatoSans", "bold");
+      doc.setFont(selectedFont, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -8358,7 +8389,7 @@ Rahu:{
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Timing & Predictive Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -9163,13 +9194,13 @@ JSON: {
       doc.rect(25, 25, 545, 792, "S");
 
       // --- Section Title ---
-      doc.setFont("NatoSans", "bold");
+      doc.setFont(selectedFont, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       // --- Section Subtitle ---
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       doc.text(sectionPrompt.split(":")[1] || "", pageWidth / 2, 80, { align: "center" });
@@ -9187,7 +9218,7 @@ JSON: {
 
         cursorY = addPaginatedTable(doc, ["Planet", "Start Date"], mahaData, cursorY, PAGE_HEIGHT);
 
-        doc.setFont("NatoSans", "italic");
+        doc.setFont(selectedFont, "italic");
         doc.setFontSize(12);
         doc.setTextColor("#444");
 
@@ -9216,7 +9247,7 @@ JSON: {
             PAGE_HEIGHT
           );
 
-          doc.setFont("NatoSans", "italic");
+          doc.setFont(selectedFont, "italic");
           doc.setFontSize(12);
           doc.setTextColor("#444");
           //const explanation = `The table above represents the sub-periods (Antardashas) of ${mahaName} Mahadasha. These finer periods influence day-to-day experiences, decisions, and personal growth.`;
@@ -9229,7 +9260,7 @@ JSON: {
       }
 
       // --- Regular content paragraphs ---
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, cursorY, pageWidth - 50 - 50);
@@ -9237,111 +9268,111 @@ JSON: {
 
     // --- Helper: addPaginatedTable ---
 
-type TableRow = (string | number)[]; // each row = array of cell values
+    type TableRow = (string | number)[]; // each row = array of cell values
 
- function addPaginatedTable(
-  doc: jsPDF,
-  headers: string[],
-  data: TableRow[],
-  startY: number,
-  pageHeight: number
-): number {
-  const tableWidth = 400;
-  const colWidth = tableWidth / headers.length;
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageNumber = () => doc.getNumberOfPages();
-  const startX = (pageWidth - tableWidth) / 2;
+    function addPaginatedTable(
+      doc: jsPDF,
+      headers: string[],
+      data: TableRow[],
+      startY: number,
+      pageHeight: number
+    ): number {
+      const tableWidth = 400;
+      const colWidth = tableWidth / headers.length;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageNumber = () => doc.getNumberOfPages();
+      const startX = (pageWidth - tableWidth) / 2;
 
-  const LINE_HEIGHT = 22;
-  const PAGE_MARGIN = 50;
-  const textPaddingY = 6;
+      const LINE_HEIGHT = 22;
+      const PAGE_MARGIN = 50;
+      const textPaddingY = 6;
 
-  // --- DRAW BORDER AROUND PAGE ---
-  const drawPageBorder = (): void => {
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
-  };
+      // --- DRAW BORDER AROUND PAGE ---
+      const drawPageBorder = (): void => {
+        doc.setDrawColor("#a16a21");
+        doc.setLineWidth(1.5);
+        doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+      };
 
-  // --- DRAW FOOTER WITH PAGE NUMBER ---
-  const drawFooter = (): void => {
-    const footerY = pageHeight - 20;
-    doc.setFont("NotoSans", "italic");
-    doc.setFontSize(10);
-    doc.setTextColor("#999");
-    doc.text(`Page ${pageNumber()}`, pageWidth / 2, footerY, {
-      align: "center",
-    });
-  };
+      // --- DRAW FOOTER WITH PAGE NUMBER ---
+      const drawFooter = (): void => {
+        const footerY = pageHeight - 20;
+        doc.setFont("NotoSans", "italic");
+        doc.setFontSize(10);
+        doc.setTextColor("#999");
+        doc.text(`Page ${pageNumber()}`, pageWidth / 2, footerY, {
+          align: "center",
+        });
+      };
 
-  // --- DRAW HEADER ROW ---
-  const drawHeader = (yPos: number): number => {
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(13);
-    doc.setFillColor(161, 106, 33);
-    doc.setTextColor(255, 255, 255);
-    doc.rect(startX, yPos - 7, tableWidth, LINE_HEIGHT, "F");
+      // --- DRAW HEADER ROW ---
+      const drawHeader = (yPos: number): number => {
+        doc.setFont("NotoSans", "bold");
+        doc.setFontSize(13);
+        doc.setFillColor(161, 106, 33);
+        doc.setTextColor(255, 255, 255);
+        doc.rect(startX, yPos - 7, tableWidth, LINE_HEIGHT, "F");
 
-    headers.forEach((header, i) => {
-      doc.text(header, startX + i * colWidth + 10, yPos, {
-        align: "left",
-        baseline: "middle",
-      });
-    });
+        headers.forEach((header, i) => {
+          doc.text(header, startX + i * colWidth + 10, yPos, {
+            align: "left",
+            baseline: "middle",
+          });
+        });
 
-    return yPos + LINE_HEIGHT;
-  };
+        return yPos + LINE_HEIGHT;
+      };
 
-  // --- INITIALIZE PAGE ---
-  drawPageBorder();
-  let y = drawHeader(startY);
-
-  doc.setFont("NotoSans", "normal");
-  doc.setFontSize(12);
-  doc.setTextColor(0);
-
-  // --- DRAW TABLE ROWS ---
-  for (let i = 0; i < data.length; i++) {
-    // Check if next row fits; if not, add new page
-    if (y + LINE_HEIGHT + PAGE_MARGIN > pageHeight) {
-      drawFooter();
-      doc.addPage();
+      // --- INITIALIZE PAGE ---
       drawPageBorder();
-      y = PAGE_MARGIN;
-      y = drawHeader(y);
+      let y = drawHeader(startY);
+
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(12);
       doc.setTextColor(0);
+
+      // --- DRAW TABLE ROWS ---
+      for (let i = 0; i < data.length; i++) {
+        // Check if next row fits; if not, add new page
+        if (y + LINE_HEIGHT + PAGE_MARGIN > pageHeight) {
+          drawFooter();
+          doc.addPage();
+          drawPageBorder();
+          y = PAGE_MARGIN;
+          y = drawHeader(y);
+          doc.setFont("NotoSans", "normal");
+          doc.setFontSize(12);
+          doc.setTextColor(0);
+        }
+
+        // Alternate background
+        if (i % 2 === 0) {
+          doc.setFillColor(245, 232, 215);
+          doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT, "F");
+        }
+
+        // Row border
+        doc.setDrawColor(200);
+        doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT);
+
+        // Text cells
+        data[i].forEach((cell, j) => {
+          const align = j === 1 ? "right" : "left";
+          doc.text(String(cell), startX + j * colWidth + 10, y + textPaddingY, {
+            align,
+            baseline: "middle",
+          });
+        });
+
+        y += LINE_HEIGHT;
+      }
+
+      // --- Final footer and border ---
+      drawFooter();
+      drawPageBorder();
+
+      return y;
     }
-
-    // Alternate background
-    if (i % 2 === 0) {
-      doc.setFillColor(245, 232, 215);
-      doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT, "F");
-    }
-
-    // Row border
-    doc.setDrawColor(200);
-    doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT);
-
-    // Text cells
-    data[i].forEach((cell, j) => {
-      const align = j === 1 ? "right" : "left";
-      doc.text(String(cell), startX + j * colWidth + 10, y + textPaddingY, {
-        align,
-        baseline: "middle",
-      });
-    });
-
-    y += LINE_HEIGHT;
-  }
-
-  // --- Final footer and border ---
-  drawFooter();
-  drawPageBorder();
-
-  return y;
-}
 
     doc.addPage();
 
@@ -9369,7 +9400,7 @@ type TableRow = (string | number)[]; // each row = array of cell values
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Remedies & Spiritual Guidance", pageWidth / 2, pageHeight / 2 + 40, { align: "center", baseline: "middle" });
@@ -10393,12 +10424,12 @@ Rahu:{
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("NatoSans", "bold");
+      doc.setFont(selectedFont, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -10430,7 +10461,7 @@ Rahu:{
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Set font and color
-    doc.setFont("NatoSans", "bold");
+    doc.setFont(selectedFont, "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
 
@@ -11828,12 +11859,12 @@ JSON: {
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      doc.setFont("NatoSans", "bold");
+      doc.setFont(selectedFont, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(section.title, pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
@@ -11846,7 +11877,7 @@ JSON: {
     const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
     // --- Generate 12–15 Personalized Questions (Categorized) ---
-    async function generateQuestions(fullData: Record<string,unknown>) {
+    async function generateQuestions(fullData: Record<string, unknown>) {
       const questionPrompt = `
 You are an expert Vedic astrologer and holistic consultant.
 Analyze the following *complete client data* — including multi-chart birth data (D1, D9, D10, D60, D2, D3, D4),
@@ -11949,7 +11980,7 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
         });
 
         const data = await response.json();
-        let ans = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const ans = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
         return ans.replace(/[*_~`]/g, ""); // Remove any leftover markdown
       } catch (err) {
         if (retryCount < 2) {
@@ -12007,12 +12038,12 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      doc.setFont("NatoSans", "bold");
+      doc.setFont(selectedFont, "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text("Q&A & Personalized Guidance", pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("NatoSans", "normal");
+      doc.setFont(selectedFont, "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
 
