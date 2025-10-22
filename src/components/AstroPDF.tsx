@@ -17,26 +17,14 @@ import { generateAndDownloadFullCosmicReportWithTable } from "./CosmicDMReport_F
 const LANGUAGE_OPTIONS = [
   { code: 'en', name: 'English' }, // Added English as a common default
   { code: 'be', name: 'Bengali' },
-  { code: 'fr', name: 'French' },
   { code: 'hi', name: 'Hindi' },
   { code: 'ka', name: 'Kannada' },
   { code: 'ml', name: 'Malayalam' },
-  { code: 'sp', name: 'Spanish' },
   { code: 'ta', name: 'Tamil' },
   { code: 'te', name: 'Telugu' },
   { code: 'mr', name: 'Marathi' },
-  { code: 'si', name: 'Sinhalese' },
   { code: 'ne', name: 'Nepali' },
-  { code: 'ko', name: 'Korean' },
-  { code: 'ja', name: 'Japanese' },
   { code: 'gu', name: 'Gujarati' },
-  { code: 'pt', name: 'Portuguese' },
-  { code: 'de', name: 'German' },
-  { code: 'tr', name: 'Turkish' },
-  { code: 'ru', name: 'Russian' },
-  { code: 'it', name: 'Italian' },
-  { code: 'nl', name: 'Dutch' },
-  { code: 'pl', name: 'Polish' },
 ];
 
 export default function AstroPDF() {

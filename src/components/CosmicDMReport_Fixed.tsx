@@ -826,78 +826,136 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       month: "long"
     });
 
+// Helper function to fetch font as base64
+async function loadFont(url: string): Promise<string> {
+  const response = await fetch(url);
+  const buffer = await response.arrayBuffer();
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
-    // --- Translation map ---
-    const translations = {
-      en: { dob: "DOB", location: "Location not available" },
-      hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" },
-      fr: { dob: "Date de naissance", location: "Lieu non disponible" },
-      be: { dob: "Нарадзіўся", location: "Месца недаступна" },
-      ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" },
-      ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }
-    };
+// Map each language code to its font file and name
+const FONT_MAP: Record<string, { file: string; name: string }> = {
+  en: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' },
+  hi: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
+  mr: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
+  ne: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
+  ka: { file: '/fonts/NotoSansKannada-VariableFont_wdth,wght.ttf', name: 'NotoSansKannada' },
+  ml: { file: '/fonts/NotoSansMalayalam-VariableFont_wdth,wght.ttf', name: 'NotoSansMalayalam' },
+  ta: { file: '/fonts/NotoSansTamil-VariableFont_wdth,wght.ttf', name: 'NotoSansTamil' },
+  te: { file: '/fonts/NotoSansTelugu-VariableFont_wdth,wght.ttf', name: 'NotoSansTelugu' },
+  gu: { file: '/fonts/NotoSansGujarati-VariableFont_wdth,wght.ttf', name: 'NotoSansGujarati' },
+  be: { file: '/fonts/NotoSansBengali-VariableFont_wdth,wght.ttf', name: 'NotoSansBengali' },
+  fr: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' }, // Latin fallback
+};
 
-    const lang = (userObj.language as string) || "en";
-    const t = translations[lang as keyof typeof translations] || translations.en;
-    // Helper function to fetch font as base64
-    async function loadFont(url: string): Promise<string> {
-      const response = await fetch(url);
-      const buffer = await response.arrayBuffer();
-      // Convert ArrayBuffer to base64
-      let binary = '';
-      const bytes = new Uint8Array(buffer);
-      const len = bytes.byteLength;
-      for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return btoa(binary);
-    }
-
-    const notoSans = await loadFont("/fonts/NotoSans-VariableFont_wdth,wght.ttf");
-    const notoDevanagari = await loadFont("/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf");
-
-    // Add fonts to jsPDF
-    doc.addFileToVFS("NotoSans.ttf", notoSans);
-    doc.addFont("NotoSans.ttf", "NotoSans", "normal");
-
-    doc.addFileToVFS("NotoSansDevanagari.ttf", notoDevanagari);
-    doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
-    // Choose font based on language family
-    let selectedFont = "NotoSans"; // default Latin font
+// Determine user language
+const lang = (userObj.language as string) || 'en';
+ let selectedFont = "NotoSans"; // default Latin font
     if (["hi", "ka", "ml"].includes(lang)) {
       selectedFont = "NotoSansDevanagari";
     }
+const fontInfo = FONT_MAP[lang] || FONT_MAP['en'];
+ const translations: Record<string, { dob: string; location: string }> = {
+  en: { dob: "DOB", location: "Location not available" },
+  hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" },
+  fr: { dob: "Date de naissance", location: "Lieu non disponible" },
+  be: { dob: "Нарадзіўся", location: "Месца недаступна" },
+  ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" },
+  ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" },
+};
+
+// Load font dynamically
+const fontBase64 = await loadFont(fontInfo.file);
+doc.addFileToVFS(`${fontInfo.name}.ttf`, fontBase64);
+doc.addFont(`${fontInfo.name}.ttf`, fontInfo.name, 'normal');
+
+// Set selected font for text
+doc.setFont(fontInfo.name, 'normal');
+
+// --- Now you can write text dynamically ---
+const textLines = [
+  `${userObj?.name || 'Unknown'}`,
+  `${userObj?.dob ? translations[lang]?.dob + ': ' + userObj.dob : 'N/A'} ${userObj?.time || ''}`,
+  `${userObj?.place || translations[lang]?.location || 'Location not available'}`,
+  `${new Date().toLocaleDateString(lang, { year: 'numeric', month: 'long' })}`,
+];
+
+const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+textLines.forEach((line, i) => {
+  doc.setFont(fontInfo.name, 'normal');
+  if (i === 0) doc.setFontSize(32);
+  else if (i === textLines.length - 1) doc.setFontSize(18);
+  else doc.setFontSize(22);
+
+  doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, { align: 'right' });
+});
+
+    // --- Translation map ---
+   
+
+    // const lang = (userObj.language as string) || "en";
+    // const t = translations[lang as keyof typeof translations] || translations.en;
+    // // Helper function to fetch font as base64
+    // async function loadFont(url: string): Promise<string> {
+    //   const response = await fetch(url);
+    //   const buffer = await response.arrayBuffer();
+    //   // Convert ArrayBuffer to base64
+    //   let binary = '';
+    //   const bytes = new Uint8Array(buffer);
+    //   const len = bytes.byteLength;
+    //   for (let i = 0; i < len; i++) {
+    //     binary += String.fromCharCode(bytes[i]);
+    //   }
+    //   return btoa(binary);
+    // }
+
+    // const notoSans = await loadFont("/fonts/NotoSans-VariableFont_wdth,wght.ttf");
+    // const notoDevanagari = await loadFont("/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf");
+
+    // // Add fonts to jsPDF
+    // doc.addFileToVFS("NotoSans.ttf", notoSans);
+    // doc.addFont("NotoSans.ttf", "NotoSans", "normal");
+
+    // doc.addFileToVFS("NotoSansDevanagari.ttf", notoDevanagari);
+    // doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
+    // // Choose font based on language family
+   
 
     // Register fonts
     // doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
     // doc.addFont("NotoSansDevanagari-VariableFont_wdth,wght.ttf", "NotoSansDevanagari", "normal");
 
     // Text lines
-    const textLines = [
-      `${userObj?.name || "Unknown"}`,
-      `${userObj?.dob ? t.dob + ": " + userObj.dob : "N/A"} ${userObj?.time || ""}`,
-      `${userObj?.place || t.location}`,
-      `${reportDate}`
-    ];
+    // const textLines = [
+    //   `${userObj?.name || "Unknown"}`,
+    //   `${userObj?.dob ? t.dob + ": " + userObj.dob : "N/A"} ${userObj?.time || ""}`,
+    //   `${userObj?.place || t.location}`,
+    //   `${reportDate}`
+    // ];
 
-    doc.setTextColor(255, 255, 255);
+    // doc.setTextColor(255, 255, 255);
 
-    const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+    // const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
-    textLines.forEach((line, i) => {
-      doc.setFont(selectedFont, "normal");
-      if (i === 0) {
-        doc.setFontSize(32);
-      } else if (i === textLines.length - 1) {
-        doc.setFontSize(18);
-      } else {
-        doc.setFontSize(22);
-      }
+    // textLines.forEach((line, i) => {
+    //   doc.setFont(selectedFont, "normal");
+    //   if (i === 0) {
+    //     doc.setFontSize(32);
+    //   } else if (i === textLines.length - 1) {
+    //     doc.setFontSize(18);
+    //   } else {
+    //     doc.setFontSize(22);
+    //   }
 
-      doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, {
-        align: "right",
-      });
-    });
+    //   doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, {
+    //     align: "right",
+    //   });
+    // });
     // --- Generate Disclaimer Page using AI ---
     const disclaimerText = `
 This Vedic Astrology Report ("Report") is prepared based on the principles and practices of
