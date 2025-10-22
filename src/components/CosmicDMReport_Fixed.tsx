@@ -76,17 +76,17 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
   });
 }
 
-const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, unknown>, userData: Array<[string, unknown]>) => {
+const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
   const marginY = 25;
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
-
+const userObj = userData ? Object.fromEntries(userData) : {};
   for (const planetKey in planets) {
-    if (!planets.hasOwnProperty(planetKey)) continue;
-    const planet = planets[planetKey];
+    if (!Object.prototype.hasOwnProperty.call(planets, planetKey)) continue;
+    const planet = planets[planetKey] as Planet;
 
     // Generate planet text using API (same as before)
     const planetPrompt = `
@@ -105,7 +105,7 @@ Include:
 - Insights on life lessons, growth, and destiny
 
 JSON data for this planet: ${JSON.stringify(planet)}
-language: ${userData.language || "English"}.
+language: ${userObj.language || "English"}.
 `;
     const response = await fetch("/api/gemini", {
       method: "POST",
@@ -135,8 +135,8 @@ language: ${userData.language || "English"}.
     doc.text(`${planet.full_name} (${planet.name}) Report`, pageWidth / 2, 95, { align: "center" });
 
     // Planet image
-    let imagePath = `/assets/planets/${planet.name}.jpg`;
-    let imageY = 100;
+    const imagePath = `/assets/planets/${planet.name}.jpg`;
+    const imageY = 100;
     let imageHeight = 200;
     try {
       doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
@@ -555,16 +555,28 @@ async function addAllDivisionalChartsFromJSON(
     doc.setFont("NatoSans", "bold");
     doc.setFontSize(16);
     doc.setTextColor(textColor);
-    doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
+    doc.text(
+      chartData && typeof chartData === "object" && "chart_name" in chartData && chartData.chart_name
+        ? String((chartData as any).chart_name).toUpperCase()
+        : "Divisional Chart",
+      pageWidth / 2,
+      currentY - 10,
+      { align: "center" }
+    );
 
     try {
       // Use cached SVG background
-      const overlaySvgText = chartData.svg || chartData.chart_svg || "";
+      const overlaySvgText = chartData && typeof chartData === "object"
+        ? (("svg" in chartData && (chartData as any).svg) || ("chart_svg" in chartData && (chartData as any).chart_svg) || "")
+        : "";
       const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
       const xPos = (pageWidth - imgWidth) / 2;
       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
     } catch (err) {
-      console.error(`Error rendering chart ${chartData.chart_name}`, err);
+      const chartName = (chartData && typeof chartData === "object" && "chart_name" in chartData)
+        ? (chartData as any).chart_name
+        : "Unknown Chart";
+      console.error(`Error rendering chart ${chartName}`, err);
       doc.setFont("NatoSans", "normal");
       doc.setFontSize(14);
       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
@@ -596,7 +608,7 @@ const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array
   const marginY = 25;
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
-
+ const userObj = userData ? Object.fromEntries(userData) : {};
   // Generate reports sequentially for cleaner structure (similar to planet version)
   for (const house of houses) {
     const housePrompt = `
@@ -613,7 +625,7 @@ Include:
 - A symbolic theme for this house (but only describe it naturally, not as “image reference”)
 
 JSON data: ${JSON.stringify(house)}
-Language: ${userData.language || "English"}.
+Language: ${userObj.language || "English"}.
 `;
 
     const response = await fetch("/api/gemini", {
@@ -645,8 +657,8 @@ Language: ${userData.language || "English"}.
     doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 95, { align: "center" });
 
     // House image
-    let imagePath = `/assets/houses/house${house.house}.jpg`;
-    let imageY = 100;
+    const imagePath = `/assets/houses/house${house.house}.jpg`;
+    const imageY = 100;
     let imageHeight = 200;
     try {
       doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
@@ -745,15 +757,15 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     const doc = new jsPDF("p", "pt", "a4");
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const lineHeight = 26; // slightly increased spacing for bigger text
-
+const lineHeight = 26; // slightly increased spacing for bigger text
+const userObj = (userData ? Object.fromEntries(userData) : {}) as Record<string, any>;
     // --- COVER PAGE SECTION ---
     const coverImageMale = "/assets/cover_male.jpg";
     const coverImageFemale = "/assets/cover_female.jpg";
 
     // Determine which image to use based on gender
     let selectedCoverImage = coverImageMale;
-    if (userData?.sex?.toLowerCase() === "female") {
+    if (userObj?.sex?.toLowerCase() === "female") {
       selectedCoverImage = coverImageFemale;
     }
 
@@ -778,7 +790,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     const marginRight = 50;
     const marginBottom = 80;
 
-    const reportDate = new Date().toLocaleDateString(userData.language || "en-US", {
+    const reportDate = new Date().toLocaleDateString(userObj.language || "en-US", {
       year: "numeric",
       month: "long"
     });
@@ -793,7 +805,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }
     };
 
-    const userObj = userData ? Object.fromEntries(userData) : {};
+    
   const language = (userObj.language as string) || "en";
     // Pick language or fallback
     const lang = (userObj.language as string) || "en";
@@ -819,7 +831,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
 
     doc.setTextColor(255, 255, 255);
 
-    let yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+   const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
     textLines.forEach((line, i) => {
       doc.setFont(selectedFont, "normal");
@@ -838,7 +850,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     // --- Generate Disclaimer Page using AI ---
     const disclaimerPrompt =
       "You are an expert Vedic astrologer writing a disclaimer for a comprehensive astrology report. " +
-      "Write a professional, comprehensive disclaimer for a Vedic astrology report in " + (userData.language || "English") + " language. The disclaimer should: " +
+      "Write a professional, comprehensive disclaimer for a Vedic astrology report in " + (userObj.language || "English") + " language. The disclaimer should: " +
       "1. Explain that the report is based on Vedic astrology principles. " +
       "2. Clarify that astrology is for guidance, not deterministic predictions. " +
       "3. Mention that interpretations may vary across astrologers and traditions. " +
@@ -3884,7 +3896,12 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         }
       }
     };
-    await generatePlanetReportsWithImages(doc, planetData.planets, userData);
+    // Ensure each planet object includes required 'planetId' field expected by generatePlanetReportsWithImages
+    const planetsWithId = Object.fromEntries(
+      Object.entries(planetData.planets).map(([id, p]) => [id, { planetId: id, ...(p as any) }])
+    ) as Record<string, Planet>;
+
+    await generatePlanetReportsWithImages(doc, planetsWithId, userData);
     // Add initial "Love and Marriage" page
     doc.addPage();
     const margin = 25;

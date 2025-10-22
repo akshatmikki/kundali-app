@@ -152,7 +152,7 @@ export default function AstroPDF() {
         `${place}${state ? `, ${state}` : ''}, ${country}`,
         Number(lat),
         Number(lon),
-        userData
+        Object.entries(userData)
       );
 
       setError("Report generated successfully with Avakahada Chakra table! Check your downloads.");
