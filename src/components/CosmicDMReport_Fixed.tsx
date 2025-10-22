@@ -6,17 +6,12 @@ import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js"
 import "../../public/fonts/NotoSansDevanagari-VariableFont_wdth,wght-normal.js"
 
 const FONT_MAP: Record<string, { file: string; name: string }> = {
-  en: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' },
-  hi: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
-  mr: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
-  ne: { file: '/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf', name: 'NotoSansDevanagari' },
-  ka: { file: '/fonts/NotoSansKannada-VariableFont_wdth,wght.ttf', name: 'NotoSansKannada' },
-  ml: { file: '/fonts/NotoSansMalayalam-VariableFont_wdth,wght.ttf', name: 'NotoSansMalayalam' },
-  ta: { file: '/fonts/NotoSansTamil-VariableFont_wdth,wght.ttf', name: 'NotoSansTamil' },
-  te: { file: '/fonts/NotoSansTelugu-VariableFont_wdth,wght.ttf', name: 'NotoSansTelugu' },
-  gu: { file: '/fonts/NotoSansGujarati-VariableFont_wdth,wght.ttf', name: 'NotoSansGujarati' },
-  be: { file: '/fonts/NotoSansBengali-VariableFont_wdth,wght.ttf', name: 'NotoSansBengali' },
-  fr: { file: '/fonts/NotoSans-VariableFont_wdth,wght.ttf', name: 'NotoSans' }, // Latin fallback
+  en: { file: "/fonts/Geist-Regular.woff2", name: "Geist" },
+  hi: { file: "/fonts/NotoSansDevanagari-Regular.woff2", name: "NotoDev" },
+  fr: { file: "/fonts/Geist-Regular.woff2", name: "Geist" },
+  be: { file: "/fonts/Geist-Regular.woff2", name: "Geist" },
+  ka: { file: "/fonts/NotoSansTamil-Regular.woff2", name: "NotoTamil" },
+  ml: { file: "/fonts/NotoSansMalayalam-Regular.woff2", name: "NotoMalay" },
 };
 
 interface Planet {
@@ -633,7 +628,6 @@ async function addAllDivisionalChartsFromJSON(
   }
 }
 
-
 // // Helper: Convert Blob → Base64
 // async function blobToBase64(blob: Blob): Promise<string> {
 //   return new Promise((resolve, reject) => {
@@ -859,8 +853,8 @@ const translations: Record<string, { dob: string; location: string }> = { en: { 
   // --- Load the correct font ---
   const fontInfo = FONT_MAP[lang] || FONT_MAP["en"];
   const fontBase64 = await loadFont(fontInfo.file);
-  doc.addFileToVFS(`${fontInfo.name}.ttf`, fontBase64);
-  doc.addFont(`${fontInfo.name}.ttf`, fontInfo.name, "normal");
+  doc.addFileToVFS(`${fontInfo.name}.woff2`, fontBase64);
+  doc.addFont(`${fontInfo.name}.woff2`, fontInfo.name, "normal");
   doc.setFont(fontInfo.name, "normal");
 
   // --- Text lines ---
@@ -954,30 +948,25 @@ This Vedic Astrology Report ("Report") is prepared based on the principles and p
 Vedic Astrology, also known as Jyotisha, an ancient Indian system of astrology. It is intended
 to provide personalized insights and guidance based on your birth details and planetary
 positions at the time of your birth.
-
 Please understand that astrological interpretations are not definitive predictions of the future.
 Astrology should be regarded as a tool for self-understanding, personal growth, and navigating
 life's potential challenges and opportunities. The insights provided in this Report are intended
 to offer a broader perspective and potential influences, but they do not dictate or determine
 specific outcomes.
-
 It is important to acknowledge that interpretations of astrological charts can vary among
 different astrologers and across different Vedic astrological traditions. The interpretations
 presented in this Report are based on the understanding and application of Vedic astrological
 principles by the astrologer who prepared it.
-
 Any remedies, suggestions, or recommendations provided in this Report, including but not
 limited to gemstone recommendations, mantra chanting, or lifestyle adjustments, are offered
 for informational purposes only. They should not be considered a substitute for professional
 medical, legal, financial, or psychological advice. Always consult with qualified professionals
 in these fields for any health concerns, legal matters, financial decisions, or mental health
 needs.
-
 The effects of astrological influences and remedies are highly individual and dependent on
 various factors, including your personal efforts, free will, and the interplay of other karmic
 influences. Results may vary significantly from person to person, and there is no guarantee that
 specific outcomes will be achieved.
-
 Legal Disclaimer: The information provided in this Report is for entertainment and
 informational purposes only. The astrologer and the provider of this Report shall not be liable
 for any direct, indirect, incidental, consequential, or punitive damages arising out of or relating
@@ -986,7 +975,6 @@ and hold harmless the astrologer and the provider of this Report from and all cl
 liabilities, damages, and expenses (including attorneys' fees) arising out of your use of or
 reliance on this Report. By proceeding to read and utilize this Report, you acknowledge and
 agree to the terms of this disclaimer.
-
 We hope this Report provides you with valuable insights and helps you navigate your life
 journey with greater awareness and understanding. Remember that you are the master of your
 destiny, and the stars are merely guiding lights on your path. Embrace the cosmos, trust your
