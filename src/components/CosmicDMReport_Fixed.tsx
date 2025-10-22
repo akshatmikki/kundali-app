@@ -914,7 +914,7 @@ Legal Disclaimer: The information provided in this Report is for entertainment a
 informational purposes only. The astrologer and the provider of this Report shall not be liable
 for any direct, indirect, incidental, consequential, or punitive damages arising out of or relating
 to the use of or reliance on the information contained in this Report. You agree to indemnify
-and hold harmless the astrologer and the provider of this Report from any and all claims,
+and hold harmless the astrologer and the provider of this Report from and all claims,
 liabilities, damages, and expenses (including attorneys' fees) arising out of your use of or
 reliance on this Report. By proceeding to read and utilize this Report, you acknowledge and
 agree to the terms of this disclaimer.
@@ -1114,37 +1114,40 @@ with awareness and intention`;
 
     // --- ✅ Add subheading numbers like 1.1, 1.2 ---
     const lines = tocText.split("\n");
-    let currentMain = "";
-    let subCount = 0;
-    let finalToc = "";
+let currentMain = "";
+let subCount = 0;
+let finalToc = "";
 
-    for (let line of lines) {
-      line = line.trim();
-      if (!line) {
-        finalToc += "\n";
-        continue;
-      }
+for (let line of lines) {
+  line = line.trim();
+  if (!line) {
+    finalToc += "\n";
+    continue;
+  }
 
-      // Detect main heading (starts with number)
-      if (/^\d{2}/.test(line)) {
-        const match = line.match(/^(\d{2})\s+(.*)/);
-        if (match) {
-          currentMain = String(parseInt(match[1])); // convert 01 -> 1
-          subCount = 0;
-          finalToc += `${currentMain}. ${match[2]}\n`;
-        }
-      }
-      // Detect subheading (starts with "-")
-      else if (line.startsWith("-")) {
-        subCount++;
-        const subNumber = `${currentMain}.${subCount}`;
-        finalToc += `   ${subNumber} ${line.replace(/^-+\s*/, "")}\n`;
-      } else {
-        finalToc += `${line}\n`;
-      }
-    }
+  // Detect main heading (starts with number)
+  const mainMatch = line.match(/^(\d{2})\s+(.*)/);
+  if (mainMatch) {
+    currentMain = String(parseInt(mainMatch[1])); // 01 -> 1
+    subCount = 0;
+    finalToc += `${currentMain}. ${mainMatch[2]}\n`;
+    continue;
+  }
 
-    tocText = finalToc;
+  // Detect subheading (starts with "-"), allowing spaces before "-"
+  const subMatch = line.match(/^[-–]\s*(.*)/); // handles "-" or "–" (en dash)
+  if (subMatch) {
+    subCount++;
+    const subNumber = `${currentMain}.${subCount}`;
+    finalToc += `   ${subNumber} ${subMatch[1]}\n`;
+    continue;
+  }
+
+  // Any other line
+  finalToc += `${line}\n`;
+}
+
+tocText = finalToc;
 
     // --- PDF Rendering ---
     doc.addPage();
