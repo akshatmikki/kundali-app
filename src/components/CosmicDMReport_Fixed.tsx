@@ -2,6 +2,8 @@ import { jsPDF } from "jspdf";
 import { generateReusableTableContent, generateTableContentPrompt } from "./ReusableTableContent";
 import removeMarkdown from "remove-markdown";
 import Default from "../app/data/Default.json";
+import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js"
+import "../../public/fonts/NotoSansDevanagari-VariableFont_wdth,wght-normal.js"
 
 interface Planet {
   planetId: string; full_name: string; name: string; nakshatra: string; nakshatra_no: number; nakshatra_pada: number; retro: boolean;
@@ -74,7 +76,7 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
   });
 }
 
-const generatePlanetReportsWithImages = async (doc: any, planets: Record<string, any>) => {
+const generatePlanetReportsWithImages = async (doc: any, planets: Record<string, any>, userData: any) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -103,6 +105,7 @@ Include:
 - Insights on life lessons, growth, and destiny
 
 JSON data for this planet: ${JSON.stringify(planet)}
+language: ${userData.language || "English"}.
 `;
     const response = await fetch("/api/gemini", {
       method: "POST",
@@ -126,7 +129,7 @@ JSON data for this planet: ${JSON.stringify(planet)}
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
     // Planet title
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text(`${planet.full_name} (${planet.name}) Report`, pageWidth / 2, 95, { align: "center" });
@@ -144,7 +147,7 @@ JSON data for this planet: ${JSON.stringify(planet)}
 
     // Text starting after image
     let cursorY = imageY + imageHeight + 20; // padding below image
-    doc.setFont("Times", "normal");
+    doc.setFont("NatoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     const lineHeight = doc.getFontSize() * 1.5;
@@ -410,7 +413,7 @@ function addParagraphs(doc: any, text: string, x: number, y: number, maxWidth: n
 //       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
 //       // Header
-//       doc.setFont("Times", "bold");
+//       doc.setFont("NatoSans", "bold");
 //       doc.setFontSize(22);
 //       doc.setTextColor("#a16a21");
 //       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
@@ -420,7 +423,7 @@ function addParagraphs(doc: any, text: string, x: number, y: number, maxWidth: n
 //     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
 
 //     // Chart title
-//     doc.setFont("Times", "bold");
+//     doc.setFont("NatoSans", "bold");
 //     doc.setFontSize(16);
 //     doc.setTextColor(textColor);
 //     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, {
@@ -439,7 +442,7 @@ function addParagraphs(doc: any, text: string, x: number, y: number, maxWidth: n
 //       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
 //     } catch (err) {
 //       console.error(`Error rendering chart ${chartData.chart_name}`, err);
-//       doc.setFont("Times", "normal");
+//       doc.setFont("NatoSans", "normal");
 //       doc.setFontSize(14);
 //       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, {
 //         align: "center",
@@ -540,7 +543,7 @@ async function addAllDivisionalChartsFromJSON(
       doc.setLineWidth(1.5);
       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#a16a21");
       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
@@ -549,7 +552,7 @@ async function addAllDivisionalChartsFromJSON(
     const positionInPage = i % chartsPerPage;
     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
 
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(16);
     doc.setTextColor(textColor);
     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
@@ -562,7 +565,7 @@ async function addAllDivisionalChartsFromJSON(
       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
     } catch (err) {
       console.error(`Error rendering chart ${chartData.chart_name}`, err);
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(14);
       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
     }
@@ -586,7 +589,7 @@ async function addAllDivisionalChartsFromJSON(
 //   });
 // }
 
-const generateHouseReports = async (doc: any, houses: House[]) => {
+const generateHouseReports = async (doc: any, houses: House[],userData:any) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -610,6 +613,7 @@ Include:
 - A symbolic theme for this house (but only describe it naturally, not as “image reference”)
 
 JSON data: ${JSON.stringify(house)}
+Language: ${userData.language || "English"}.
 `;
 
     const response = await fetch("/api/gemini", {
@@ -635,7 +639,7 @@ JSON data: ${JSON.stringify(house)}
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
     // Title
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 95, { align: "center" });
@@ -653,7 +657,7 @@ JSON data: ${JSON.stringify(house)}
 
     // Setup for text
     let cursorY = imageY + imageHeight + 20; // spacing below image
-    doc.setFont("Times", "normal");
+    doc.setFont("NatoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
@@ -773,35 +777,44 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     // --- TEXT ON RIGHT SIDE ---
     const marginRight = 50;
     const marginBottom = 80;
-    const reportDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long" });
+    const reportDate = new Date().toLocaleDateString(userData.language || "en-US", { year: "numeric", month: "long" });
 
-    // Define text lines
+    // Translation map for static text (you can expand for more languages)
+    const translations = {
+      en: { dob: "DOB", location: "Location not available" },
+      hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" },
+      fr: { dob: "Date de naissance", location: "Lieu non disponible" },
+      be: { dob: "Нарадзіўся", location: "Месца недаступна" },
+      ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" },
+      ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }
+    };
+
+    // Pick language or fallback to English
+    const lang = userData.language || "en";
+    const t = translations[lang] || translations.en;
+
+    // Define text lines in user’s language
     const textLines = [
       `${userData?.name || "Unknown"}`,
-      `${userData?.dob || "N/A"}, ${userData?.time || ""}`,
-      `${userData?.place || "Location not available"}`,
-      `${reportDate || "September 2025"}`
+      `${userData?.dob ? t.dob + ": " + userData.dob : "N/A"} ${userData?.time || ""}`,
+      `${userData?.place || t.location}`,
+      `${reportDate}`
     ];
 
-    // Set text color to white (for dark covers)
+    doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
     doc.setTextColor(255, 255, 255);
 
-    // Starting Y position from bottom
     let yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
-    // Draw text right-aligned with varied font sizes
     textLines.forEach((line, i) => {
       if (i === 0) {
-        // Name - largest and bold
-        doc.setFont("Times", "bold");
+        doc.setFont("NotoSans", "bold");
         doc.setFontSize(32);
       } else if (i === textLines.length - 1) {
-        // Date - smaller and lighter
-        doc.setFont("Times", "italic");
+        doc.setFont("NotoSans", "italic");
         doc.setFontSize(18);
       } else {
-        // Middle lines - medium size
-        doc.setFont("Times", "normal");
+        doc.setFont("NotoSans", "normal");
         doc.setFontSize(22);
       }
 
@@ -809,7 +822,6 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         align: "right",
       });
     });
-
     // --- Generate Disclaimer Page using AI ---
     const disclaimerPrompt =
       "You are an expert Vedic astrologer writing a disclaimer for a comprehensive astrology report. " +
@@ -840,19 +852,19 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("Times", "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("DISCLAIMER", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont("Times", "normal");
+    doc.setFont("NotoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     const leftMargin = 50;
     const rightMargin = 50;
     const usableWidth = pageWidth - leftMargin - rightMargin;
 
-    addParagraphs(doc, disclaimerText, leftMargin, 50, usableWidth);
+    addParagraphs(doc, disclaimerText, leftMargin, 100, usableWidth);
 
     // addParagraphs(doc, disclaimerText, 50, 110);
 
@@ -886,22 +898,22 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("MESSAGE FROM THE AUTHOR", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont("Times", "normal");
+    doc.setFont("NatoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
-    addParagraphs(doc, authorText, 50, 50, pageWidth - 50 - 50);
+    addParagraphs(doc, authorText, 50, 100, pageWidth - 50 - 50);
 
     // --- Generate Study Guide using AI ---
     const studyPrompt =
       "You are an expert Vedic astrologer writing a study guide for a comprehensive astrology report. " +
       "Write a helpful study guide in " + (userData.language || "English") + " language that explains how to best read and use a Vedic astrology report. The guide should: " +
-      "1. Explain the importance of reading the report multiple times. " +
+      "1. Explain the importance of reading the report multiple NatoSans. " +
       "2. Emphasize the layered nature of cosmic insights. " +
       "3. Suggest creating a calm, focused mindset before reading. " +
       "4. Recommend taking notes and reflecting on insights. " +
@@ -927,15 +939,15 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("BEST WAY TO STUDY THE REPORT", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont("Times", "normal");
+    doc.setFont("NatoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
-    addParagraphs(doc, studyText, 50, 50, pageWidth - 50 - 50);
+    addParagraphs(doc, studyText, 50, 100, pageWidth - 50 - 50);
     // --- Generate Table of Contents using AI ---
     let tocText = `
 01 Immediate Personal Insights
@@ -1006,7 +1018,8 @@ export async function generateAndDownloadFullCosmicReportWithTable(
 12 Q&A & Personalized Advice
    - Frequently Asked Questions
    - Next Steps: Using Insights & Remedies for Personal Growth
-`;
+`
+"Language: " + (userData.language || "English") + ".";
 
     tocText = removeMarkdown(tocText);
 
@@ -1050,15 +1063,15 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
 
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont("Times", "normal");
+    doc.setFont("NatoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
-    addParagraphs(doc, tocText, 50, 50, pageWidth - 50 - 50);
+    addParagraphs(doc, tocText, 50, 100, pageWidth - 50 - 50);
 
     // --- Add Table Content Page with Real API Data ---
     if (kundliData) {
@@ -3523,7 +3536,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     ]);
 
     doc.addPage();
-    await generateHouseReports(doc, houses);
+    await generateHouseReports(doc, houses,userData);
 
     const planetData = {
       "planets": {
@@ -3858,7 +3871,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         }
       }
     };
-    await generatePlanetReportsWithImages(doc, planetData.planets);
+    await generatePlanetReportsWithImages(doc, planetData.planets,userData);
     // Add initial "Love and Marriage" page
     doc.addPage();
     const margin = 25;
@@ -3892,7 +3905,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Love and Marriage", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -3911,6 +3924,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         You are a highly experienced Vedic astrologer specializing in Love & Marriage astrology.
         Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
         ${sectionPrompt}
+        language: ${userData.language}
         JSON: {
         "0": {
             "name": "As",
@@ -4947,15 +4961,15 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, studyText, 50, 50, pageWidth - 50 - 50);
+      addParagraphs(doc, studyText, 50, 100, pageWidth - 50 - 50);
     }
     doc.addPage();
 
@@ -4984,7 +4998,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Career & Profession", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -5001,6 +5015,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         You are a highly experienced Vedic astrologer specializing in Career & Profession astrology.
         Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
         ${sectionPrompt}
+        language:${userData.language}
         JSON: {
     "0": {
       "name": "As",
@@ -5795,15 +5810,15 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
     }
 
     doc.addPage();
@@ -5833,7 +5848,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Health & Wellbeing", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -5850,6 +5865,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         You are an expert Vedic astrologer specializing in health and wellbeing.
         Using the provided JSON input, generate a professional, detailed report for this section:
         ${sectionPrompt}
+        language:${userData.language}
         JSON: {
           "manglik_by_mars": true,
           "bot_response": "You are 6% manglik. ",
@@ -6513,15 +6529,15 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
     }
     doc.addPage();
 
@@ -6535,7 +6551,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Karmic & Purpose Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -6552,6 +6568,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     You are an expert Vedic astrologer specializing in karmic insights and life purpose.
     Using the provided JSON input, generate a professional, detailed report for this section:
     ${sectionPrompt}
+    language: ${userData.language}
     JSON: "response": { Sun:{
         "bot_response": "The Sun and Moon are always direct ",
         "status": true},
@@ -8234,15 +8251,15 @@ Rahu:{
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
     }
 
     // Generate "09 Timing & Predictive Insights" section
@@ -8274,7 +8291,7 @@ Rahu:{
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Timing & Predictive Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -8294,6 +8311,7 @@ Rahu:{
     You are an expert, narrative-focused Vedic astrologer. 
     Generate a lavishly detailed, highly personalized astrology report section titled:
     "${sectionPrompt}"
+    language: ${userData.language}
     based on the given JSON birth data.
 JSON: {
     "mahadasha": [
@@ -9078,13 +9096,13 @@ JSON: {
       doc.rect(25, 25, 545, 792, "S");
 
       // --- Section Title ---
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       // --- Section Subtitle ---
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       doc.text(sectionPrompt.split(":")[1] || "", pageWidth / 2, 80, { align: "center" });
@@ -9102,7 +9120,7 @@ JSON: {
 
         cursorY = addPaginatedTable(doc, ["Planet", "Start Date"], mahaData, cursorY, PAGE_HEIGHT);
 
-        doc.setFont("Times", "italic");
+        doc.setFont("NatoSans", "italic");
         doc.setFontSize(12);
         doc.setTextColor("#444");
 
@@ -9131,7 +9149,7 @@ JSON: {
             PAGE_HEIGHT
           );
 
-          doc.setFont("Times", "italic");
+          doc.setFont("NatoSans", "italic");
           doc.setFontSize(12);
           doc.setTextColor("#444");
           //const explanation = `The table above represents the sub-periods (Antardashas) of ${mahaName} Mahadasha. These finer periods influence day-to-day experiences, decisions, and personal growth.`;
@@ -9144,7 +9162,7 @@ JSON: {
       }
 
       // --- Regular content paragraphs ---
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, cursorY, pageWidth - 50 - 50);
@@ -9178,7 +9196,7 @@ JSON: {
       // --- DRAW FOOTER WITH PAGE NUMBER ---
       const drawFooter = () => {
         const footerY = pageHeight - 20;
-        doc.setFont("Times", "italic");
+        doc.setFont("NatoSans", "italic");
         doc.setFontSize(10);
         doc.setTextColor("#999");
         doc.text(
@@ -9191,7 +9209,7 @@ JSON: {
 
       // --- DRAW HEADER ROW ---
       const drawHeader = (yPos: number) => {
-        doc.setFont("Times", "bold");
+        doc.setFont("NatoSans", "bold");
         doc.setFontSize(13);
         doc.setFillColor(161, 106, 33);
         doc.setTextColor(255, 255, 255);
@@ -9211,7 +9229,7 @@ JSON: {
       drawPageBorder();
       let y = drawHeader(startY);
 
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(12);
       doc.setTextColor(0);
 
@@ -9224,7 +9242,7 @@ JSON: {
           drawPageBorder();
           y = PAGE_MARGIN;
           y = drawHeader(y);
-          doc.setFont("Times", "normal");
+          doc.setFont("NatoSans", "normal");
           doc.setFontSize(12);
           doc.setTextColor(0);
         }
@@ -9283,7 +9301,7 @@ JSON: {
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Remedies & Spiritual Guidance", pageWidth / 2, pageHeight / 2 + 40, { align: "center", baseline: "middle" });
@@ -9300,6 +9318,7 @@ JSON: {
     You are an expert, narrative-focused Vedic astrologer.
     Generate a lavishly detailed, highly personalized astrology remedies section titled:
     "${sectionPrompt}"
+    language:${userData.language}
     based on the given JSON birth data.
 
     Include practical remedies such as mantras, gemstones, rituals, donations, yantras, and lifestyle adjustments.
@@ -10306,15 +10325,15 @@ Rahu:{
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
     }
     doc.addPage();
 
@@ -10343,7 +10362,7 @@ Rahu:{
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Set font and color
-    doc.setFont("Times", "bold");
+    doc.setFont("NatoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
 
@@ -10520,6 +10539,7 @@ Rahu:{
 You are an expert, narrative-focused Vedic astrologer.
 Generate a lavishly detailed, highly personalized astrology section titled:
 "${section.title}"
+language:${userData.language}
 based on the given JSON birth data.
 
 Include precise calculations, interpretations, and insights from planetary positions, houses, yogas, dashas, transits, and doshas.
@@ -11740,15 +11760,15 @@ JSON: {
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(section.title, pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 50, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
     }
 
     // Generate "12 Q&A & Personalized Advice" secti
@@ -11763,7 +11783,7 @@ JSON: {
 You are an expert Vedic astrologer and holistic consultant.
 Analyze the following *complete client data* — including multi-chart birth data (D1, D9, D10, D60, D2, D3, D4),
 plus any personal or contextual data provided (location, date/time, gender).
-
+language:${userData.language}
 Generate 12–15 *personalized, specific* client questions organized in categories:
 
 CAREER:
@@ -11837,7 +11857,7 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
 You are an empathetic and wise Vedic astrologer. Based on this client's complete data
 (including all divisional charts: D1, D9, D10, D60, D2, D3, D4, plus personal metadata),
 write a detailed, client-friendly answer to the question below.
-
+language:${userData.language}
 Include:
 - Relevant planetary influences (mention houses and planets)
 - Yogas and Dashas affecting this area
@@ -11919,17 +11939,17 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      doc.setFont("Times", "bold");
+      doc.setFont("NatoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text("Q&A & Personalized Guidance", pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont("Times", "normal");
+      doc.setFont("NatoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
 
       // Step 4: Add all content
-      addParagraphs(doc, fullQA, 50, 50, pageWidth - 50 - 50);
+      addParagraphs(doc, fullQA, 50, 100, pageWidth - 50 - 50);
 
       // Step 5: Footer
       const pageCount = doc.internal.getNumberOfPages();
