@@ -306,7 +306,7 @@ Language: ${userData.language || "English"}.
 
     // Image
     const imagePath = `/assets/planets/${planet.name}.jpg`;
-    let imageY = 100;
+    const imageY = 100;
     let imageHeight = 200;
     try {
       doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
@@ -804,7 +804,7 @@ Language: ${userData.language || "English"}.
     doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 95, { align: "center" });
 
     // House image
-    let imageY = 100;
+    const imageY = 100;
     let imageHeight = 200;
     const imagePath = `/assets/houses/house${house.house}.jpg`;
     try {
@@ -958,7 +958,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     //doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
     doc.setTextColor(255, 255, 255);
 
-    let yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+    const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
     textLines.forEach((line, i) => {
       if (i === 0) {
@@ -1167,8 +1167,8 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     let subCount = 0;
     let finalToc = "";
 
-    for (let rawLine of lines) {
-      let line = rawLine.trim();
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
       if (!line) {
         finalToc += "\n";
         continue;
@@ -3648,8 +3648,6 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       { chart_name: "d27" },
       { chart_name: "d5" },
       { chart_name: "d8" },
-      { chart_name: "d24r" },
-      { chart_name: "d10r" },
       { chart_name: "d20" },
       { chart_name: "d4" },
       { chart_name: "d1" },
@@ -5086,7 +5084,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       });
 
       const data = await response.json();
-      let text =
+      const text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
@@ -5942,7 +5940,7 @@ language:${userData.language}
       });
 
       const data = await response.json();
-      let text =
+      const text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
@@ -6671,7 +6669,7 @@ language:${userData.language}
       });
 
       const data = await response.json();
-      let text =
+      const text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
@@ -8403,7 +8401,7 @@ Rahu:{
       });
 
       const data = await response.json();
-      let text =
+      const text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
@@ -10488,7 +10486,7 @@ Rahu:{
       });
 
       const data = await response.json();
-      let text =
+      const text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
@@ -11796,7 +11794,7 @@ JSON: {
       });
 
       const data = await response.json();
-      let text =
+      const text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
@@ -11934,7 +11932,7 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
         });
 
         const data = await response.json();
-        let ans = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const ans = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
         return ans.replace(/[*_~`]/g, "");
       } catch (err) {
         if (retryCount < 2) {
