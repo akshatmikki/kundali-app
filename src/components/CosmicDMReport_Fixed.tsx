@@ -3,44 +3,14 @@ import { generateReusableTableContent, generateTableContentPrompt } from "./Reus
 import removeMarkdown from "remove-markdown";
 import Default from "../app/data/Default.json";
 import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js"
-import "../../public/fonts/NotoSansDevanagari-VariableFont_wdth,wght-normal.js"
-
-const FONT_MAP: Record<string, string> = {
-  en: "helvetica",
-  hi: "helvetica",
-  fr: "helvetica",
-  be: "helvetica",
-  ka: "helvetica",
-  ml: "helvetica",
-  ta: "helvetica",
-  te: "helvetica",
-  mr: "helvetica",
-  ne: "helvetica",
-  gu: "helvetica",
-};
 
 interface Planet {
-  planetId: string;
-  full_name: string;
-  name: string;
-  nakshatra: string;
-  nakshatra_no: number;
-  nakshatra_pada: number;
-  retro: boolean;
-}
+  planetId: string; full_name: string; name: string; nakshatra: string; nakshatra_no: number; nakshatra_pada: number; retro: boolean;
+};
 
 interface House {
-  house: string;
-  rasi_no: number;
-  zodiac: string;
-  aspected_by_planet: string[];
-  aspected_by_planet_index: number[];
-  planets: Planet[];
-  cusp_sub_lord: string;
-  cusp_sub_sub_lord: string;
-  bhavmadhya: number;
-}
-
+  house: string; rasi_no: number; zodiac: string; aspected_by_planet: string[]; aspected_by_planet_index: number[]; planets: Planet[]; cusp_sub_lord: string; cusp_sub_sub_lord: string; bhavmadhya: number;
+};
 const houses: House[] = [
   { house: '1', rasi_no: 10, zodiac: 'Capricorn', aspected_by_planet: [], aspected_by_planet_index: [], planets: [{ planetId: '0', full_name: 'Ascendant', name: 'As', nakshatra: 'Vishakha', nakshatra_no: 16, nakshatra_pada: 2, retro: false }, { planetId: '7', full_name: 'Saturn', name: 'Sa', nakshatra: 'Jyeshtha', nakshatra_no: 18, nakshatra_pada: 2, retro: false }], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 23.888 },
   { house: '2', rasi_no: 11, zodiac: 'Aquarius', aspected_by_planet: ['Moon', 'Rahu'], aspected_by_planet_index: [2, 8], planets: [], cusp_sub_lord: 'Rahu', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 24.682 },
@@ -56,13 +26,85 @@ const houses: House[] = [
   { house: '12', rasi_no: 9, zodiac: 'Sagittarius', aspected_by_planet: ['Jupiter', 'Rahu'], aspected_by_planet_index: [5, 8], planets: [], cusp_sub_lord: 'Rahu', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 24.672 }
 ];
 
+function addParagraphs(
+  doc: jsPDF,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight = 20
+) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 25;
+  const bottomLimit = pageHeight - margin;
+
+  let currentY = y;
+
+  // Function to draw page border
+  const drawPageBorder = () => {
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+  };
+
+  // Function to get starting Y for a page (below top border)
+  const getPageStartY = () => margin + 20; // 20px offset from top border
+
+  // Draw border for first page
+  drawPageBorder();
+
+  // Split input text into lines
+  const lines = text.split("\n");
+
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
+
+    // Detect subheadings: all caps or ending with ":"
+    const isSubheading = line.endsWith(":") || /^[A-Z\s]+$/.test(line);
+
+    // Set font, size, color
+    if (isSubheading) {
+      doc.setFont("NotoSans", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor("#000");
+    } else {
+      doc.setFont("NotoSans", "normal");
+      doc.setFontSize(13);
+      doc.setTextColor("#a16a21");
+    }
+
+    // Wrap text to maxWidth
+    const splitText = doc.splitTextToSize(line, maxWidth);
+
+    // Check if text exceeds page height
+    if (currentY + splitText.length * lineHeight > bottomLimit) {
+      doc.addPage();
+      drawPageBorder();
+      currentY = getPageStartY(); // start below border on new page
+    }
+
+    // Draw text
+    doc.text(splitText, x, currentY);
+    currentY += splitText.length * lineHeight;
+
+    // Extra spacing after subheading
+    if (isSubheading) currentY += 5;
+    else currentY += 10; // gap between normal paragraphs
+  }
+
+  return currentY;
+}
+
 // --- Utilities for header/footer ---
 const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
+  if (pageNum == 1) return;
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
   // Footer
-  doc.text("© 2024 TrustAstrology. All rights reserved.", pageWidth / 2, pageHeight - 25, { align: "center" });
+  doc.text("© 2025 TrustAstrology. All rights reserved.", pageWidth / 2, pageHeight - 30, { align: "center" });
 };
 
 export function svgToBase64PNG(svgText: string, width: number, height: number): Promise<string> {
@@ -105,22 +147,28 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
   });
 }
 
-const generatePlanetReportsWithImages = async (doc: jsPDF, planets: Record<string, Planet>, userData: Array<[string, unknown]>, font: string) => {
+const generatePlanetReportsWithImages = async (
+  doc: any,
+  planets: Record<string, any>,
+  userData: any
+) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
   const marginY = 25;
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
-  const userObj = userData ? Object.fromEntries(userData) : {};
-  for (const planetKey in planets) {
-    if (!Object.prototype.hasOwnProperty.call(planets, planetKey)) continue;
-    const planet = planets[planetKey] as Planet;
 
-    // Generate planet text using API (same as before)
-    const planetPrompt = `
+  const planetEntries = Object.entries(planets);
+
+  // 🔹 Step 1: Prepare prompts
+  const prompts = planetEntries.map(([planetKey, planet]) => ({
+    planetKey,
+    planet,
+    prompt: `
 You are an expert Vedic astrologer and a skilled storyteller. 
-Generate a detailed, immersive two-page narrative for the planet ${planet.full_name} (${planet.name}) without markdown and dont show me the page numbers also like this in page 2 or page 1. 
+Generate a detailed, immersive two-page narrative for the planet ${planet.full_name} (${planet.name}) 
+without markdown and don't show any page numbers (e.g., "Page 1" or "Page 2").
 
 Include:
 - Introduction and significance
@@ -134,38 +182,59 @@ Include:
 - Insights on life lessons, growth, and destiny
 
 JSON data for this planet: ${JSON.stringify(planet)}
-language: ${userObj.language || "English"}.
-`;
-    const response = await fetch("/api/gemini", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: planetPrompt }] }],
-        generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
-      })
-    });
-    const data = await response.json();
-    let planetText = data.candidates?.[0]?.content?.parts?.[0]?.text ||
-      `Planet ${planet.full_name} report could not be generated.`;
-    planetText = removeMarkdown(planetText);
+Language: ${userData.language || "English"}.
+`
+  }));
 
-    // Add new page
+  // 🔹 Step 2: Fetch all reports concurrently
+  const reports = await Promise.all(
+    prompts.map(async ({ planetKey, planet, prompt }) => {
+      try {
+        const response = await fetch("/api/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
+          })
+        });
+
+        const data = await response.json();
+        const text =
+          data.candidates?.[0]?.content?.parts?.[0]?.text ||
+          `Planet ${planet.full_name} report could not be generated.`;
+        return { planetKey, planet, text: removeMarkdown(text) };
+      } catch (err) {
+        console.error(`Error generating report for ${planet.full_name}:`, err);
+        return {
+          planetKey,
+          planet,
+          text: `Planet ${planet.full_name} report could not be generated.`
+        };
+      }
+    })
+  );
+
+  // 🔹 Step 3: Render reports sequentially (preserve display order)
+  for (const { planet, text } of reports) {
     doc.addPage();
 
-    // Draw border
+    // Border
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
-    // Planet title
-    doc.setFont(font, "bold");
+    // Title
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
-    doc.text(`${planet.full_name} (${planet.name}) Report`, pageWidth / 2, 95, { align: "center" });
+    doc.text(`${planet.full_name} (${planet.name}) Report`, pageWidth / 2, 95, {
+      align: "center"
+    });
 
-    // Planet image
+    // Image
     const imagePath = `/assets/planets/${planet.name}.jpg`;
-    const imageY = 100;
+    let imageY = 100;
     let imageHeight = 200;
     try {
       doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
@@ -174,29 +243,28 @@ language: ${userObj.language || "English"}.
       imageHeight = 0;
     }
 
-    // Text starting after image
-    let cursorY = imageY + imageHeight + 20; // padding below image
-    doc.setFont(font, "normal");
+    // Text setup
+    let cursorY = imageY + imageHeight + 20;
+    doc.setFont("NotoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
-    const lineHeight = doc.getFontSize() * 1.5;
 
-    // Split text into lines with proper width (taking left padding into account)
+    const lineHeight = doc.getFontSize() * 1.5;
     const leftPadding = 10;
     const rightPadding = 10;
     const maxTextWidth = contentWidth - leftPadding - rightPadding;
-    const lines = doc.splitTextToSize(planetText, maxTextWidth);
+
+    const lines = doc.splitTextToSize(text, maxTextWidth);
 
     for (const line of lines) {
-      // Check bottom limit for text overflow
-      if (cursorY + lineHeight > bottomLimit - 10) { // -10 for safety
+      if (cursorY + lineHeight > bottomLimit - 10) {
         doc.addPage();
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
-        cursorY = marginY + 20; // reset cursor for new page
+        cursorY = marginY + 20;
       }
-      doc.text(line, marginX + leftPadding, cursorY); // respect left padding
+      doc.text(line, marginX + leftPadding, cursorY);
       cursorY += lineHeight;
     }
   }
@@ -224,59 +292,7 @@ language: ${userObj.language || "English"}.
 //   }
 // };
 
-function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth: number) {
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 40;
-  const bottomLimit = pageHeight - margin;
-  const lineHeight = 20;
-  const paragraphGap = 10;
 
-  const paragraphs = text.split(/\n+/);
-
-  paragraphs.forEach((para) => {
-    const lines = doc.splitTextToSize(para.trim(), maxWidth);
-
-    lines.forEach((line: string, index: number) => {
-      // Check if next line will go beyond page height
-      if (y + lineHeight > bottomLimit) {
-        doc.addPage();
-        doc.setDrawColor("#a16a21");
-        doc.setLineWidth(1.5);
-        doc.rect(25, 25, 545, 792, "S");
-        y = margin + 10;
-      }
-
-      // Justify all lines except last line of paragraph
-      if (index < lines.length - 1) {
-        const words = line.split(" ");
-        const lineText = words.join(" ");
-        const textWidth = doc.getTextWidth(lineText);
-        const spaceCount = words.length - 1;
-        let extraSpace = 0;
-
-        if (spaceCount > 0) {
-          extraSpace = (maxWidth - textWidth) / spaceCount;
-        }
-
-        let currentX = x;
-        words.forEach((word, wIndex) => {
-          doc.text(word, currentX, y);
-          const wordWidth = doc.getTextWidth(word);
-          currentX += wordWidth + extraSpace;
-        });
-      } else {
-        // Last line: left-aligned
-        doc.text(line, x, y);
-      }
-
-      y += lineHeight;
-    });
-
-    y += paragraphGap;
-  });
-
-  return y;
-}
 
 // // 1️⃣ Generate SVG chart
 // function generateChartSVG(chartJson: ChartJson): string {
@@ -460,7 +476,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
 //       // Header
-//       doc.setFont(font, "bold");
+//       doc.setFont("NotoSans", "bold");
 //       doc.setFontSize(22);
 //       doc.setTextColor("#a16a21");
 //       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
@@ -470,7 +486,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
 
 //     // Chart title
-//     doc.setFont(font, "bold");
+//     doc.setFont("NotoSans", "bold");
 //     doc.setFontSize(16);
 //     doc.setTextColor(textColor);
 //     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, {
@@ -489,7 +505,7 @@ function addParagraphs(doc: jsPDF, text: string, x: number, y: number, maxWidth:
 //       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
 //     } catch (err) {
 //       console.error(`Error rendering chart ${chartData.chart_name}`, err);
-//       doc.setFont(font, "normal");
+//       doc.setFont("NotoSans", "normal");
 //       doc.setFontSize(14);
 //       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, {
 //         align: "center",
@@ -564,18 +580,10 @@ async function svgToBase64WithBackgroundCached(
   });
 }
 
-
 async function addAllDivisionalChartsFromJSON(
-  doc: jsPDF,
-  divisionalChartsData: Array<string | number | boolean | null | object>,
+  doc: any,
+  divisionalChartsData: any[]
 ) {
-  interface DivisionalChart {
-    chart_name?: string;
-    svg?: string;
-    chart_svg?: string;
-    [key: string]: unknown;
-  }
-
   const chartsPerPage = 2;
   const imgWidth = 340;
   const imgHeight = 300;
@@ -585,11 +593,12 @@ async function addAllDivisionalChartsFromJSON(
   const pageHeight = doc.internal.pageSize.getHeight();
   const textColor = "#a16a21";
 
+  // ✅ Fetch and convert your Google Drive SVG once
   const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
   const backgroundImage = await loadSVGAsImage(backgroundSvgUrl);
 
   for (let i = 0; i < divisionalChartsData.length; i++) {
-    const chartData = divisionalChartsData[i] as DivisionalChart;
+    const chartData = divisionalChartsData[i];
 
     if (i % chartsPerPage === 0) {
       if (i > 0) doc.addPage();
@@ -609,23 +618,23 @@ async function addAllDivisionalChartsFromJSON(
     doc.setFont("NotoSans", "bold");
     doc.setFontSize(16);
     doc.setTextColor(textColor);
-
-    const chartName = chartData?.chart_name?.toUpperCase() ?? "Divisional Chart";
-    doc.text(chartName, pageWidth / 2, currentY - 10, { align: "center" });
+    doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
 
     try {
-      const overlaySvgText = chartData?.svg ?? chartData?.chart_svg ?? "";
+      // Use cached SVG background
+      const overlaySvgText = chartData.svg || chartData.chart_svg || "";
       const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
       const xPos = (pageWidth - imgWidth) / 2;
       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
     } catch (err) {
-      console.error(`Error rendering chart ${chartName}`, err);
+      console.error(`Error rendering chart ${chartData.chart_name}`, err);
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(14);
       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
     }
   }
 
+  // Add headers/footers
   const totalPages = doc.getNumberOfPages();
   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
     doc.setPage(pageNum);
@@ -643,17 +652,18 @@ async function addAllDivisionalChartsFromJSON(
 //   });
 // }
 
-const generateHouseReports = async (doc: jsPDF, houses: House[], userData: Array<[string, unknown]>, font: string) => {
+const generateHouseReports = async (doc: any, houses: House[], userData: any) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
   const marginY = 25;
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
-  const userObj = userData ? Object.fromEntries(userData) : {};
-  // Generate reports sequentially for cleaner structure (similar to planet version)
-  for (const house of houses) {
-    const housePrompt = `
+
+  // 🔹 Step 1: Prepare all prompts
+  const prompts = houses.map((house) => ({
+    house,
+    prompt: `
 You are an expert astrologer and storyteller. 
 Generate a detailed, story-like horoscope report (700–1000 words) for House ${house.house} (${house.zodiac}) 
 from JSON data, but don't include the JSON itself or any markdown formatting.
@@ -667,24 +677,37 @@ Include:
 - A symbolic theme for this house (but only describe it naturally, not as “image reference”)
 
 JSON data: ${JSON.stringify(house)}
-Language: ${userObj.language || "English"}.
-`;
+Language: ${userData.language || "English"}.
+`
+  }));
 
-    const response = await fetch("/api/gemini", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: housePrompt }] }],
-        generationConfig: { temperature: 0.6, maxOutputTokens: 2000 }
-      })
-    });
+  // 🔹 Step 2: Generate all reports in parallel
+  const reports = await Promise.all(
+    prompts.map(async ({ house, prompt }) => {
+      try {
+        const response = await fetch("/api/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.6, maxOutputTokens: 2000 }
+          })
+        });
 
-    const data = await response.json();
-    let houseText = data.candidates?.[0]?.content?.parts?.[0]?.text ||
-      `House ${house.house} report could not be generated.`;
-    houseText = removeMarkdown(houseText);
+        const data = await response.json();
+        const text =
+          data.candidates?.[0]?.content?.parts?.[0]?.text ||
+          `House ${house.house} report could not be generated.`;
+        return { house, text: removeMarkdown(text) };
+      } catch (err) {
+        console.error(`Error fetching house ${house.house}:`, err);
+        return { house, text: `House ${house.house} report could not be generated.` };
+      }
+    })
+  );
 
-    // Add new page
+  // 🔹 Step 3: Add all reports sequentially to the PDF (preserve order)
+  for (const { house, text } of reports) {
     doc.addPage();
 
     // Draw border
@@ -693,38 +716,31 @@ Language: ${userObj.language || "English"}.
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
     // Title
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 95, { align: "center" });
 
     // House image
-    const imagePath = `/assets/houses/house${house.house}.jpg`;
-    const imageY = 100;
+    let imageY = 100;
     let imageHeight = 200;
+    const imagePath = `/assets/houses/house${house.house}.jpg`;
     try {
       doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
-    } catch (err) {
+    } catch {
       console.warn(`Image for House ${house.house} not found, skipping image.`);
       imageHeight = 0;
     }
 
-    // Setup for text
-    let cursorY = imageY + imageHeight + 20; // spacing below image
-    doc.setFont(font, "normal");
+    // Setup text
+    let cursorY = imageY + imageHeight + 20;
+    doc.setFont("NotoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
 
     const lineHeight = doc.getFontSize() * 1.5;
-    const leftPadding = 10;
-    const rightPadding = 10;
-    const maxTextWidth = contentWidth - leftPadding - rightPadding;
-
-    // Write text with automatic page breaks
-    const textMarginX = marginX + 15; // small internal left margin
-    const usableWidth = pageWidth - marginX * 2 - 30; // space for both 
-
-    const lines = doc.splitTextToSize(houseText, usableWidth);
+    const usableWidth = contentWidth - 30;
+    const lines = doc.splitTextToSize(text, usableWidth);
 
     for (const line of lines) {
       if (cursorY + lineHeight > bottomLimit - 10) {
@@ -732,9 +748,9 @@ Language: ${userObj.language || "English"}.
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
-        cursorY = marginY + 30; // reset after border
+        cursorY = marginY + 30;
       }
-      doc.text(line, textMarginX, cursorY);
+      doc.text(line, marginX + 15, cursorY);
       cursorY += lineHeight;
     }
   }
@@ -748,7 +764,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
   place: string,
   lat: number,
   lon: number,
-  userData: Array<[string, unknown]> = []
+  userData: any = {}
 ) {
   try {
 
@@ -800,16 +816,16 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const lineHeight = 26; // slightly increased spacing for bigger text
-    // Convert userData to an object safely
-    const userObj: Record<string, unknown> = userData ? Object.fromEntries(userData) : {};
 
-    // Ensure sex is a string before calling toLowerCase
-    const userSex = typeof userObj.sex === "string" ? userObj.sex.toLowerCase() : "male";
-
-    // Select cover image based on gender
+    // --- COVER PAGE SECTION ---
     const coverImageMale = "/assets/cover_male.jpg";
     const coverImageFemale = "/assets/cover_female.jpg";
-    const selectedCoverImage = userSex === "female" ? coverImageFemale : coverImageMale;
+
+    // Determine which image to use based on gender
+    let selectedCoverImage = coverImageMale;
+    if (userData?.sex?.toLowerCase() === "female") {
+      selectedCoverImage = coverImageFemale;
+    }
 
     // Try loading the image
     try {
@@ -831,378 +847,269 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     // --- TEXT ON RIGHT SIDE ---
     const marginRight = 50;
     const marginBottom = 80;
+    const reportDate = new Date().toLocaleDateString(userData.language || "en-US", { year: "numeric", month: "long" });
 
-    const language = typeof userObj.language === "string" ? userObj.language : "en";
+    // Translation map for static text (you can expand for more languages)
+    const translations = {
+      en: { dob: "DOB", location: "Location not available" },
+      hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" },
+      fr: { dob: "Date de naissance", location: "Lieu non disponible" },
+      be: { dob: "Нарадзіўся", location: "Месца недаступна" },
+      ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" },
+      ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }
+    } as const; // <- makes keys readonly literals
 
+    type Lang = keyof typeof translations; // "en" | "hi" | "fr" | "be" | "ka" | "ml"
 
-    // Helper function to fetch font as base64
-    async function loadFont(url: string): Promise<string> {
-      const response = await fetch(url);
-      const buffer = await response.arrayBuffer();
-      let binary = '';
-      const bytes = new Uint8Array(buffer);
-      for (let i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return btoa(binary);
-    }
+    const lang: Lang = (userData?.language as Lang) || "en"; // cast to Lang
+    const t = translations[lang]; // no more TS error
 
-    // Map each language code to its font file and name
-
-    const translations: Record<string, { dob: string; location: string }> = { en: { dob: "DOB", location: "Location not available" }, hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" }, fr: { dob: "Date de naissance", location: "Lieu non disponible" }, be: { dob: "Нарадзіўся", location: "Месца недаступна" }, ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" }, ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }, };
-    // Determine user language
-
-    //  const lang = (userObj.language as string) || "en";
-    //   const t = translations[lang] || translations.en;
-
-    // --- Load the correct font ---
-    const lang = (userObj.language as string) || "en";
-    const t = translations[lang] || translations.en;
-    const font = FONT_MAP[lang] || "helvetica";
-
-    // --- Text lines ---
-    const reportDate = new Date().toLocaleDateString(lang, {
-      year: "numeric",
-      month: "long",
-    });
-
+    // Define text lines in user’s language
     const textLines = [
-      `${userObj?.name || "Unknown"}`,
-      `${userObj?.dob ? t.dob + ": " + userObj.dob : "N/A"} ${userObj?.time || ""}`,
-      `${userObj?.place || t.location}`,
-      `${reportDate}`,
+      `${name || "Unknown"}`,
+      `${dob ? t.dob + ": " + dob : "N/A"} ${time || ""}`,
+      `${place || t.location}`,
+      `${reportDate}`
     ];
 
-    // --- Draw text on PDF ---
-    const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+    //doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
+    doc.setTextColor(255, 255, 255);
+
+    let yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+
     textLines.forEach((line, i) => {
-      doc.setFont(font, "normal");
-      if (i === 0) doc.setFontSize(32);
-      else if (i === textLines.length - 1) doc.setFontSize(18);
-      else doc.setFontSize(22);
+      if (i === 0) {
+        doc.setFont("NotoSans", "bold");
+        doc.setFontSize(18);
+      } else if (i === textLines.length - 1) {
+        doc.setFont("NotoSans", "bold");
+        doc.setFontSize(18);
+      } else {
+        doc.setFont("NotoSans", "bold");
+        doc.setFontSize(18);
+      }
 
-      doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, { align: "right" });
+      doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, {
+        align: "right",
+      });
     });
-
-    // --- Translation map ---
-
-
-    // const lang = (userObj.language as string) || "en";
-    // const t = translations[lang as keyof typeof translations] || translations.en;
-    // // Helper function to fetch font as base64
-    // async function loadFont(url: string): Promise<string> {
-    //   const response = await fetch(url);
-    //   const buffer = await response.arrayBuffer();
-    //   // Convert ArrayBuffer to base64
-    //   let binary = '';
-    //   const bytes = new Uint8Array(buffer);
-    //   const len = bytes.byteLength;
-    //   for (let i = 0; i < len; i++) {
-    //     binary += String.fromCharCode(bytes[i]);
-    //   }
-    //   return btoa(binary);
-    // }
-
-    // const notoSans = await loadFont("/fonts/NotoSans-VariableFont_wdth,wght.ttf");
-    // const notoDevanagari = await loadFont("/fonts/NotoSansDevanagari-VariableFont_wdth,wght.ttf");
-
-    // // Add fonts to jsPDF
-    // doc.addFileToVFS("NotoSans.ttf", notoSans);
-    // doc.addFont("NotoSans.ttf", "NotoSans", "normal");
-
-    // doc.addFileToVFS("NotoSansDevanagari.ttf", notoDevanagari);
-    // doc.addFont("NotoSansDevanagari.ttf", "NotoSansDevanagari", "normal");
-    // // Choose font based on language family
-
-
-    // Register fonts
-    // doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
-    // doc.addFont("NotoSansDevanagari-VariableFont_wdth,wght.ttf", "NotoSansDevanagari", "normal");
-
-    // Text lines
-    // const textLines = [
-    //   `${userObj?.name || "Unknown"}`,
-    //   `${userObj?.dob ? t.dob + ": " + userObj.dob : "N/A"} ${userObj?.time || ""}`,
-    //   `${userObj?.place || t.location}`,
-    //   `${reportDate}`
-    // ];
-
-    // doc.setTextColor(255, 255, 255);
-
-    // const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
-
-    // textLines.forEach((line, i) => {
-    //   doc.setFont(font, "normal");
-    //   if (i === 0) {
-    //     doc.setFontSize(32);
-    //   } else if (i === textLines.length - 1) {
-    //     doc.setFontSize(18);
-    //   } else {
-    //     doc.setFontSize(22);
-    //   }
-
-    //   doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, {
-    //     align: "right",
-    //   });
-    // });
+    doc.addPage();
     // --- Generate Disclaimer Page using AI ---
-    const disclaimerText = `
-This Vedic Astrology Report ("Report") is prepared based on the principles and practices of
-Vedic Astrology, also known as Jyotisha, an ancient Indian system of astrology. It is intended
-to provide personalized insights and guidance based on your birth details and planetary
-positions at the time of your birth.
-Please understand that astrological interpretations are not definitive predictions of the future.
-Astrology should be regarded as a tool for self-understanding, personal growth, and navigating
-life's potential challenges and opportunities. The insights provided in this Report are intended
-to offer a broader perspective and potential influences, but they do not dictate or determine
-specific outcomes.
-It is important to acknowledge that interpretations of astrological charts can vary among
-different astrologers and across different Vedic astrological traditions. The interpretations
-presented in this Report are based on the understanding and application of Vedic astrological
-principles by the astrologer who prepared it.
-Any remedies, suggestions, or recommendations provided in this Report, including but not
-limited to gemstone recommendations, mantra chanting, or lifestyle adjustments, are offered
-for informational purposes only. They should not be considered a substitute for professional
-medical, legal, financial, or psychological advice. Always consult with qualified professionals
-in these fields for any health concerns, legal matters, financial decisions, or mental health
-needs.
-The effects of astrological influences and remedies are highly individual and dependent on
-various factors, including your personal efforts, free will, and the interplay of other karmic
-influences. Results may vary significantly from person to person, and there is no guarantee that
-specific outcomes will be achieved.
-Legal Disclaimer: The information provided in this Report is for entertainment and
-informational purposes only. The astrologer and the provider of this Report shall not be liable
-for any direct, indirect, incidental, consequential, or punitive damages arising out of or relating
-to the use of or reliance on the information contained in this Report. You agree to indemnify
-and hold harmless the astrologer and the provider of this Report from and all claims,
-liabilities, damages, and expenses (including attorneys' fees) arising out of your use of or
-reliance on this Report. By proceeding to read and utilize this Report, you acknowledge and
-agree to the terms of this disclaimer.
-We hope this Report provides you with valuable insights and helps you navigate your life
-journey with greater awareness and understanding. Remember that you are the master of your
-destiny, and the stars are merely guiding lights on your path. Embrace the cosmos, trust your
-intuition, and create the life you desire.
-`;
+    const generateIntroSections = async (doc: any, userData: any) => {
+      const pageWidth = doc.internal.pageSize.getWidth();
+      //const pageHeight = doc.internal.pageSize.getHeight();
 
-    doc.addPage();
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(25, 25, 545, 792, "S");
+      // Helper for PDF layout
+      const addPageWithTitle = (title: string, useNewPage = true) => {
+        if (useNewPage) doc.addPage(); // only add a new page if specified
+        doc.setDrawColor("#a16a21");
+        doc.setLineWidth(1.5);
+        doc.rect(25, 25, 545, 792, "S");
+        doc.setFont("NotoSans", "bold");
+        doc.setFontSize(22);
+        doc.setTextColor("#000");
+        doc.text(title, pageWidth / 2, 60, { align: "center" });
+        doc.setFont("NotoSans", "normal");
+        doc.setFontSize(13);
+        doc.setTextColor("#a16a21");
+      };
 
-    doc.setFont(font, "bold");
-    doc.setFontSize(22);
-    doc.setTextColor("#000");
-    doc.text("DISCLAIMER", pageWidth / 2, 60, { align: "center" });
+      const language = userData.language || "English";
 
-    doc.setFont(font, "normal");
-    doc.setFontSize(13);
-    doc.setTextColor("#a16a21");
+      // 🧠 Step 1: Prepare all prompts
+      const disclaimerPrompt =
+        "You are an expert Vedic astrologer writing a disclaimer for a comprehensive astrology report. " +
+        `Write a professional, comprehensive disclaimer in ${language} language. The disclaimer should: ` +
+        "1. Explain that the report is based on Vedic astrology principles. " +
+        "2. Clarify that astrology is for guidance, not deterministic predictions. " +
+        "3. Mention that interpretations may vary across astrologers and traditions. " +
+        "4. State that remedies and suggestions are not substitutes for medical or legal advice. " +
+        "5. Emphasize that results vary for each individual. " +
+        "6. Include appropriate legal disclaimers about liability. " +
+        "7. End with an encouraging, cosmic perspective message. " +
+        "Write in a warm, professional tone that maintains the mystical nature of astrology while being legally sound. " +
+        "Keep it comprehensive but readable, around 300–400 words. " +
+        `Language: ${language}.`;
 
-    const leftMargin = 50;
-    const rightMargin = 50;
-    const usableWidth = pageWidth - leftMargin - rightMargin;
+      const authorPrompt =
+        "You are a professional Vedic astrologer writing a personal message to introduce a comprehensive astrology report. " +
+        `Write a warm, personal message in ${language} language. The message should: ` +
+        "1. Welcome the reader to their personalized cosmic report. " +
+        "2. Share the author's experience and passion for astrology. " +
+        "3. Explain how the report blends ancient wisdom with practical insights. " +
+        "4. Emphasize the importance of intuition and personal connection. " +
+        "5. Encourage open-minded exploration of the insights. " +
+        "6. Focus on self-awareness and personal growth. " +
+        "7. End with warm wishes and mention the brand 'TrustAstrology' as your professional signature. " +
+        "Write in a personal, warm tone that feels like a letter from a trusted astrologer. " +
+        "Keep it around 250–300 words. " +
+        `Language: ${language}.`;
 
-    // `addParagraphs` handles line splitting and pagination
-    addParagraphs(doc, disclaimerText, leftMargin, 100, usableWidth);
+      const studyPrompt =
+        "You are an expert Vedic astrologer writing a study guide for a comprehensive astrology report. " +
+        `Write a helpful study guide in ${language} language explaining how to best read and use a Vedic astrology report. The guide should: ` +
+        "1. Explain the importance of reading the report multiple times. " +
+        "2. Emphasize the layered nature of cosmic insights. " +
+        "3. Suggest creating a calm, focused mindset before reading. " +
+        "4. Recommend taking notes and reflecting on insights. " +
+        "5. Explain how to apply the guidance practically. " +
+        "6. Encourage revisiting the report over time. " +
+        "7. Emphasize personal empowerment and decision-making. " +
+        "Write in an encouraging, educational tone that helps readers maximize the value of their astrology report. " +
+        "Keep it around 250–300 words. " +
+        `Language: ${language}.`;
 
-    // addParagraphs(doc, disclaimerText, 50, 110);
+      // 🧠 Step 2: Fire all fetches concurrently
+      const [disclaimerData, authorData, studyData] = await Promise.all([
+        fetch("/api/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: disclaimerPrompt }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
+          })
+        }).then((res) => res.json()),
 
-    // --- Generate Author Message using AI ---
-    const authortext = `
-      Dearest Friend,
-Welcome! It fills me with joy to present you with your personalized Vedic Astrology Report.
-Consider this not just a document, but a cosmic roadmap designed uniquely for you,
-illuminated by the ancient wisdom of the stars.
-For years, I've been captivated by the profound language of Vedic Astrology, a system that
-unveils the intricate dance between the planets and our lives. It's more than just prediction; it's
-a powerful tool for self-discovery and understanding our place in the grand cosmic tapestry.
-My journey has been one of constant learning and amazement at the accuracy and depth this
-system offers.
-Within these pages, you'll find a blend of traditional Vedic principles and practical
-interpretations tailored to your specific birth chart. I've strived to translate complex astrological
-concepts into accessible language, providing you with insights that are both enlightening and
-actionable. This report is designed to help you understand your strengths, navigate your
-challenges, and ultimately, live a more fulfilling and authentic life.
-However, remember that this report is a guide, not a rigid prescription. Astrology is a
-framework, and your own intuition and personal connection to the insights are crucial. Trust
-your inner wisdom as you explore these readings. Allow the knowledge within these pages to
-spark reflection and encourage you to connect with your own soul's purpose.
-My hope is that this report serves as a catalyst for greater self-awareness, empowering you to
-make conscious choices that align with your true nature and potential. Embrace this journey of
-self-discovery with an open mind and a curious heart. Allow these insights to illuminate your
-path towards personal growth and fulfillment.
-Wishing you a journey filled with clarity, wisdom, and boundless possibilities.
-With warmth and cosmic blessings,
-${userObj?.name}
-Vedic Astrologer`;
+        fetch("/api/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: authorPrompt }] }],
+            generationConfig: { temperature: 0.8, maxOutputTokens: 1000 }
+          })
+        }).then((res) => res.json()),
 
-    doc.addPage();
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(25, 25, 545, 792, "S");
-    doc.setFont(font, "bold");
-    doc.setFontSize(22);
-    doc.setTextColor("#000");
-    doc.text("MESSAGE FROM THE AUTHOR", pageWidth / 2, 60, { align: "center" });
+        fetch("/api/gemini", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: studyPrompt }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
+          })
+        }).then((res) => res.json())
+      ]);
 
-    doc.setFont(font, "normal");
-    doc.setFontSize(13);
-    doc.setTextColor("#a16a21");
+      // 🧠 Step 3: Extract clean text (with fallback)
+      const disclaimerText = removeMarkdown(disclaimerData?.candidates?.[0]?.content?.parts?.[0]?.text || "Disclaimer content could not be generated.");
+      const authorText = removeMarkdown(authorData?.candidates?.[0]?.content?.parts?.[0]?.text || "Author message could not be generated.");
+      const studyText = removeMarkdown(studyData?.candidates?.[0]?.content?.parts?.[0]?.text || "Study guide could not be generated.");
 
-    addParagraphs(doc, authortext, 50, 100, pageWidth - 50 - 50);
+      // --- Add sections AFTER cover page ---
+      addPageWithTitle("DISCLAIMER", false); // false = don’t create a new page; continue on current page
+      addParagraphs(doc, disclaimerText, 50, 100, pageWidth - 100);
 
-    // --- Generate Study Guide using AI ---
-    const studyText =
-      `Unlocking Your Cosmic Blueprint: A Guide to Your Vedic Astrology Report
-Congratulations on receiving your personalized Vedic Astrology report! This document is a
-powerful tool for self-discovery and navigating life's journey with greater awareness. To truly
-unlock its potential, remember that it’s not a one-time read, but a resource to be explored and
-revisited.
-The Layered Nature of Insight: Think of your report as an onion – each layer reveals deeper
-understanding. The initial reading provides a broad overview, but subsequent readings will
-uncover nuances and connections you may have missed initially. Vedic astrology is a complex
-system, and its insights are layered and interconnected.
-Creating the Right Atmosphere: Before delving in, find a quiet space where you can relax and
-focus. Take a few deep breaths to center yourself and approach the report with an open mind
-and a receptive heart. A calm mindset will allow you to absorb the information more
-effectively.
-Engage Actively: Don't just passively read the report. Take notes! Jot down key phrases,
-recurring themes, and anything that resonates with you. Reflect on how these insights relate to
-your past experiences, current challenges, and future aspirations.
-Practical Application: The true value lies in applying the guidance practically. The report
-might highlight strengths to leverage, challenges to overcome, or periods requiring extra
-caution. Consider how you can consciously integrate this knowledge into your daily life.
-Maybe it suggests focusing on certain skills, modifying your approach to relationships, or
-being more mindful during specific transits.
-A Living Document: Your Vedic astrology report isn't static; revisit it periodically, especially
-during significant life events. As you evolve, your understanding of the report will also
-deepen, revealing new layers of meaning.
-Empowerment Through Understanding: Ultimately, your report is a tool for
-self-empowerment. It provides valuable insights, but you remain the captain of your ship. Use
-this knowledge to make informed decisions, navigate challenges with grace, and create a life
-aligned with your highest potential. Your destiny is not fixed, but rather a canvas you paint
-with awareness and intention`;
+      addPageWithTitle("MESSAGE FROM THE AUTHOR", true); // now start a new page
+      addParagraphs(doc, authorText, 50, 100, pageWidth - 100);
 
-
-    doc.addPage();
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(25, 25, 545, 792, "S");
-    doc.setFont(font, "bold");
-    doc.setFontSize(22);
-    doc.setTextColor("#000");
-    doc.text("BEST WAY TO STUDY THE REPORT", pageWidth / 2, 60, { align: "center" });
-
-    doc.setFont(font, "normal");
-    doc.setFontSize(13);
-    doc.setTextColor("#a16a21");
-    addParagraphs(doc, studyText, 50, 100, pageWidth - 50 - 50);
+      addPageWithTitle("BEST WAY TO STUDY THE REPORT", true);
+      addParagraphs(doc, studyText, 50, 100, pageWidth - 100);
+    };
+    await generateIntroSections(doc, userData);
     // --- Generate Table of Contents using AI ---
     let tocText = `
 01 Immediate Personal Insights
-   - Basic Details
-   - Lucky Number & Color (Nakshatra Based)
-   - Snapshot of Panchang (optional) and Chart
+   1.1 Basic Details
+   1.2 Lucky Number & Color (Nakshatra Based)
+   1.3 Snapshot of Chart
 
 02 Houses (Bhavas)
-   - Overview of 12 Houses
-   - House Lords & Significance
-   - House Strength using Ashtakvarga
-   - Effects of Planets in Houses
+   2.1 Overview of 12 Houses
+   2.2 House Lords & Significance
+   2.3 House Strength using Ashtakvarga
+   2.4 Effects of Planets in Houses
 
 03 Planets
-   - Planet Placement: Which House Each Planet is In
-   - Planetary Aspects (Drishti)
+   3.1 Planet Placement: Which House Each Planet is In
+   3.2 Planetary Aspects (Drishti)
 
-05 Love & Marriage
-   - Nakshatras & Moon Signs: Emotional Needs, Compatibility
-   - Moon Sign (Rashi): Temperament & Emotional Responses
-   - Nakshatra (Lunar Mansion): Psychological Traits & Compatibility
-   - Planetary Positions & Relationships
-   - Venus: Love, Romance, Attraction
-   - Mars: Sexual Compatibility & Assertiveness
-   - Jupiter: Marriage Timing & Spouse Characteristics
-   - Saturn: Delays, Challenges, Karmic Lessons
-   - 7th House: Marriage & Partnerships
-   - Planetary Aspects on 7th House
-   - Divisional Charts (D9 - Navamsa, D2 - Hora)
-   - Yogas & Doshas: Mangal, Venus-Mars, Chandra-Mangal
-   - Planetary Periods: Dasha & Transits
+04 Love & Marriage
+   4.1 Nakshatras & Moon Signs: Emotional Needs, Compatibility
+   4.2 Moon Sign (Rashi): Temperament & Emotional Responses
+   4.3 Nakshatra (Lunar Mansion): Psychological Traits & Compatibility
+   4.4 Planetary Positions & Relationships
+   4.5 Venus: Love, Romance, Attraction
+   4.6 Mars: Sexual Compatibility & Assertiveness
+   4.7 Jupiter: Marriage Timing & Spouse Characteristics
+   4.8 Saturn: Delays, Challenges, Karmic Lessons
+   4.9 7th House: Marriage & Partnerships
+   4.10 Planetary Aspects on 7th House
+   4.11 Divisional Charts (D9 - Navamsa, D2 - Hora)
+   4.12 Yogas & Doshas: Mangal, Venus-Mars, Chandra-Mangal
+   4.13 Planetary Periods: Dasha & Transits
 
-06 Career & Profession
-   - Houses Related to Career: 1st, 2nd, 6th, 10th
-   - Planetary Traits & Amatyakaraka Insights
-   - Nakshatra / Moon Sign Influence: Work Style & Preferred Profession
-   - Dashas, Yogas & Transits: Career Success Timing
+05 Career & Profession
+   5.1 Houses Related to Career: 1st, 2nd, 6th, 10th
+   5.2 Planetary Traits & Amatyakaraka Insights
+   5.3 Nakshatra / Moon Sign Influence: Work Style & Preferred Profession
+   5.4 Dashas, Yogas & Transits: Career Success Timing
 
-07 Health & Wellbeing
-   - Doshas in Vedic Astrology: Manglik, Pitra, Kaalsarp
-   - Planetary Influence on Health: Sun, Moon, Mars, Saturn, Rahu/Ketu
-   - Houses Related to Health: 1st, 6th, 8th, 12th
-   - Nakshatra & Moon Sign: Emotional Balance & Mental Wellbeing
-   - Ayurvedic / Dosha Correlation: Vata, Pitta, Kapha Imbalances
+06 Health & Wellbeing
+   6.1 Doshas in Vedic Astrology: Manglik, Pitra, Kaalsarp
+   6.2 Planetary Influence on Health: Sun, Moon, Mars, Saturn, Rahu/Ketu
+   6.3 Houses Related to Health: 1st, 6th, 8th, 12th
+   6.4 Nakshatra & Moon Sign: Emotional Balance & Mental Wellbeing
+   6.5 Ayurvedic / Dosha Correlation: Vata, Pitta, Kapha Imbalances
 
-08 Karmic & Purpose Insights
-   - Chara Karakas: Soul Purpose & Life Goals
-   - Sade Sati Journey: Challenges, Transformations, Remedies
-   - Mangalik & Yogas: Special Planetary Combinations
-   - Astrological Doshas: Karmic Blocks & Lessons
+07 Karmic & Purpose Insights
+   7.1 Chara Karakas: Soul Purpose & Life Goals
+   7.2 Sade Sati Journey: Challenges, Transformations, Remedies
+   7.3 Mangalik & Yogas: Special Planetary Combinations
+   7.4 Astrological Doshas: Karmic Blocks & Lessons
 
-09 Timing & Predictive Insights
-   - Mahadashas & Antardashas: Life Phases & Opportunities
-   - Planetary Periods & Impact: Short-term & Long-term Influences
-   - Favorable & Challenging Periods
+08 Timing & Predictive Insights
+   8.1 Mahadashas & Antardashas: Life Phases & Opportunities
+   8.2 Planetary Periods & Impact: Short-term & Long-term Influences
+   8.3 Favorable & Challenging Periods
 
-10 Remedies & Spiritual Guidance
-   - Rudraksha Guidance & Gemstones
-   - Mantra Chanting & Yantras
-   - Charitable Actions & Spiritual Practices
+09 Remedies & Spiritual Guidance
+   9.1 Rudraksha Guidance & Gemstones
+   9.2 Mantra Chanting & Yantras
+   9.3 Charitable Actions & Spiritual Practices
 
-11 Advanced Calculations & Optional Insights
-   - Ashtakvarga: Strength & Fortune Analysis
-   - Shadbala: Sixfold Planetary Strength
-   - Pratyantar Dasha: Sub-periods for Predictive Astrology
-   - Planetary Wars (Grah Yuddha) & Special Charts (Divisional Charts)
+10 Advanced Calculations & Optional Insights
+   10.1 Ashtakvarga: Strength & Fortune Analysis
+   10.2 Shadbala: Sixfold Planetary Strength
+   10.3 Pratyantar Dasha: Sub-periods for Predictive Astrology
+   10.4 Planetary Wars (Grah Yuddha) & Special Charts (Divisional Charts)
 
-12 Q&A & Personalized Advice
-   - Frequently Asked Questions
-   - Next Steps: Using Insights & Remedies for Personal Growth
+11 Q&A & Personalized Advice
+   11.1 Frequently Asked Questions
+   11.2 Next Steps: Using Insights & Remedies for Personal Growth
 `;
 
     tocText = removeMarkdown(tocText);
 
-    // --- ✅ Add subheading numbers like 1.1, 1.2 ---
     const lines = tocText.split("\n");
-    let currentMain = "";
+    let currentMain = 0;
     let subCount = 0;
     let finalToc = "";
 
-    for (let line of lines) {
-      line = line.trim();
+    for (let rawLine of lines) {
+      let line = rawLine.trim();
       if (!line) {
         finalToc += "\n";
         continue;
       }
 
-      // Detect main heading (starts with number)
+      // ✅ Detect main headings like "01 Something"
       const mainMatch = line.match(/^(\d{2})\s+(.*)/);
       if (mainMatch) {
-        currentMain = String(parseInt(mainMatch[1])); // 01 -> 1
+        currentMain = parseInt(mainMatch[1], 10); // "01" -> 1
         subCount = 0;
         finalToc += `${currentMain}. ${mainMatch[2]}\n`;
         continue;
       }
 
-      // Detect subheading (starts with "-"), allowing spaces before "-"
-      const subMatch = line.match(/^[-–]\s*(.*)/); // handles "-" or "–" (en dash)
-      if (subMatch) {
+      // ✅ Detect subheadings starting with "-" or "–" or "—"
+      const subMatch = line.match(/^[\-–—]\s*(.*)/);
+      if (subMatch && currentMain) {
         subCount++;
         const subNumber = `${currentMain}.${subCount}`;
         finalToc += `   ${subNumber} ${subMatch[1]}\n`;
         continue;
       }
 
-      // Any other line
+      // ✅ For any other unmatched line, just print as-is
       finalToc += `${line}\n`;
     }
 
@@ -1214,12 +1121,12 @@ with awareness and intention`;
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
 
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
     doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
 
-    doc.setFont(font, "normal");
+    doc.setFont("NotoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
     addParagraphs(doc, tocText, 50, 100, pageWidth - 50 - 50);
@@ -1245,7 +1152,6 @@ with awareness and intention`;
         title: "AVAKAHADA CHAKRA",
         showUserInfo: true
       });
-      console.log("Avakahada Chakra table added successfully!");
     } else {
       console.warn("No kundli data available, skipping Avakahada Chakra table");
     }
@@ -3687,7 +3593,7 @@ with awareness and intention`;
     ]);
 
     doc.addPage();
-    await generateHouseReports(doc, houses, userData, font);
+    await generateHouseReports(doc, houses, userData);
 
     const planetData = {
       "planets": {
@@ -3846,7 +3752,6 @@ with awareness and intention`;
           "rasi_no": 4,
           "zodiac": "Cancer",
           "house": 4,
-          "speed_radians_per_day": 0, // Added property
           "retro": true,
           "nakshatra": "Ashlesha",
           "nakshatra_lord": "Mercury",
@@ -3867,7 +3772,6 @@ with awareness and intention`;
           "rasi_no": 10,
           "zodiac": "Capricorn",
           "house": 10,
-          "speed_radians_per_day": 0, // Added property
           "retro": true,
           "nakshatra": "Sravana",
           "nakshatra_lord": "Moon",
@@ -4024,29 +3928,22 @@ with awareness and intention`;
         }
       }
     };
-    const planetsRaw: Record<string, Omit<Planet, "planetId">> = planetData.planets;
-
-    // Ensure each planet object includes required 'planetId' field expected by generatePlanetReportsWithImages
-    const planetsWithId: Record<string, Planet> = Object.fromEntries(
-      Object.entries(planetsRaw).map(([id, p]) => [id, { planetId: id, ...p }])
-    );
-
-    await generatePlanetReportsWithImages(doc, planetsWithId, userData, font);
+    await generatePlanetReportsWithImages(doc, planetData.planets, userData);
     // Add initial "Love and Marriage" page
     doc.addPage();
     const margin = 25;
+    const corner = 25;
 
     // Draw border
     doc.setDrawColor("#ffffff");
     doc.setLineWidth(1.2);
 
     // Draw small corner decorations
-    const corner = 25;
     const gap = 8;
 
     // Top-left corner
-    doc.line(margin, margin, margin + corner, margin); // top horizontal
-    doc.line(margin, margin, margin, margin + corner); // left vertical
+    doc.line(margin, margin, margin + corner, margin);
+    doc.line(margin, margin, margin, margin + corner);
 
     // Top-right corner
     doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
@@ -4065,7 +3962,7 @@ with awareness and intention`;
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Love and Marriage", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -4079,12 +3976,12 @@ with awareness and intention`;
       "Planetary Periods and Transits: Detailed analysis of dashas, transit impacts, timing predictions..."
     ];
 
-    for (const sectionPrompt of sections) {
+    async function fetchLoveSection(sectionPrompt: string) {
       const fullPrompt = `
         You are a highly experienced Vedic astrologer specializing in Love & Marriage astrology.
         Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
         ${sectionPrompt}
-        language: ${userObj.language}
+        language: ${userData.language}
         JSON: {
         "0": {
             "name": "As",
@@ -5109,27 +5006,35 @@ with awareness and intention`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 } // smaller chunk per section
+          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
         })
       });
 
       const data = await response.json();
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "Section could not be generated.";
-      text = removeMarkdown(text);
-      // Add new page for this section
+      let text =
+        data.candidates?.[0]?.content?.parts?.[0]?.text ||
+        `${sectionPrompt.split(":")[0]} section could not be generated.`;
+      return removeMarkdown(text);
+    }
+    // Add new page for this section
+    const resultlove = await Promise.all(sections.map(fetchLoveSection));
+
+    // Now render all sections into the PDF
+    for (let i = 0; i < sections.length; i++) {
+      const sectionPrompt = sections[i];
+      const text = resultlove[i];
+
       doc.addPage();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(font, "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(font, "normal");
-      doc.setFontSize(13);
-      doc.setTextColor("#a16a21");
-      addParagraphs(doc, studyText, 50, 100, pageWidth - 50 - 50);
+      // Render text with styled subheadings
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
     doc.addPage();
 
@@ -5158,7 +5063,7 @@ with awareness and intention`;
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Career & Profession", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -5170,12 +5075,12 @@ with awareness and intention`;
       "Practical Career Guidance: Give actionable advice for career advancement, entrepreneurship, and financial growth."
     ];
 
-    for (const sectionPrompt of careerSections) {
+    async function fetchCareerSection(sectionPrompt: string) {
       const fullPrompt = `
-        You are a highly experienced Vedic astrologer specializing in Career & Profession astrology.
-        Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
-        ${sectionPrompt}
-        language:${userObj.language}
+You are a highly experienced Vedic astrologer specializing in Career & Profession astrology.
+Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
+${sectionPrompt}
+language:${userData.language}
         JSON: {
     "0": {
       "name": "As",
@@ -5962,23 +5867,33 @@ with awareness and intention`;
       });
 
       const data = await response.json();
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      text = removeMarkdown(text);
+      let text =
+        data.candidates?.[0]?.content?.parts?.[0]?.text ||
+        `${sectionPrompt.split(":")[0]} section could not be generated.`;
+      return removeMarkdown(text);
+    }
 
-      // Add new page for this section
+    // Run all API calls in parallel
+    const results = await Promise.all(careerSections.map(fetchCareerSection));
+
+    // Now render all sections into the PDF
+    for (let i = 0; i < careerSections.length; i++) {
+      const sectionPrompt = careerSections[i];
+      const text = results[i];
+
       doc.addPage();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(font, "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(font, "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
 
     doc.addPage();
@@ -6008,7 +5923,7 @@ with awareness and intention`;
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Health & Wellbeing", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -6020,12 +5935,12 @@ with awareness and intention`;
       "Holistic Remedies & Practical Advice: Lifestyle, diet, yoga, gemstone, and color remedies."
     ];
 
-    for (const sectionPrompt of healthSections) {
+    async function fetchhealthsection(sectionPrompt: string) {
       const fullPrompt = `
         You are an expert Vedic astrologer specializing in health and wellbeing.
         Using the provided JSON input, generate a professional, detailed report for this section:
         ${sectionPrompt}
-        language:${userObj.language}
+        language:${userData.language}
         JSON: {
           "manglik_by_mars": true,
           "bot_response": "You are 6% manglik. ",
@@ -6681,23 +6596,33 @@ with awareness and intention`;
       });
 
       const data = await response.json();
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      text = removeMarkdown(text);
+      let text =
+        data.candidates?.[0]?.content?.parts?.[0]?.text ||
+        `${sectionPrompt.split(":")[0]} section could not be generated.`;
+      return removeMarkdown(text);
+    }
 
-      // Add new page for this section
+    // Run all API calls in parallel
+    const resulthealth = await Promise.all(healthSections.map(fetchhealthsection));
+
+    // Now render all sections into the PDF
+    for (let i = 0; i < healthSections.length; i++) {
+      const sectionPrompt = healthSections[i];
+      const text = resulthealth[i];
+
       doc.addPage();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(font, "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(font, "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
     doc.addPage();
 
@@ -6711,7 +6636,7 @@ with awareness and intention`;
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Karmic & Purpose Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -6723,12 +6648,12 @@ with awareness and intention`;
       "Practical Advice & Remedies: Lifestyle, rituals, meditation, gemstones, and colors for karmic balance"
     ];
 
-    for (const sectionPrompt of karmicSections) {
+    async function fetchKarmicSection(sectionPrompt: string) {
       const fullPrompt = `
     You are an expert Vedic astrologer specializing in karmic insights and life purpose.
     Using the provided JSON input, generate a professional, detailed report for this section:
     ${sectionPrompt}
-    language: ${userObj.language}
+    language: ${userData.language}
     JSON: "response": { Sun:{
         "bot_response": "The Sun and Moon are always direct ",
         "status": true},
@@ -8403,23 +8328,33 @@ Rahu:{
       });
 
       const data = await response.json();
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      text = removeMarkdown(text);
+      let text =
+        data.candidates?.[0]?.content?.parts?.[0]?.text ||
+        `${sectionPrompt.split(":")[0]} section could not be generated.`;
+      return removeMarkdown(text);
+    }
 
-      // Add new page for this section
+    // Run all API calls in parallel
+    const resultkarmic = await Promise.all(karmicSections.map(fetchKarmicSection));
+
+    // Now render all sections into the PDF
+    for (let i = 0; i < karmicSections.length; i++) {
+      const sectionPrompt = karmicSections[i];
+      const text = resultkarmic[i];
+
       doc.addPage();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(font, "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(font, "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
 
     // Generate "09 Timing & Predictive Insights" section
@@ -8451,7 +8386,7 @@ Rahu:{
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Timing & Predictive Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
@@ -8462,7 +8397,6 @@ Rahu:{
       "Favorable & Challenging Periods: Key Dates, Phases & Practical Guidance"
     ];
 
-    const PAGE_MARGIN = 25;
     const PAGE_HEIGHT = 842;
     const LINE_HEIGHT = 20;
 
@@ -8471,7 +8405,7 @@ Rahu:{
     You are an expert, narrative-focused Vedic astrologer. 
     Generate a lavishly detailed, highly personalized astrology report section titled:
     "${sectionPrompt}"
-    language: ${userObj.language}
+    language: ${userData.language}
     based on the given JSON birth data.
 JSON: {
     "mahadasha": [
@@ -9256,13 +9190,13 @@ JSON: {
       doc.rect(25, 25, 545, 792, "S");
 
       // --- Section Title ---
-      doc.setFont(font, "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       // --- Section Subtitle ---
-      doc.setFont(font, "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       doc.text(sectionPrompt.split(":")[1] || "", pageWidth / 2, 80, { align: "center" });
@@ -9280,7 +9214,7 @@ JSON: {
 
         cursorY = addPaginatedTable(doc, ["Planet", "Start Date"], mahaData, cursorY, PAGE_HEIGHT);
 
-        doc.setFont(font, "italic");
+        doc.setFont("NotoSans", "italic");
         doc.setFontSize(12);
         doc.setTextColor("#444");
 
@@ -9309,7 +9243,7 @@ JSON: {
             PAGE_HEIGHT
           );
 
-          doc.setFont(font, "italic");
+          doc.setFont("NotoSans", "italic");
           doc.setFontSize(12);
           doc.setTextColor("#444");
           //const explanation = `The table above represents the sub-periods (Antardashas) of ${mahaName} Mahadasha. These finer periods influence day-to-day experiences, decisions, and personal growth.`;
@@ -9322,27 +9256,24 @@ JSON: {
       }
 
       // --- Regular content paragraphs ---
-      doc.setFont(font, "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
       addParagraphs(doc, text, 50, cursorY, pageWidth - 50 - 50);
     }
 
     // --- Helper: addPaginatedTable ---
-
-    type TableRow = (string | number)[]; // each row = array of cell values
-
     function addPaginatedTable(
-      doc: jsPDF,
+      doc: any,
       headers: string[],
-      data: TableRow[],
+      data: any[],
       startY: number,
       pageHeight: number
     ): number {
       const tableWidth = 400;
       const colWidth = tableWidth / headers.length;
       const pageWidth = doc.internal.pageSize.getWidth();
-      const pageNumber = () => doc.getNumberOfPages();
+      const pageNumber = () => doc.internal.getCurrentPageInfo().pageNumber;
       const startX = (pageWidth - tableWidth) / 2;
 
       const LINE_HEIGHT = 22;
@@ -9350,25 +9281,28 @@ JSON: {
       const textPaddingY = 6;
 
       // --- DRAW BORDER AROUND PAGE ---
-      const drawPageBorder = (): void => {
+      const drawPageBorder = () => {
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
       };
 
       // --- DRAW FOOTER WITH PAGE NUMBER ---
-      const drawFooter = (): void => {
+      const drawFooter = () => {
         const footerY = pageHeight - 20;
         doc.setFont("NotoSans", "italic");
         doc.setFontSize(10);
         doc.setTextColor("#999");
-        doc.text(`Page ${pageNumber()}`, pageWidth / 2, footerY, {
-          align: "center",
-        });
+        doc.text(
+          `Page ${pageNumber()}`,
+          pageWidth / 2,
+          footerY,
+          { align: "center" }
+        );
       };
 
       // --- DRAW HEADER ROW ---
-      const drawHeader = (yPos: number): number => {
+      const drawHeader = (yPos: number) => {
         doc.setFont("NotoSans", "bold");
         doc.setFontSize(13);
         doc.setFillColor(161, 106, 33);
@@ -9418,9 +9352,9 @@ JSON: {
         doc.rect(startX, y - 7, tableWidth, LINE_HEIGHT);
 
         // Text cells
-        data[i].forEach((cell, j) => {
+        data[i].forEach((cell: string, j: number) => {
           const align = j === 1 ? "right" : "left";
-          doc.text(String(cell), startX + j * colWidth + 10, y + textPaddingY, {
+          doc.text(cell, startX + j * colWidth + 10, y + textPaddingY, {
             align,
             baseline: "middle",
           });
@@ -9435,7 +9369,6 @@ JSON: {
 
       return y;
     }
-
     doc.addPage();
 
     // Draw border
@@ -9462,7 +9395,7 @@ JSON: {
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Add centered text
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
     doc.text("Remedies & Spiritual Guidance", pageWidth / 2, pageHeight / 2 + 40, { align: "center", baseline: "middle" });
@@ -9474,12 +9407,12 @@ JSON: {
     ];
 
     // --- Loop through each remedies sub-section ---
-    for (const sectionPrompt of remediesSections) {
+    async function fetchRemediesSection(sectionPrompt: string) {
       const fullPrompt = `
     You are an expert, narrative-focused Vedic astrologer.
     Generate a lavishly detailed, highly personalized astrology remedies section titled:
     "${sectionPrompt}"
-    language:${userObj.language}
+    language:${userData.language}
     based on the given JSON birth data.
 
     Include practical remedies such as mantras, gemstones, rituals, donations, yantras, and lifestyle adjustments.
@@ -10469,32 +10402,44 @@ Rahu:{
     },
   `;
 
-      // --- API Call ---
       const response = await fetch("/api/gemini", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 5000 }
+          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
         })
       });
 
       const data = await response.json();
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      text = removeMarkdown(text);
+      let text =
+        data.candidates?.[0]?.content?.parts?.[0]?.text ||
+        `${sectionPrompt.split(":")[0]} section could not be generated.`;
+      return removeMarkdown(text);
+    }
+
+    // Run all API calls in parallel
+    const resultremedic = await Promise.all(remediesSections.map(fetchRemediesSection));
+
+    // Now render all sections into the PDF
+    for (let i = 0; i < remediesSections.length; i++) {
+      const sectionPrompt = remediesSections[i];
+      const text = resultremedic[i];
+
       doc.addPage();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      doc.setFont(font, "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(font, "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
+
     }
     doc.addPage();
 
@@ -10523,7 +10468,7 @@ Rahu:{
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
     // Set font and color
-    doc.setFont(font, "bold");
+    doc.setFont("NotoSans", "bold");
     doc.setFontSize(36);
     doc.setTextColor("#ffffff");
 
@@ -10540,167 +10485,29 @@ Rahu:{
     doc.text(line2, pageWidth / 2, centerY + spacing / 2, { align: "center", baseline: "middle" });
 
     const advancedSections = [
-      {
-        page: "1-2",
-        title: "Introduction to Advanced Calculations",
-        contentFocus: [
-          "Significance of advanced computational methods in Vedic astrology",
-          "Historical development of these calculation systems",
-          "Enhancing predictive accuracy beyond basic chart reading",
-          "Overview of the four main calculation systems being analyzed"
-        ]
-      },
-      {
-        page: "3",
-        title: "Fundamentals of Ashtakvarga",
-        contentFocus: [
-          "Detailed explanation of the Ashtakvarga system",
-          "Point system (0-8 points per planet per house)",
-          "Significance of Sarvashtakavarga vs Binnashtakavarga",
-          "Interpretation methodology for house strengths",
-          "Reference JSON: ashtakvarga_points, total_points"
-        ]
-      },
-      {
-        page: "4",
-        title: "Sarvashtakavarga Analysis",
-        contentFocus: [
-          "House-by-house total points analysis",
-          "Medium strength: 25+ points, Strong: 28+, Weak: <25",
-          "Detailed predictions for each house based on points",
-          "Transit implications for strong vs weak houses",
-          "Reference JSON: total_points"
-        ]
-      },
-      {
-        page: "5",
-        title: "Binnashtakavarga Planetary Analysis",
-        contentFocus: [
-          "Individual planetary strength using ashtakvarga_points array",
-          "Planet-wise predictions based on contribution to house strengths",
-          "Remedial measures for weak planetary contributions",
-          "Best periods for each planet based on Ashtakvarga positions",
-          "Reference JSON: ashtakvarga_points"
-        ]
-      },
-      {
-        page: "6",
-        title: "Shadbala Calculation Methodology",
-        contentFocus: [
-          "Explanation of six components: Sthana Bala, Dig Bala, Kala Bala, Cheshta Bala, Naisargika Bala, Drik Bala",
-          "Minimum strength thresholds for each planet",
-          "Interpretation of planetary strengths above and below thresholds",
-          "Reference JSON: planetary_positions, retrograde status"
-        ]
-      },
-      {
-        page: "7-8",
-        title: "Individual Planetary Shadbala Analysis",
-        contentFocus: [
-          "Calculate Shadbala for each planet",
-          "Detailed interpretation of each planet's strength components",
-          "How strong vs weak planets affect their significations",
-          "Comparative analysis of all planetary strengths",
-          "Reference JSON: planetary_positions, degrees, retrograde, house placements"
-        ]
-      },
-      {
-        page: "9",
-        title: "Shadbala-Based Life Predictions",
-        contentFocus: [
-          "Career predictions using 10th lord and Mercury Shadbala",
-          "Relationship predictions using Venus and 7th lord strength",
-          "Health predictions using Sun, Moon, Lagna lord strength",
-          "Wealth predictions using 2nd and 11th lord Shadbala values",
-          "Reference JSON: Shadbala values"
-        ]
-      },
-      {
-        page: "10",
-        title: "Dasha System Overview",
-        contentFocus: [
-          "Vimshottari Dasha system hierarchy: Mahadasha > Antardasha > Pratyantardasha",
-          "Current running dashas from JSON (birth_dasa, current_dasa)",
-          "How sub-periods refine timing of events",
-          "Reference JSON: dashas"
-        ]
-      },
-      {
-        page: "11-12",
-        title: "Detailed Pratyantar Dasha Analysis",
-        contentFocus: [
-          "Break down current Mahadasha and Antardasha periods",
-          "Calculate upcoming Pratyantardasha periods",
-          "Specific predictions for each sub-period based on planetary combinations",
-          "Event timing using Pratyantar Dasha periods",
-          "Reference JSON: dashas, planetary_positions"
-        ]
-      },
-      {
-        page: "13",
-        title: "Dasha-Based Yearly Predictions",
-        contentFocus: [
-          "Year-wise predictions for the next 5 years using Dasha progressions",
-          "Timing of major life events",
-          "Identification of favorable and challenging periods",
-          "Remedial suggestions for difficult Dasha periods",
-          "Reference JSON: dashas, ashtakvarga_points, Shadbala"
-        ]
-      },
-      {
-        page: "14",
-        title: "Grah Yuddha Analysis",
-        contentFocus: [
-          "Identify planetary conjunctions within 1 degree",
-          "Determine winners and losers based on degrees and luminosity",
-          "Effects of planetary wars on life",
-          "Predictions based on involved planets",
-          "Reference JSON: planetary_positions"
-        ]
-      },
-      {
-        page: "15",
-        title: "Advanced Divisional Chart Analysis",
-        contentFocus: [
-          "Analysis of D9 (Navamsha), D10 (Dashamsha), D60 (Shashtiamsha)",
-          "How divisional chart placements modify main chart predictions",
-          "Vargottama planets and their significance",
-          "Integrate divisional chart insights with main birth chart",
-          "Reference JSON: divisional_charts"
-        ]
-      },
-      {
-        page: "16",
-        title: "Special Yogas and Rare Combinations",
-        contentFocus: [
-          "Identify rare yogas using yogas_list from JSON",
-          "Strength percentages and activation periods for each yoga",
-          "Combined effects when multiple yogas are present",
-          "Timing when these yogas will be most active",
-          "Reference JSON: yogas_list, planetary_positions"
-        ]
-      },
-      {
-        page: "17",
-        title: "Synthesis & Final Recommendations",
-        contentFocus: [
-          "Integration of all four calculation systems",
-          "Priority ranking of insights based on calculation strength",
-          "Specific remedial measures for weak areas",
-          "Timeline for implementing remedies",
-          "Monthly predictions for the next 12 months combining all methods",
-          "Reference JSON: all previous data sections"
-        ]
-      }
+      "Introduction to Advanced Calculations",
+      "Fundamentals of Ashtakvarga",
+      "Sarvashtakavarga Analysis",
+      "Binnashtakavarga Planetary Analysis",
+      "Shadbala Calculation Methodology",
+      "Individual Planetary Shadbala Analysis",
+      "Shadbala-Based Life Predictions",
+      "Dasha System Overview",
+      "Detailed Pratyantar Dasha Analysis",
+      "Dasha-Based Yearly Predictions",
+      "Grah Yuddha Analysis",
+      "Advanced Divisional Chart Analysis",
+      "Special Yogas and Rare Combinations",
+      "Synthesis & Final Recommendations"
     ];
 
     // --- Loop through each advanced calculation sub-section ---
-    for (const section of advancedSections) {
+    async function fetchAdvanceSection(sectionPrompt: string) {
       const fullPrompt = `
 You are an expert, narrative-focused Vedic astrologer.
 Generate a lavishly detailed, highly personalized astrology section titled:
-"${section.title}"
-language:${userObj.language}
+"${sectionPrompt}"
+language:${userData.language}
 based on the given JSON birth data.
 
 Include precise calculations, interpretations, and insights from planetary positions, houses, yogas, dashas, transits, and doshas.
@@ -11908,28 +11715,38 @@ JSON: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 5000 }
+          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
         })
       });
 
       const data = await response.json();
-      let text = data.candidates?.[0]?.content?.parts?.[0]?.text || `${section.title} section could not be generated.`;
-      text = removeMarkdown(text);
+      let text =
+        data.candidates?.[0]?.content?.parts?.[0]?.text ||
+        `${sectionPrompt.split(":")[0]} section could not be generated.`;
+      return removeMarkdown(text);
+    }
+
+    // Run all API calls in parallel
+    const resultadvance = await Promise.all(advancedSections.map(fetchAdvanceSection));
+
+    // Now render all sections into the PDF
+    for (let i = 0; i < advancedSections.length; i++) {
+      const sectionPrompt = advancedSections[i];
+      const text = resultadvance[i];
 
       doc.addPage();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-
-      doc.setFont(font, "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
-      doc.text(section.title, pageWidth / 2, 60, { align: "center" });
+      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(font, "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 50 - 50);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
 
     // Generate "12 Q&A & Personalized Advice" secti
@@ -11939,12 +11756,12 @@ JSON: {
     const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
     // --- Generate 12–15 Personalized Questions (Categorized) ---
-    async function generateQuestions(fullData: Record<string, unknown>) {
+    async function generateQuestions(fullData: Record<string, any>) {
       const questionPrompt = `
 You are an expert Vedic astrologer and holistic consultant.
 Analyze the following *complete client data* — including multi-chart birth data (D1, D9, D10, D60, D2, D3, D4),
 plus any personal or contextual data provided (location, date/time, gender).
-language:${userObj.language}
+language:${userData.language}
 Generate 12–15 *personalized, specific* client questions organized in categories:
 
 CAREER:
@@ -11991,7 +11808,7 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
       // Split by category headings
       const sections: Record<string, string[]> = {};
       let currentSection = "";
-      text.split(/\n+/).forEach((line: string) => {
+      text.split(/\n+/).forEach((line: any) => {
         line = line.trim();
         if (!line) return;
 
@@ -12003,7 +11820,6 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
         }
 
         if (currentSection) {
-          // Remove numbering
           line = line.replace(/^\d+\.\s*/, "");
           if (line) sections[currentSection].push(line);
         }
@@ -12013,12 +11829,12 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
     }
 
     // --- Generate Detailed Answers per Question ---
-    async function generateAnswer(question: string, fullData: Record<string, unknown>, retryCount = 0): Promise<string> {
+    async function generateAnswer(question: string, fullData: Record<string, any>, retryCount = 0): Promise<string> {
       const prompt = `
 You are an empathetic and wise Vedic astrologer. Based on this client's complete data
 (including all divisional charts: D1, D9, D10, D60, D2, D3, D4, plus personal metadata),
 write a detailed, client-friendly answer to the question below.
-language:${userObj.language}
+language:${userData.language}
 Include:
 - Relevant planetary influences (mention houses and planets)
 - Yogas and Dashas affecting this area
@@ -12042,8 +11858,8 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
         });
 
         const data = await response.json();
-        const ans = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        return ans.replace(/[*_~`]/g, ""); // Remove any leftover markdown
+        let ans = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        return ans.replace(/[*_~`]/g, "");
       } catch (err) {
         if (retryCount < 2) {
           await sleep(2000);
@@ -12053,46 +11869,31 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       }
     }
 
-    // // --- Add Paragraphs to PDF ---
-    // function addParagraphs(doc: any, text: string, x: number, yStart: number) {
-    //   const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
-    //   const lineHeight = 16;
-    //   let y = yStart;
-
-    //   for (const line of lines) {
-    //     if (y > 780) {
-    //       doc.addPage();
-    //       doc.setDrawColor("#a16a21");
-    //       doc.setLineWidth(1.5);
-    //       doc.rect(25, 25, 545, 792, "S");
-    //       y = 110;
-    //     }
-    //     doc.text(line, x, y);
-    //     y += lineHeight;
-    //   }
-    // }
-
     // --- Main Function to Generate Q&A PDF ---
-    async function generateQAPDF(doc: jsPDF, fullData: Record<string, unknown>) {
+    async function generateQAPDF(doc: any, fullData: Record<string, any>) {
       const pageWidth = doc.internal.pageSize.getWidth();
 
       // Step 1: Generate Questions by Category
       const questionSections = await generateQuestions(fullData);
-      console.log("Generated Questions:", questionSections);
 
-      // Step 2: Generate Answers for each Section
+      // Step 2: Generate Answers in Parallel using Promise.all
       const qaTextSections: string[] = [];
 
-      for (const [section, questions] of Object.entries(questionSections)) {
-        qaTextSections.push(section + ":\n");
-        for (const question of questions) {
-          const answer = await generateAnswer(question, fullData);
-          qaTextSections.push(`Question: ${question}\nAnswer: ${answer}\n`);
-          await sleep(500); // Slight delay to avoid overwhelming API
-        }
-      }
+      const allSectionPromises = Object.entries(questionSections).map(async ([section, questions]) => {
+        const questionAnswerPairs = await Promise.all(
+          questions.map(async (question, index) => {
+            // Optional throttling to prevent API rate errors
+            await sleep(index * 200);
+            const answer = await generateAnswer(question, fullData);
+            return `Question: ${question}\nAnswer: ${answer}\n`;
+          })
+        );
 
-      const fullQA = qaTextSections.join("\n");
+        return `${section}:\n${questionAnswerPairs.join("\n")}`;
+      });
+
+      const resolvedSections = await Promise.all(allSectionPromises);
+      const fullQA = resolvedSections.join("\n\n");
 
       // Step 3: Add Page Styling & Title
       doc.addPage();
@@ -12100,20 +11901,20 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      doc.setFont(font, "bold");
+      doc.setFont("NotoSans", "bold");
       doc.setFontSize(22);
       doc.setTextColor("#000");
       doc.text("Q&A & Personalized Guidance", pageWidth / 2, 60, { align: "center" });
 
-      doc.setFont(font, "normal");
+      doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
 
       // Step 4: Add all content
-      addParagraphs(doc, fullQA, 50, 100, pageWidth - 50 - 50);
+      addParagraphs(doc, fullQA, 50, 100, pageWidth - 100);
 
       // Step 5: Footer
-      const pageCount = doc.internal.pages.length - 1;
+      const pageCount = doc.internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(10);
@@ -12122,7 +11923,6 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
 
       return doc;
     }
-
 
     // ✅ Usage
     await generateQAPDF(doc, {
@@ -12139,8 +11939,6 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
     // --- Save PDF ---
     const fileName = `Cosmic_Report_${name}_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
-
-    console.log(`✅ PDF generated successfully: ${fileName}`);
 
     return {
       success: true,
@@ -12165,7 +11963,7 @@ export const generateTableContentForReport = async ({
   place,
   lat,
   lon,
-  userData = []
+  userData = {}
 }: {
   name: string;
   dob: string;
@@ -12173,10 +11971,9 @@ export const generateTableContentForReport = async ({
   place: string;
   lat: number;
   lon: number;
-  userData?: Array<[string, unknown]>;
+  userData?: any;
 }) => {
   try {
-    console.log("Fetching real API data for table content prompt...");
 
     // Fetch real API data
 
