@@ -1,10 +1,14 @@
-declare module "svg2pdf.js" {
-  const svg2pdf: (svgElement: SVGElement, pdfInstance: any, options: {
-    x?: number;
-    y?: number;
-    width?: number;
-    height?: number;
-  }) => void;
+import { jsPDF } from "jspdf";
 
-  export default svg2pdf;
+declare module "svg2pdf.js" {
+  export function svg2pdf(
+    svgElement: SVGElement,
+    pdfInstance: jsPDF,
+    options?: {
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+    }
+  ): void;
 }
