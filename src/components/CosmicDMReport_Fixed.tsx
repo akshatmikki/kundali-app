@@ -2,7 +2,8 @@ import { jsPDF } from "jspdf";
 import { generateReusableTableContent, generateTableContentPrompt } from "./ReusableTableContent";
 import removeMarkdown from "remove-markdown";
 import Default from "../app/data/Default.json";
-import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js"
+import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js";
+import { svg2pdf } from "svg2pdf.js";
 
 type AstrologyData = {
   d1?: object;
@@ -595,64 +596,64 @@ Language: ${userData.language || "English"}.
 //   }
 // }
 
-async function loadSVGAsImage(svgUrl: string): Promise<HTMLImageElement> {
-  // Fetch the SVG as text
-  const response = await fetch(svgUrl);
-  if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
-  const svgText = await response.text();
+// async function loadSVGAsImage(svgUrl: string): Promise<HTMLImageElement> {
+//   // Fetch the SVG as text
+//   const response = await fetch(svgUrl);
+//   if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
+//   const svgText = await response.text();
 
-  // Encode as base64 data URL
-  const base64 = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
+//   // Encode as base64 data URL
+//   const base64 = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
 
-  // Create image element
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = base64;
-    img.onload = () => resolve(img);
-    img.onerror = (e) => reject(new Error("Failed to parse SVG into image: " + e));
-  });
-}
+//   // Create image element
+//   return new Promise((resolve, reject) => {
+//     const img = new Image();
+//     img.crossOrigin = "anonymous";
+//     img.src = base64;
+//     img.onload = () => resolve(img);
+//     img.onerror = (e) => reject(new Error("Failed to parse SVG into image: " + e));
+//   });
+// }
 
-async function svgToBase64WithBackgroundCached(
-  svgText: string,
-  backgroundImage: HTMLImageElement,
-  width: number,
-  height: number
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return reject("Canvas context not available");
+// async function svgToBase64WithBackgroundCached(
+//   svgText: string,
+//   backgroundImage: HTMLImageElement,
+//   width: number,
+//   height: number
+// ): Promise<string> {
+//   return new Promise<string>((resolve, reject) => {
+//     const canvas = document.createElement("canvas");
+//     canvas.width = width;
+//     canvas.height = height;
+//     const ctx = canvas.getContext("2d");
+//     if (!ctx) return reject("Canvas context not available");
 
-    // Draw the background (which can now safely be SVG)
-    ctx.drawImage(backgroundImage, 0, 0, width, height);
+//     // Draw the background (which can now safely be SVG)
+//     ctx.drawImage(backgroundImage, 0, 0, width, height);
 
-    // If overlay SVG exists, draw it
-    if (svgText && svgText.trim() !== "") {
-      const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
-      const url = URL.createObjectURL(svgBlob);
-      const overlay = new Image();
-      overlay.crossOrigin = "anonymous";
-      overlay.src = url;
+//     // If overlay SVG exists, draw it
+//     if (svgText && svgText.trim() !== "") {
+//       const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+//       const url = URL.createObjectURL(svgBlob);
+//       const overlay = new Image();
+//       overlay.crossOrigin = "anonymous";
+//       overlay.src = url;
 
-      overlay.onload = () => {
-        ctx.drawImage(overlay, 0, 0, width, height);
-        URL.revokeObjectURL(url);
-        resolve(canvas.toDataURL("image/png"));
-      };
+//       overlay.onload = () => {
+//         ctx.drawImage(overlay, 0, 0, width, height);
+//         URL.revokeObjectURL(url);
+//         resolve(canvas.toDataURL("image/png"));
+//       };
 
-      overlay.onerror = (err) => {
-        URL.revokeObjectURL(url);
-        reject("Error loading overlay SVG: " + err);
-      };
-    } else {
-      resolve(canvas.toDataURL("image/png"));
-    }
-  });
-}
+//       overlay.onerror = (err) => {
+//         URL.revokeObjectURL(url);
+//         reject("Error loading overlay SVG: " + err);
+//       };
+//     } else {
+//       resolve(canvas.toDataURL("image/png"));
+//     }
+//   });
+// }
 interface DivisionalChartPDF {
   chart_name: string;
   svg?: string;         // Optional SVG overlay
@@ -662,10 +663,87 @@ interface DivisionalChartPDF {
 // Utility type for the function input
 type DivisionalChartsPDF = DivisionalChartPDF[];
 
-async function addAllDivisionalChartsFromJSON(
-  doc: jsPDF,
-  divisionalChartsData: DivisionalChartsPDF
-) {
+// async function addAllDivisionalChartsFromJSON(
+//   doc: jsPDF,
+//   divisionalChartsData: DivisionalChartsPDF
+// ) {
+//   const chartsPerPage = 2;
+//   const imgWidth = 340;
+//   const imgHeight = 300;
+//   const spacingY = 50;
+//   const marginTop = 100;
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const pageHeight = doc.internal.pageSize.getHeight();
+//   const textColor = "#a16a21";
+
+//   // ✅ Fetch and convert your Google Drive SVG once
+//   const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
+//   const backgroundImage = await loadSVGAsImage(backgroundSvgUrl);
+
+//   for (let i = 0; i < divisionalChartsData.length; i++) {
+//     const chartData = divisionalChartsData[i];
+
+//     if (i % chartsPerPage === 0) {
+//       if (i > 0) doc.addPage();
+//       doc.setDrawColor("#a16a21");
+//       doc.setLineWidth(1.5);
+//       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+
+//       doc.setFont("NotoSans", "bold");
+//       doc.setFontSize(22);
+//       doc.setTextColor("#a16a21");
+//       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
+//     }
+
+//     const positionInPage = i % chartsPerPage;
+//     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
+
+//     doc.setFont("NotoSans", "bold");
+//     doc.setFontSize(16);
+//     doc.setTextColor(textColor);
+//     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
+
+//     try {
+//       // Use cached SVG background
+//       const overlaySvgText = chartData.svg || chartData.chart_svg || "";
+//       const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
+//       const xPos = (pageWidth - imgWidth) / 2;
+//       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
+//     } catch (err) {
+//       console.error(`Error rendering chart ${chartData.chart_name}`, err);
+//       doc.setFont("NotoSans", "normal");
+//       doc.setFontSize(14);
+//       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
+//     }
+//   }
+
+//   // Add headers/footers
+//   const totalPages = doc.getNumberOfPages();
+//   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+//     doc.setPage(pageNum);
+//     addHeaderFooter(doc, pageNum);
+//   }
+// }
+
+// // Helper: Convert Blob → Base64
+// async function blobToBase64(blob: Blob): Promise<string> {
+//   return new Promise((resolve, reject) => {
+//     const reader = new FileReader();
+//     reader.onloadend = () => resolve(reader.result as string);
+//     reader.onerror = reject;
+//     reader.readAsDataURL(blob);
+//   });
+// }
+async function fetchSVGFromUrl(url: string): Promise<SVGSVGElement> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
+  const svgText = await response.text();
+  const parser = new DOMParser();
+  const svgElement = parser.parseFromString(svgText, "image/svg+xml").documentElement as unknown as SVGSVGElement;
+  return svgElement;
+}
+
+async function addAllDivisionalChartsFromJSON(doc: jsPDF, divisionalChartsData: DivisionalChartsPDF) {
   const chartsPerPage = 2;
   const imgWidth = 340;
   const imgHeight = 300;
@@ -675,9 +753,9 @@ async function addAllDivisionalChartsFromJSON(
   const pageHeight = doc.internal.pageSize.getHeight();
   const textColor = "#a16a21";
 
-  // ✅ Fetch and convert your Google Drive SVG once
+  // ✅ Fetch background SVG once as vector
   const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
-  const backgroundImage = await loadSVGAsImage(backgroundSvgUrl);
+  const backgroundSVG = await fetchSVGFromUrl(backgroundSvgUrl);
 
   for (let i = 0; i < divisionalChartsData.length; i++) {
     const chartData = divisionalChartsData[i];
@@ -703,11 +781,25 @@ async function addAllDivisionalChartsFromJSON(
     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
 
     try {
-      // Use cached SVG background
       const overlaySvgText = chartData.svg || chartData.chart_svg || "";
-      const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
+      const parser = new DOMParser();
+      const overlaySVG = overlaySvgText.trim()
+        ? (parser.parseFromString(overlaySvgText, "image/svg+xml").documentElement as unknown as SVGSVGElement)
+        : null;
+
+      // Background SVG should also be typed correctly
+      const backgroundSVG = await fetchSVGFromUrl(backgroundSvgUrl) as SVGSVGElement;
+
       const xPos = (pageWidth - imgWidth) / 2;
-      doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
+
+      // Draw background SVG
+      svg2pdf(backgroundSVG, doc, { x: xPos, y: currentY, width: imgWidth, height: imgHeight });
+
+      // Draw overlay SVG if exists
+      if (overlaySVG) {
+        svg2pdf(overlaySVG, doc, { x: xPos, y: currentY, width: imgWidth, height: imgHeight });
+      }
+
     } catch (err) {
       console.error(`Error rendering chart ${chartData.chart_name}`, err);
       doc.setFont("NotoSans", "normal");
@@ -723,16 +815,6 @@ async function addAllDivisionalChartsFromJSON(
     addHeaderFooter(doc, pageNum);
   }
 }
-
-// // Helper: Convert Blob → Base64
-// async function blobToBase64(blob: Blob): Promise<string> {
-//   return new Promise((resolve, reject) => {
-//     const reader = new FileReader();
-//     reader.onloadend = () => resolve(reader.result as string);
-//     reader.onerror = reject;
-//     reader.readAsDataURL(blob);
-//   });
-// }
 
 const generateHouseReports = async (doc: jsPDF, houses: House[], userData: UserData) => {
   const pageWidth = doc.internal.pageSize.getWidth();

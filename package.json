@@ -23,6 +23,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "remove-markdown": "^0.6.2",
+    "svg2pdf.js": "^2.6.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
