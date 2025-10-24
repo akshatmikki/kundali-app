@@ -14,6 +14,19 @@ import {
 } from "@mui/material";
 import { generateAndDownloadFullCosmicReportWithTable } from "./CosmicDMReport_Fixed";
 
+interface UserData {
+  name: string;
+  sex: string;
+  dob: string;
+  time: string;
+  place: string;
+  state?: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+  language: string;
+}
+
 const LANGUAGE_OPTIONS = [
   { code: 'en', name: 'English' }, // Added English as a common default
   { code: 'be', name: 'Bengali' },

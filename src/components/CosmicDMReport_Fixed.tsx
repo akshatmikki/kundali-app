@@ -4,13 +4,84 @@ import removeMarkdown from "remove-markdown";
 import Default from "../app/data/Default.json";
 import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js"
 
-interface Planet {
-  planetId: string; full_name: string; name: string; nakshatra: string; nakshatra_no: number; nakshatra_pada: number; retro: boolean;
+type AstrologyData = {
+  d1?: object;
+  d9?: object;
+  d10?: object;
+  d60?: object;
+  d2?: object;
+  d3?: object;
+  d4?: object;
+  Default?: object;
+  [key: string]: object | undefined;
 };
 
+interface UserData {
+  name: string;
+  sex: string;
+  dob: string;
+  time: string;
+  place: string;
+  state?: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+  language: string;
+}
+
+// Type for a single planet in a chart
+interface ChartPlanet {
+  name: string;          // short code like "Su" or "Mo"
+  full_name: string;     // full name like "Sun" or "Moon"
+  zodiac: string;        // zodiac sign
+  rasi_no: number;       // rasi number (1–12)
+  house: number;         // house number (1–12)
+  retro: boolean;        // whether retrograde
+  local_degree: number;  // degree in sign
+}
+
+// Type for a chart object like D1, D9, etc.
+interface DivisionalChart {
+  [key: string]: ChartPlanet | string; // keys "0".."9" are planets, plus "chart" and "chart_name"
+  chart: string;
+  chart_name: string;
+}
+
+interface Planet {
+  planetId?: string;         // optional if not in all datasets
+  full_name: string;
+  name: string;
+  nakshatra: string;
+  nakshatra_no: number;
+  nakshatra_pada: number;
+  retro: boolean;
+  is_combust?: boolean;
+  is_planet_set?: boolean;
+  rasi_no?: number;
+  house?: number;
+  local_degree?: number;
+  global_degree?: number;
+  progress_in_percentage?: number;
+  zodiac?: string;
+  zodiac_lord?: string;
+  basic_avastha?: string;
+  lord_status?: string;
+  [key: string]: unknown;    // for any extra fields
+}
+
 interface House {
-  house: string; rasi_no: number; zodiac: string; aspected_by_planet: string[]; aspected_by_planet_index: number[]; planets: Planet[]; cusp_sub_lord: string; cusp_sub_sub_lord: string; bhavmadhya: number;
-};
+  house: string;
+  rasi_no: number;
+  zodiac: string;
+  aspected_by_planet: string[];
+  aspected_by_planet_index: number[];
+  planets?: Planet[];        // array of planets in this house
+  cusp_sub_lord?: string;
+  cusp_sub_sub_lord?: string;
+  bhavmadhya?: number;
+  [key: string]: unknown;    // extra fields
+}
+
 const houses: House[] = [
   { house: '1', rasi_no: 10, zodiac: 'Capricorn', aspected_by_planet: [], aspected_by_planet_index: [], planets: [{ planetId: '0', full_name: 'Ascendant', name: 'As', nakshatra: 'Vishakha', nakshatra_no: 16, nakshatra_pada: 2, retro: false }, { planetId: '7', full_name: 'Saturn', name: 'Sa', nakshatra: 'Jyeshtha', nakshatra_no: 18, nakshatra_pada: 2, retro: false }], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 23.888 },
   { house: '2', rasi_no: 11, zodiac: 'Aquarius', aspected_by_planet: ['Moon', 'Rahu'], aspected_by_planet_index: [2, 8], planets: [], cusp_sub_lord: 'Rahu', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 24.682 },
@@ -82,7 +153,8 @@ function addParagraphs(
     if (currentY + splitText.length * lineHeight > bottomLimit) {
       doc.addPage();
       drawPageBorder();
-      currentY = getPageStartY(); // start below border on new page
+      currentY = getPageStartY();
+      addHeaderFooter(doc, doc.getNumberOfPages()); // start below border on new page
     }
 
     // Draw text
@@ -148,9 +220,9 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
 }
 
 const generatePlanetReportsWithImages = async (
-  doc: any,
-  planets: Record<string, any>,
-  userData: any
+  doc: jsPDF,
+  planets: Record<string, Planet>,
+  userData: UserData
 ) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -218,7 +290,7 @@ Language: ${userData.language || "English"}.
   // 🔹 Step 3: Render reports sequentially (preserve display order)
   for (const { planet, text } of reports) {
     doc.addPage();
-
+    addHeaderFooter(doc, doc.getNumberOfPages());
     // Border
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
@@ -262,7 +334,9 @@ Language: ${userData.language || "English"}.
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
+        addHeaderFooter(doc, doc.getNumberOfPages());
         cursorY = marginY + 20;
+
       }
       doc.text(line, marginX + leftPadding, cursorY);
       cursorY += lineHeight;
@@ -579,10 +653,18 @@ async function svgToBase64WithBackgroundCached(
     }
   });
 }
+interface DivisionalChartPDF {
+  chart_name: string;
+  svg?: string;         // Optional SVG overlay
+  chart_svg?: string;   // Optional alternative SVG
+}
+
+// Utility type for the function input
+type DivisionalChartsPDF = DivisionalChartPDF[];
 
 async function addAllDivisionalChartsFromJSON(
-  doc: any,
-  divisionalChartsData: any[]
+  doc: jsPDF,
+  divisionalChartsData: DivisionalChartsPDF
 ) {
   const chartsPerPage = 2;
   const imgWidth = 340;
@@ -652,7 +734,7 @@ async function addAllDivisionalChartsFromJSON(
 //   });
 // }
 
-const generateHouseReports = async (doc: any, houses: House[], userData: any) => {
+const generateHouseReports = async (doc: jsPDF, houses: House[], userData: UserData) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -709,7 +791,7 @@ Language: ${userData.language || "English"}.
   // 🔹 Step 3: Add all reports sequentially to the PDF (preserve order)
   for (const { house, text } of reports) {
     doc.addPage();
-
+    addHeaderFooter(doc, doc.getNumberOfPages());
     // Draw border
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
@@ -748,6 +830,7 @@ Language: ${userData.language || "English"}.
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
+        addHeaderFooter(doc, doc.getNumberOfPages());
         cursorY = marginY + 30;
       }
       doc.text(line, marginX + 15, cursorY);
@@ -764,7 +847,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
   place: string,
   lat: number,
   lon: number,
-  userData: any = {}
+  userData: UserData
 ) {
   try {
 
@@ -895,7 +978,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     });
     doc.addPage();
     // --- Generate Disclaimer Page using AI ---
-    const generateIntroSections = async (doc: any, userData: any) => {
+    const generateIntroSections = async (doc: jsPDF, userData: UserData) => {
       const pageWidth = doc.internal.pageSize.getWidth();
       //const pageHeight = doc.internal.pageSize.getHeight();
 
@@ -1140,15 +1223,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         sunsetData,
         moonSignData,
         sunSignData,
-        userData: {
-          name,
-          dob,
-          time,
-          place,
-          latitude: lat,
-          longitude: lon,
-          ...userData
-        },
+        userData: userData,
         title: "AVAKAHADA CHAKRA",
         showUserInfo: true
       });
@@ -9264,16 +9339,16 @@ JSON: {
 
     // --- Helper: addPaginatedTable ---
     function addPaginatedTable(
-      doc: any,
+      doc: jsPDF,
       headers: string[],
-      data: any[],
+      data: string[][],
       startY: number,
       pageHeight: number
     ): number {
       const tableWidth = 400;
       const colWidth = tableWidth / headers.length;
       const pageWidth = doc.internal.pageSize.getWidth();
-      const pageNumber = () => doc.internal.getCurrentPageInfo().pageNumber;
+      const pageNumber = () => doc.getNumberOfPages();
       const startX = (pageWidth - tableWidth) / 2;
 
       const LINE_HEIGHT = 22;
@@ -9288,18 +9363,19 @@ JSON: {
       };
 
       // --- DRAW FOOTER WITH PAGE NUMBER ---
-      const drawFooter = () => {
-        const footerY = pageHeight - 20;
-        doc.setFont("NotoSans", "italic");
-        doc.setFontSize(10);
-        doc.setTextColor("#999");
-        doc.text(
-          `Page ${pageNumber()}`,
-          pageWidth / 2,
-          footerY,
-          { align: "center" }
-        );
-      };
+      // const drawFooter = () => {
+      //   addHeaderFooter(doc,);
+      //   const footerY = pageHeight - 20;
+      //   doc.setFont("NotoSans", "italic");
+      //   doc.setFontSize(10);
+      //   doc.setTextColor("#999");
+      //   doc.text(
+      //     `Page ${pageNumber()}`,
+      //     pageWidth / 2,
+      //     footerY,
+      //     { align: "center" }
+      //   );
+      // };
 
       // --- DRAW HEADER ROW ---
       const drawHeader = (yPos: number) => {
@@ -9331,7 +9407,7 @@ JSON: {
       for (let i = 0; i < data.length; i++) {
         // Check if next row fits; if not, add new page
         if (y + LINE_HEIGHT + PAGE_MARGIN > pageHeight) {
-          drawFooter();
+          addHeaderFooter(doc, doc.getNumberOfPages());
           doc.addPage();
           drawPageBorder();
           y = PAGE_MARGIN;
@@ -9364,7 +9440,7 @@ JSON: {
       }
 
       // --- Final footer and border ---
-      drawFooter();
+      addHeaderFooter(doc, doc.getNumberOfPages());
       drawPageBorder();
 
       return y;
@@ -11756,7 +11832,7 @@ JSON: {
     const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
     // --- Generate 12–15 Personalized Questions (Categorized) ---
-    async function generateQuestions(fullData: Record<string, any>) {
+    async function generateQuestions(fullData: AstrologyData) {
       const questionPrompt = `
 You are an expert Vedic astrologer and holistic consultant.
 Analyze the following *complete client data* — including multi-chart birth data (D1, D9, D10, D60, D2, D3, D4),
@@ -11808,7 +11884,7 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
       // Split by category headings
       const sections: Record<string, string[]> = {};
       let currentSection = "";
-      text.split(/\n+/).forEach((line: any) => {
+      text.split(/\n+/).forEach((line: string) => {
         line = line.trim();
         if (!line) return;
 
@@ -11829,7 +11905,7 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
     }
 
     // --- Generate Detailed Answers per Question ---
-    async function generateAnswer(question: string, fullData: Record<string, any>, retryCount = 0): Promise<string> {
+    async function generateAnswer(question: string, fullData: Record<string, unknown>, retryCount = 0): Promise<string> {
       const prompt = `
 You are an empathetic and wise Vedic astrologer. Based on this client's complete data
 (including all divisional charts: D1, D9, D10, D60, D2, D3, D4, plus personal metadata),
@@ -11870,7 +11946,7 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
     }
 
     // --- Main Function to Generate Q&A PDF ---
-    async function generateQAPDF(doc: any, fullData: Record<string, any>) {
+    async function generateQAPDF(doc: jsPDF, fullData: AstrologyData) {
       const pageWidth = doc.internal.pageSize.getWidth();
 
       // Step 1: Generate Questions by Category
@@ -11914,7 +11990,7 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       addParagraphs(doc, fullQA, 50, 100, pageWidth - 100);
 
       // Step 5: Footer
-      const pageCount = doc.internal.getNumberOfPages();
+      const pageCount = doc.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(10);
@@ -11963,7 +12039,7 @@ export const generateTableContentForReport = async ({
   place,
   lat,
   lon,
-  userData = {}
+  userData
 }: {
   name: string;
   dob: string;
@@ -11971,7 +12047,7 @@ export const generateTableContentForReport = async ({
   place: string;
   lat: number;
   lon: number;
-  userData?: any;
+  userData?: UserData;
 }) => {
   try {
 

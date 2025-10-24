@@ -99,11 +99,9 @@ export const generateReusableTableContent = async ({
         const leftFields = [
             ["Sex", userData?.sex || ""],
             ["Date of Birth", userData?.dob || ""],
-            ["Day", userData?.day || ""],
             ["Time of Birth", userData?.time || ""],
         ];
         const rightFields = [
-            ["Ishta", kundliData?.ishta || ""],
             ["City", userData?.place || ""],
             ["State", userData?.state || ""],
             ["Country", userData?.country || ""],
@@ -213,7 +211,7 @@ export const generateReusableTableContent = async ({
     drawTableRows(centeredStart + chakraColWidth + colGap, rightFields);
 
     // --- Footer ---
-    addFooter(doc);
+    //addFooter(doc);
 };
 
 // Prompt function that can be called from cosmicdmreport page
