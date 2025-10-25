@@ -113,30 +113,27 @@ function addParagraphs(
 
   let currentY = y;
 
-  // Function to draw page border
   const drawPageBorder = () => {
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
   };
 
-  // Function to get starting Y for a page (below top border)
-  const getPageStartY = () => margin + 20; // 20px offset from top border
+  const getPageStartY = () => margin + 20;
 
-  // Draw border for first page
+  // Draw first page border
   drawPageBorder();
 
-  // Split input text into lines
   const lines = text.split("\n");
 
   for (let line of lines) {
     line = line.trim();
     if (!line) continue;
 
-    // Detect subheadings: all caps or ending with ":"
+    // Detect subheadings
     const isSubheading = line.endsWith(":") || /^[A-Z\s]+$/.test(line);
 
-    // Set font, size, color
+    // Set font styling
     if (isSubheading) {
       doc.setFont("NotoSans", "bold");
       doc.setFontSize(16);
@@ -147,24 +144,37 @@ function addParagraphs(
       doc.setTextColor("#a16a21");
     }
 
-    // Wrap text to maxWidth
+    // Split text into wrapped lines
     const splitText = doc.splitTextToSize(line, maxWidth);
+    const paragraphHeight = splitText.length * lineHeight;
 
-    // Check if text exceeds page height
-    if (currentY + splitText.length * lineHeight > bottomLimit) {
+    // --- Widow control ---
+    // If only 1 line of the paragraph fits on this page and others go to next,
+    // move the entire paragraph to the next page.
+    if (currentY + paragraphHeight > bottomLimit && currentY + lineHeight > bottomLimit - 5) {
+      // not enough space even for one line, go to new page
       doc.addPage();
       drawPageBorder();
+      addHeaderFooter(doc, doc.getNumberOfPages());
       currentY = getPageStartY();
-      addHeaderFooter(doc, doc.getNumberOfPages()); // start below border on new page
+    } else if (currentY + paragraphHeight > bottomLimit) {
+      const remainingSpace = bottomLimit - currentY;
+      const linesThatFit = Math.floor(remainingSpace / lineHeight);
+      if (linesThatFit <= 1) {
+        // Only one line would fit → move full paragraph
+        doc.addPage();
+        drawPageBorder();
+        addHeaderFooter(doc, doc.getNumberOfPages());
+        currentY = getPageStartY();
+      }
     }
 
-    // Draw text
+    // Draw the paragraph
     doc.text(splitText, x, currentY);
-    currentY += splitText.length * lineHeight;
+    currentY += paragraphHeight;
 
-    // Extra spacing after subheading
-    if (isSubheading) currentY += 5;
-    else currentY += 10; // gap between normal paragraphs
+    // Add spacing
+    currentY += isSubheading ? 5 : 10;
   }
 
   return currentY;
@@ -172,12 +182,26 @@ function addParagraphs(
 
 // --- Utilities for header/footer ---
 const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
-  if (pageNum == 1) return;
+  if (pageNum === 1) return;
+
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  // Footer
+  // Save the current font and style
+  const prevFont = doc.getFont().fontName;
+  const prevStyle = doc.getFont().fontStyle;
+  const prevSize = doc.getFontSize();
+
+  // Apply bold font for footer only
+  doc.setFont("Times", "bold");
+  doc.setFontSize(18);
+
+  // Footer text
   doc.text("© 2025 TrustAstrology. All rights reserved.", pageWidth / 2, pageHeight - 30, { align: "center" });
+
+  // Restore previous font and style
+  doc.setFont(prevFont, prevStyle);
+  doc.setFontSize(prevSize);
 };
 
 export function svgToBase64PNG(svgText: string, width: number, height: number): Promise<string> {
@@ -244,15 +268,24 @@ Generate a detailed, immersive two-page narrative for the planet ${planet.full_n
 without markdown and don't show any page numbers (e.g., "Page 1" or "Page 2").
 
 Include:
-- Introduction and significance
+- Introduction and significance of the planet in Vedic astrology
 - Zodiac sign and house placement
 - Nakshatra, degrees, nakshatra lord and pada
 - Retrograde or combust influences
 - Planet’s condition (avastha) and lord status
-- Personality traits, talents, struggles
+- Personality traits, talents, and struggles
 - Aspects to other houses or planets
-- Traditional Vedic references, mantras
+- Traditional Vedic references and mantras
 - Insights on life lessons, growth, and destiny
+-use simple words not complex words difficult to understand
+- Real-life Indian examples: 
+  - For intellect and vision: Dr. A.P.J. Abdul Kalam, C.V. Raman
+  - For creativity and art: M.F. Husain, Amrita Sher-Gil
+  - For music and emotion: Lata Mangeshkar, Zakir Hussain
+  - For leadership and ethics: Ratan Tata, Indra Nooyi
+  - For resilience and spiritual growth: Swami Vivekananda, Mahatma Gandhi
+
+Integrate these examples naturally in your narrative to illustrate traits, challenges, or life lessons associated with the planet.
 
 JSON data for this planet: ${JSON.stringify(planet)}
 Language: ${userData.language || "English"}.
@@ -366,8 +399,6 @@ Language: ${userData.language || "English"}.
 //     y += lineHeight;
 //   }
 // };
-
-
 
 // // 1️⃣ Generate SVG chart
 // function generateChartSVG(chartJson: ChartJson): string {
@@ -596,64 +627,64 @@ Language: ${userData.language || "English"}.
 //   }
 // }
 
-// async function loadSVGAsImage(svgUrl: string): Promise<HTMLImageElement> {
-//   // Fetch the SVG as text
-//   const response = await fetch(svgUrl);
-//   if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
-//   const svgText = await response.text();
+async function loadSVGAsImage(svgUrl: string): Promise<HTMLImageElement> {
+  // Fetch the SVG as text
+  const response = await fetch(svgUrl);
+  if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
+  const svgText = await response.text();
 
-//   // Encode as base64 data URL
-//   const base64 = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
+  // Encode as base64 data URL
+  const base64 = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
 
-//   // Create image element
-//   return new Promise((resolve, reject) => {
-//     const img = new Image();
-//     img.crossOrigin = "anonymous";
-//     img.src = base64;
-//     img.onload = () => resolve(img);
-//     img.onerror = (e) => reject(new Error("Failed to parse SVG into image: " + e));
-//   });
-// }
+  // Create image element
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = base64;
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(new Error("Failed to parse SVG into image: " + e));
+  });
+}
 
-// async function svgToBase64WithBackgroundCached(
-//   svgText: string,
-//   backgroundImage: HTMLImageElement,
-//   width: number,
-//   height: number
-// ): Promise<string> {
-//   return new Promise<string>((resolve, reject) => {
-//     const canvas = document.createElement("canvas");
-//     canvas.width = width;
-//     canvas.height = height;
-//     const ctx = canvas.getContext("2d");
-//     if (!ctx) return reject("Canvas context not available");
+async function svgToBase64WithBackgroundCached(
+  svgText: string,
+  backgroundImage: HTMLImageElement,
+  width: number,
+  height: number
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return reject("Canvas context not available");
 
-//     // Draw the background (which can now safely be SVG)
-//     ctx.drawImage(backgroundImage, 0, 0, width, height);
+    // Draw the background (which can now safely be SVG)
+    ctx.drawImage(backgroundImage, 0, 0, width, height);
 
-//     // If overlay SVG exists, draw it
-//     if (svgText && svgText.trim() !== "") {
-//       const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
-//       const url = URL.createObjectURL(svgBlob);
-//       const overlay = new Image();
-//       overlay.crossOrigin = "anonymous";
-//       overlay.src = url;
+    // If overlay SVG exists, draw it
+    if (svgText && svgText.trim() !== "") {
+      const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(svgBlob);
+      const overlay = new Image();
+      overlay.crossOrigin = "anonymous";
+      overlay.src = url;
 
-//       overlay.onload = () => {
-//         ctx.drawImage(overlay, 0, 0, width, height);
-//         URL.revokeObjectURL(url);
-//         resolve(canvas.toDataURL("image/png"));
-//       };
+      overlay.onload = () => {
+        ctx.drawImage(overlay, 0, 0, width, height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL("image/png"));
+      };
 
-//       overlay.onerror = (err) => {
-//         URL.revokeObjectURL(url);
-//         reject("Error loading overlay SVG: " + err);
-//       };
-//     } else {
-//       resolve(canvas.toDataURL("image/png"));
-//     }
-//   });
-// }
+      overlay.onerror = (err) => {
+        URL.revokeObjectURL(url);
+        reject("Error loading overlay SVG: " + err);
+      };
+    } else {
+      resolve(canvas.toDataURL("image/png"));
+    }
+  });
+}
 interface DivisionalChartPDF {
   chart_name: string;
   svg?: string;         // Optional SVG overlay
@@ -663,87 +694,10 @@ interface DivisionalChartPDF {
 // Utility type for the function input
 type DivisionalChartsPDF = DivisionalChartPDF[];
 
-// async function addAllDivisionalChartsFromJSON(
-//   doc: jsPDF,
-//   divisionalChartsData: DivisionalChartsPDF
-// ) {
-//   const chartsPerPage = 2;
-//   const imgWidth = 340;
-//   const imgHeight = 300;
-//   const spacingY = 50;
-//   const marginTop = 100;
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const pageHeight = doc.internal.pageSize.getHeight();
-//   const textColor = "#a16a21";
-
-//   // ✅ Fetch and convert your Google Drive SVG once
-//   const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
-//   const backgroundImage = await loadSVGAsImage(backgroundSvgUrl);
-
-//   for (let i = 0; i < divisionalChartsData.length; i++) {
-//     const chartData = divisionalChartsData[i];
-
-//     if (i % chartsPerPage === 0) {
-//       if (i > 0) doc.addPage();
-//       doc.setDrawColor("#a16a21");
-//       doc.setLineWidth(1.5);
-//       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
-
-//       doc.setFont("NotoSans", "bold");
-//       doc.setFontSize(22);
-//       doc.setTextColor("#a16a21");
-//       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
-//     }
-
-//     const positionInPage = i % chartsPerPage;
-//     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
-
-//     doc.setFont("NotoSans", "bold");
-//     doc.setFontSize(16);
-//     doc.setTextColor(textColor);
-//     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
-
-//     try {
-//       // Use cached SVG background
-//       const overlaySvgText = chartData.svg || chartData.chart_svg || "";
-//       const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
-//       const xPos = (pageWidth - imgWidth) / 2;
-//       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
-//     } catch (err) {
-//       console.error(`Error rendering chart ${chartData.chart_name}`, err);
-//       doc.setFont("NotoSans", "normal");
-//       doc.setFontSize(14);
-//       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
-//     }
-//   }
-
-//   // Add headers/footers
-//   const totalPages = doc.getNumberOfPages();
-//   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-//     doc.setPage(pageNum);
-//     addHeaderFooter(doc, pageNum);
-//   }
-// }
-
-// // Helper: Convert Blob → Base64
-// async function blobToBase64(blob: Blob): Promise<string> {
-//   return new Promise((resolve, reject) => {
-//     const reader = new FileReader();
-//     reader.onloadend = () => resolve(reader.result as string);
-//     reader.onerror = reject;
-//     reader.readAsDataURL(blob);
-//   });
-// }
-async function fetchSVGFromUrl(url: string): Promise<SVGSVGElement> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
-  const svgText = await response.text();
-  const parser = new DOMParser();
-  const svgElement = parser.parseFromString(svgText, "image/svg+xml").documentElement as unknown as SVGSVGElement;
-  return svgElement;
-}
-
-async function addAllDivisionalChartsFromJSON(doc: jsPDF, divisionalChartsData: DivisionalChartsPDF) {
+async function addAllDivisionalChartsFromJSON(
+  doc: jsPDF,
+  divisionalChartsData: DivisionalChartsPDF
+) {
   const chartsPerPage = 2;
   const imgWidth = 340;
   const imgHeight = 300;
@@ -753,9 +707,9 @@ async function addAllDivisionalChartsFromJSON(doc: jsPDF, divisionalChartsData: 
   const pageHeight = doc.internal.pageSize.getHeight();
   const textColor = "#a16a21";
 
-  // ✅ Fetch background SVG once as vector
+  // ✅ Fetch and convert your Google Drive SVG once
   const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
-  const backgroundSVG = await fetchSVGFromUrl(backgroundSvgUrl);
+  const backgroundImage = await loadSVGAsImage(backgroundSvgUrl);
 
   for (let i = 0; i < divisionalChartsData.length; i++) {
     const chartData = divisionalChartsData[i];
@@ -781,25 +735,11 @@ async function addAllDivisionalChartsFromJSON(doc: jsPDF, divisionalChartsData: 
     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
 
     try {
+      // Use cached SVG background
       const overlaySvgText = chartData.svg || chartData.chart_svg || "";
-      const parser = new DOMParser();
-      const overlaySVG = overlaySvgText.trim()
-        ? (parser.parseFromString(overlaySvgText, "image/svg+xml").documentElement as unknown as SVGSVGElement)
-        : null;
-
-      // Background SVG should also be typed correctly
-      const backgroundSVG = await fetchSVGFromUrl(backgroundSvgUrl) as SVGSVGElement;
-
+      const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
       const xPos = (pageWidth - imgWidth) / 2;
-
-      // Draw background SVG
-      svg2pdf(backgroundSVG, doc, { x: xPos, y: currentY, width: imgWidth, height: imgHeight });
-
-      // Draw overlay SVG if exists
-      if (overlaySVG) {
-        svg2pdf(overlaySVG, doc, { x: xPos, y: currentY, width: imgWidth, height: imgHeight });
-      }
-
+      doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
     } catch (err) {
       console.error(`Error rendering chart ${chartData.chart_name}`, err);
       doc.setFont("NotoSans", "normal");
@@ -816,6 +756,97 @@ async function addAllDivisionalChartsFromJSON(doc: jsPDF, divisionalChartsData: 
   }
 }
 
+// // Helper: Convert Blob → Base64
+// async function blobToBase64(blob: Blob): Promise<string> {
+//   return new Promise((resolve, reject) => {
+//     const reader = new FileReader();
+//     reader.onloadend = () => resolve(reader.result as string);
+//     reader.onerror = reject;
+//     reader.readAsDataURL(blob);
+//   });
+// }
+// async function fetchSVGFromUrl(url: string): Promise<SVGSVGElement> {
+//   const response = await fetch(url);
+//   if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
+//   const svgText = await response.text();
+//   const parser = new DOMParser();
+//   const svgElement = parser.parseFromString(svgText, "image/svg+xml").documentElement as unknown as SVGSVGElement;
+//   return svgElement;
+// }
+
+// async function addAllDivisionalChartsFromJSON(doc: jsPDF, divisionalChartsData: DivisionalChartsPDF) {
+//   const chartsPerPage = 2;
+//   const imgWidth = 250;
+//   const imgHeight = 200;
+//   const spacingY = 50;
+//   const marginTop = 100;
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const pageHeight = doc.internal.pageSize.getHeight();
+//   const textColor = "#a16a21";
+
+//   // ✅ Fetch background SVG once as vector
+//   const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
+//   const backgroundSVG = await fetchSVGFromUrl(backgroundSvgUrl);
+
+//   for (let i = 0; i < divisionalChartsData.length; i++) {
+//     const chartData = divisionalChartsData[i];
+
+//     if (i % chartsPerPage === 0) {
+//       if (i > 0) doc.addPage();
+//       doc.setDrawColor("#a16a21");
+//       doc.setLineWidth(1.5);
+//       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+
+//       doc.setFont("NotoSans", "bold");
+//       doc.setFontSize(22);
+//       doc.setTextColor("#a16a21");
+//       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
+//     }
+
+//     const positionInPage = i % chartsPerPage;
+//     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
+
+//     doc.setFont("NotoSans", "bold");
+//     doc.setFontSize(16);
+//     doc.setTextColor(textColor);
+//     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
+
+//     try {
+//       const overlaySvgText = chartData.svg || chartData.chart_svg || "";
+//       const parser = new DOMParser();
+//       const overlaySVG = overlaySvgText.trim()
+//         ? (parser.parseFromString(overlaySvgText, "image/svg+xml").documentElement as unknown as SVGSVGElement)
+//         : null;
+
+//       // Background SVG should also be typed correctly
+//       const backgroundSVG = await fetchSVGFromUrl(backgroundSvgUrl) as SVGSVGElement;
+
+//       const xPos = (pageWidth - imgWidth) / 2;
+
+//       // Draw background SVG
+//       svg2pdf(backgroundSVG, doc, { x: xPos, y: currentY, width: imgWidth, height: imgHeight });
+
+//       // Draw overlay SVG if exists
+//       if (overlaySVG) {
+//         svg2pdf(overlaySVG, doc, { x: xPos, y: currentY, width: imgWidth, height: imgHeight });
+//       }
+
+//     } catch (err) {
+//       console.error(`Error rendering chart ${chartData.chart_name}`, err);
+//       doc.setFont("NotoSans", "normal");
+//       doc.setFontSize(14);
+//       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
+//     }
+//   }
+
+//   // Add headers/footers
+//   const totalPages = doc.getNumberOfPages();
+//   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+//     doc.setPage(pageNum);
+//     addHeaderFooter(doc, pageNum);
+//   }
+// }
+
 const generateHouseReports = async (doc: jsPDF, houses: House[], userData: UserData) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -828,7 +859,7 @@ const generateHouseReports = async (doc: jsPDF, houses: House[], userData: UserD
   const prompts = houses.map((house) => ({
     house,
     prompt: `
-You are an expert astrologer and storyteller. 
+You are an expert Vedic astrologer and storyteller. 
 Generate a detailed, story-like horoscope report (700–1000 words) for House ${house.house} (${house.zodiac}) 
 from JSON data, but don't include the JSON itself or any markdown formatting.
 
@@ -837,8 +868,11 @@ Include:
 - House Lord Significance
 - House Strength (Ashtakvarga)
 - Effects of Planets (nakshatra, retrograde, aspects)
-- Personalized insights and real-life style examples
-- A symbolic theme for this house (but only describe it naturally, not as “image reference”)
+- Personalized insights with real-life examples, referencing famous Indian personalities and cultural scenarios
+  (e.g., M.F. Husain, Lata Mangeshkar, Dr. A.P.J. Abdul Kalam, Ratan Tata)
+- A symbolic theme for this house (describe naturally, not as an image reference)
+-use simple words don't use difficult words
+- if no data present for specific then dont write like While I don't have this 
 
 JSON data: ${JSON.stringify(house)}
 Language: ${userData.language || "English"}.
@@ -883,7 +917,7 @@ Language: ${userData.language || "English"}.
     doc.setFont("NotoSans", "bold");
     doc.setFontSize(22);
     doc.setTextColor("#000");
-    doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 95, { align: "center" });
+    doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 70, { align: "center" });
 
     // House image
     const imageY = 100;
@@ -897,7 +931,7 @@ Language: ${userData.language || "English"}.
     }
 
     // Setup text
-    let cursorY = imageY + imageHeight + 20;
+    let cursorY = imageY + imageHeight + 30;
     doc.setFont("NotoSans", "normal");
     doc.setFontSize(13);
     doc.setTextColor("#a16a21");
@@ -1011,7 +1045,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
 
     // --- TEXT ON RIGHT SIDE ---
     const marginRight = 50;
-    const marginBottom = 80;
+    const marginBottom = 40;
     const reportDate = new Date().toLocaleDateString(userData.language || "en-US", { year: "numeric", month: "long" });
 
     // Translation map for static text (you can expand for more languages)
@@ -1040,7 +1074,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     //doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
     doc.setTextColor(255, 255, 255);
 
-    const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+    let yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
     textLines.forEach((line, i) => {
       if (i === 0) {
@@ -1242,59 +1276,41 @@ export async function generateAndDownloadFullCosmicReportWithTable(
    11.2 Next Steps: Using Insights & Remedies for Personal Growth
 `;
 
-    tocText = removeMarkdown(tocText);
+    // Remove markdown if any
+tocText = removeMarkdown(tocText);
 
-    const lines = tocText.split("\n");
-    let currentMain = 0;
-    let subCount = 0;
-    let finalToc = "";
+// --- PDF Rendering ---
+doc.addPage();
+doc.setDrawColor("#a16a21");
+doc.setLineWidth(1.5);
+doc.rect(25, 25, 545, 792, "S");
 
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) {
-        finalToc += "\n";
-        continue;
-      }
+doc.setFont("NotoSans", "bold");
+doc.setFontSize(22);
+doc.setTextColor("#000");
+doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
 
-      // ✅ Detect main headings like "01 Something"
-      const mainMatch = line.match(/^(\d{2})\s+(.*)/);
-      if (mainMatch) {
-        currentMain = parseInt(mainMatch[1], 10); // "01" -> 1
-        subCount = 0;
-        finalToc += `${currentMain}. ${mainMatch[2]}\n`;
-        continue;
-      }
+doc.setFont("NotoSans", "normal");
+doc.setFontSize(13);
+doc.setTextColor("#a16a21");
 
-      // ✅ Detect subheadings starting with "-" or "–" or "—"
-      const subMatch = line.match(/^[\-–—]\s*(.*)/);
-      if (subMatch && currentMain) {
-        subCount++;
-        const subNumber = `${currentMain}.${subCount}`;
-        finalToc += `   ${subNumber} ${subMatch[1]}\n`;
-        continue;
-      }
+// Split lines and print them exactly as-is with spacing
+const lines = tocText.split("\n");
+for (const line of lines) {
+  const trimmed = line.trimEnd(); // keep leading spaces for indentation
+  if (trimmed === "") {
+    yPos += lineHeight / 2; // extra spacing for empty lines
+    continue;
+  }
+  doc.text(trimmed, 50, yPos);
+  yPos += lineHeight;
 
-      // ✅ For any other unmatched line, just print as-is
-      finalToc += `${line}\n`;
-    }
-
-    tocText = finalToc;
-
-    // --- PDF Rendering ---
+  // Check if new page is needed
+  if (yPos > doc.internal.pageSize.getHeight() - 50) {
     doc.addPage();
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(25, 25, 545, 792, "S");
-
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor("#000");
-    doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
-
-    doc.setFont("NotoSans", "normal");
-    doc.setFontSize(13);
-    doc.setTextColor("#a16a21");
-    addParagraphs(doc, tocText, 50, 100, pageWidth - 50 - 50);
+    yPos = 50; // reset for new page
+  }
+}
 
     // --- Add Table Content Page with Real API Data ---
     if (kundliData) {
@@ -3747,7 +3763,45 @@ export async function generateAndDownloadFullCosmicReportWithTable(
 
     ]);
 
-    doc.addPage();
+    const ashtakvarga_order = [
+      "Sun",
+      "Moon",
+      "Mars",
+      "Mercury",
+      "Jupiter",
+      "Venus",
+      "Saturn",
+      "Ascendant"
+    ];
+
+    const ashtakvarga_points = [
+      [5, 5, 4, 6, 4, 2, 4, 3, 5, 4, 2, 4],
+      [4, 3, 2, 5, 6, 3, 3, 4, 6, 3, 6, 4],
+      [5, 4, 2, 5, 3, 3, 3, 3, 5, 3, 0, 3],
+      [4, 7, 5, 6, 5, 4, 5, 4, 4, 4, 1, 5],
+      [6, 4, 3, 5, 7, 2, 6, 6, 3, 6, 4, 4],
+      [4, 5, 8, 3, 4, 3, 4, 2, 5, 5, 6, 3],
+      [4, 3, 1, 6, 4, 2, 2, 2, 3, 4, 4, 4],
+      [3, 3, 5, 6, 5, 4, 4, 4, 5, 4, 3, 4]
+    ];
+
+    const ashtakvarga_total = [32, 31, 25, 36, 33, 19, 27, 24, 31, 29, 23, 27];
+
+    houses.forEach((house, houseIndex) => {
+      const avData: Record<string, number> = {};
+
+      // assign planet-wise points
+      ashtakvarga_order.forEach((planet, planetIndex) => {
+        avData[planet] = ashtakvarga_points[planetIndex][houseIndex];
+      });
+
+      // assign total points
+      avData.total = ashtakvarga_total[houseIndex];
+
+      // attach to house
+      house.ashtakvarga = avData;
+    });
+
     await generateHouseReports(doc, houses, userData);
 
     const planetData = {
@@ -4090,37 +4144,55 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     const corner = 25;
 
     // Draw border
-    doc.setDrawColor("#ffffff");
-    doc.setLineWidth(1.2);
+    doc.setFillColor("#fdf2e9");
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // Draw small corner decorations
-    const gap = 8;
-
-    // Top-left corner
-    doc.line(margin, margin, margin + corner, margin);
-    doc.line(margin, margin, margin, margin + corner);
-
-    // Top-right corner
-    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
-
-    // Bottom-left corner
-    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
-
-    // Bottom-right corner
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
-
-    // Fill background
+    // === OUTER GRADIENT BORDER EFFECT ===
+    // Outer dark gold frame
     doc.setFillColor("#a16a21");
+    doc.rect(margin / 2, margin / 2, pageWidth - margin, pageHeight - margin, "F");
+
+    // Inner lighter gold layer for contrast
+    doc.setFillColor("#d9b46c");
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-    // Add centered text
+    // === DECORATIVE CORNER LINES ===
+    doc.setDrawColor("#ffffff");
+    doc.setLineWidth(1.5);
+
+    // Top-left
+    doc.line(margin + 6, margin + 6, margin + 6 + corner, margin + 6);
+    doc.line(margin + 6, margin + 6, margin + 6, margin + 6 + corner);
+
+    // Top-right
+    doc.line(pageWidth - margin - 6, margin + 6, pageWidth - margin - 6 - corner, margin + 6);
+    doc.line(pageWidth - margin - 6, margin + 6, pageWidth - margin - 6, margin + 6 + corner);
+
+    // Bottom-left
+    doc.line(margin + 6, pageHeight - margin - 6, margin + 6 + corner, pageHeight - margin - 6);
+    doc.line(margin + 6, pageHeight - margin - 6, margin + 6, pageHeight - margin - 6 - corner);
+
+    // Bottom-right
+    doc.line(pageWidth - margin - 6, pageHeight - margin - 6, pageWidth - margin - 6 - corner, pageHeight - margin - 6);
+    doc.line(pageWidth - margin - 6, pageHeight - margin - 6, pageWidth - margin - 6, pageHeight - margin - 6 - corner);
+
+    // === CENTERED TEXT ===
     doc.setFont("NotoSans", "bold");
-    doc.setFontSize(36);
     doc.setTextColor("#ffffff");
-    doc.text("Love and Marriage", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
+    doc.setFontSize(40);
+    doc.text("Love and Marriage", pageWidth / 2, pageHeight / 2 - 10, { align: "center" });
+
+    // Subtext line
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(18);
+    doc.text("A Journey of Hearts and Destiny", pageWidth / 2, pageHeight / 2 + 20, { align: "center" });
+
+    // === OPTIONAL — ORNAMENT UNDER TITLE ===
+    const ornamentWidth = 60;
+    const ornamentY = pageHeight / 2 + 30;
+    doc.setLineWidth(0.8);
+    doc.line(pageWidth / 2 - ornamentWidth / 2, ornamentY, pageWidth / 2 + ornamentWidth / 2, ornamentY);
+    doc.circle(pageWidth / 2, ornamentY, 2, "F");
 
     const sections = [
       "Nakshatras & Moon Signs: Provide a multi-paragraph analysis...",
@@ -5153,7 +5225,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       "house": 5
     }
   }
-        Make it suitable for PDF display, and do not use markdown.
+        Make it suitable for PDF display, and do not use markdown and use simple words and complex words.
       `;
 
       const response = await fetch("/api/gemini", {
@@ -5194,34 +5266,59 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.addPage();
 
     // Draw border
-    doc.setDrawColor("#ffffff");
-    doc.setLineWidth(1.2);
+    doc.setFillColor("#0e1a2b"); // Deep navy background
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // Top-left corner
-    doc.line(margin, margin, margin + corner, margin); // top horizontal
-    doc.line(margin, margin, margin, margin + corner); // left vertical
+    // === INNER FRAME ===
+    doc.setFillColor("#1c2e4a"); // Subtle gradient effect
+    doc.rect(margin / 2, margin / 2, pageWidth - margin, pageHeight - margin, "F");
 
-    // Top-right corner
+    // === GOLDEN BORDER ===
+    doc.setDrawColor("#d4af37"); // Gold tone
+    doc.setLineWidth(2);
+
+    // Decorative corner style
+    doc.line(margin, margin, margin + corner, margin); // Top-left horizontal
+    doc.line(margin, margin, margin, margin + corner); // Top-left vertical
+
     doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
     doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-    // Bottom-left corner
     doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
     doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-    // Bottom-right corner
     doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
     doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
 
-    // Fill background
-    doc.setFillColor("#a16a21");
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+    // === INNER GOLD LINE FRAME ===
+    const inset = 15;
+    doc.setLineWidth(0.8);
+    doc.setDrawColor("#f5d06f");
+    doc.rect(margin + inset, margin + inset, pageWidth - 2 * (margin + inset), pageHeight - 2 * (margin + inset));
 
-    // Add centered text
+    // === CENTER TITLE ===
     doc.setFont("NotoSans", "bold");
-    doc.setFontSize(36);
+    doc.setFontSize(40);
+    doc.setTextColor("#f5d06f"); // Gold text
+    doc.text("Career & Profession", pageWidth / 2, pageHeight / 2 - 10, {
+      align: "center",
+    });
+
+    // === SUBTITLE LINE ===
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(18);
     doc.setTextColor("#ffffff");
-    doc.text("Career & Profession", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
+    doc.text("The Path of Purpose and Achievement", pageWidth / 2, pageHeight / 2 + 20, {
+      align: "center",
+    });
+
+    // === DECORATIVE DIVIDER ===
+    const lineWidth = 70;
+    const y = pageHeight / 2 + 30;
+    doc.setLineWidth(1);
+    doc.setDrawColor("#f5d06f");
+    doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+    doc.circle(pageWidth / 2, y, 2, "F");
     const careerSections = [
       "Houses Related to Career: Analyze 10th, 6th, and 2nd houses for career insights.",
       "Planetary Positions Affecting Career: Explain planetary influences on profession, leadership, and growth.",
@@ -6054,34 +6151,72 @@ language:${userData.language}
     doc.addPage();
 
     // Draw border
-    doc.setDrawColor("#ffffff");
-    doc.setLineWidth(1.2);
+   doc.setFillColor("#e6f5f1"); // Soft teal background
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // Top-left corner
-    doc.line(margin, margin, margin + corner, margin); // top horizontal
-    doc.line(margin, margin, margin, margin + corner); // left vertical
+  // === INNER FRAME ===
+  doc.setFillColor("#9cd1c2"); // Subtle green overlay
+  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-    // Top-right corner
-    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+  // === DECORATIVE CORNERS ===
+  doc.setDrawColor("#ffffff");
+  doc.setLineWidth(1.5);
 
-    // Bottom-left corner
-    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+  // Top-left
+  doc.line(margin, margin, margin + corner, margin);
+  doc.line(margin, margin, margin, margin + corner);
 
-    // Bottom-right corner
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+  // Top-right
+  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-    // Fill background
-    doc.setFillColor("#a16a21");
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+  // Bottom-left
+  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-    // Add centered text
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(36);
-    doc.setTextColor("#ffffff");
-    doc.text("Health & Wellbeing", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
+  // Bottom-right
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+
+  // === CENTER TITLE ===
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(36);
+  doc.setTextColor("#ffffff");
+  doc.text("Health & Wellbeing", pageWidth / 2, pageHeight / 2 - 10, {
+    align: "center",
+    baseline: "middle",
+  });
+
+  // === SUBTITLE ===
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(18);
+  doc.setTextColor("#ffffff");
+  doc.text("Balance, Vitality, and Inner Strength", pageWidth / 2, pageHeight / 2 + 25, {
+    align: "center",
+  });
+
+  // === DECORATIVE DIVIDER ===
+  doc.setLineWidth(1);
+  doc.setDrawColor("#ffffff");
+  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+  doc.circle(pageWidth / 2, y, 2, "F");
+
+  // === OPTIONAL: SOFT LEAF OR WAVE MOTIFS ===
+  // Simple curved line motifs for vitality
+  // doc.setDrawColor("#ffffff");
+  // doc.setLineWidth(0.8);
+  // doc.curve(
+  //   margin + 20, margin + 60, 
+  //   margin + 40, margin + 20, 
+  //   pageWidth - margin - 40, margin + 20, 
+  //   pageWidth - margin - 20, margin + 60
+  // );
+  // doc.curve(
+  //   margin + 20, pageHeight - margin - 60, 
+  //   margin + 40, pageHeight - margin - 20, 
+  //   pageWidth - margin - 40, pageHeight - margin - 20, 
+  //   pageWidth - margin - 20, pageHeight - margin - 60
+  // );
     const healthSections = [
       "Doshas in Vedic Astrology: Manglik, Pitra, and Kaal Sarp doshas, effects on health, and remedies.",
       "Planetary Influence on Health: Sun, Moon, Mars, Saturn, Rahu/Ketu and their effects on vitality and wellbeing.",
@@ -6782,19 +6917,60 @@ language:${userData.language}
     doc.addPage();
 
     // Draw border
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(2);
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+    doc.setFillColor("#4b2e83"); // Deep purple
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // Fill background
-    doc.setFillColor("#a16a21");
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+  // === INNER GOLDEN BORDER ===
+  doc.setDrawColor("#d4af37"); // Gold
+  doc.setLineWidth(2);
+  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
 
-    // Add centered text
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(36);
-    doc.setTextColor("#ffffff");
-    doc.text("Karmic & Purpose Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
+  // === INNER BACKGROUND FILL (Slightly lighter purple) ===
+  doc.setFillColor("#5e3ca0");
+  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+
+  // === DECORATIVE CORNERS ===
+  doc.setDrawColor("#d4af37");
+  doc.setLineWidth(1.5);
+
+  // Top-left
+  doc.line(margin, margin, margin + corner, margin);
+  doc.line(margin, margin, margin, margin + corner);
+
+  // Top-right
+  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+
+  // Bottom-left
+  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+
+  // Bottom-right
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+
+  // === CENTER TITLE ===
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(36);
+  doc.setTextColor("#f5d06f"); // Gold text
+  doc.text("Karmic & Purpose Insights", pageWidth / 2, pageHeight / 2 - 10, {
+    align: "center",
+    baseline: "middle",
+  });
+
+  // === SUBTITLE ===
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(18);
+  doc.setTextColor("#ffffff");
+  doc.text("Discover the Path of Your Soul and Destiny", pageWidth / 2, pageHeight / 2 + 25, {
+    align: "center",
+  });
+
+  // === DECORATIVE DIVIDER ===
+  doc.setLineWidth(1);
+  doc.setDrawColor("#f5d06f");
+  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+  doc.circle(pageWidth / 2, y, 2, "F");
     const karmicSections = [
       "Chara Karakas: Soul Purpose & Life Goals",
       "Planetary Influence on Karmic Path: Sun, Moon, Mars, Saturn, Rahu/Ketu effects",
@@ -8516,35 +8692,74 @@ Rahu:{
     doc.addPage();
 
     // Draw border
-    doc.setDrawColor("#ffffff");
-    doc.setLineWidth(1.2);
+   doc.setFillColor("#0b1f3f"); // Dark navy/blue background
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
 
+  // === INNER FRAME ===
+  doc.setFillColor("#1a3a66"); // Slightly lighter blue for inner rectangle
+  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-    // Top-left corner
-    doc.line(margin, margin, margin + corner, margin); // top horizontal
-    doc.line(margin, margin, margin, margin + corner); // left vertical
+  // === DECORATIVE CORNERS ===
+  doc.setDrawColor("#c0c0c0"); // Silver
+  doc.setLineWidth(1.5);
 
-    // Top-right corner
-    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+  // Top-left
+  doc.line(margin, margin, margin + corner, margin);
+  doc.line(margin, margin, margin, margin + corner);
 
-    // Bottom-left corner
-    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+  // Top-right
+  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-    // Bottom-right corner
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+  // Bottom-left
+  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-    // Fill background
-    doc.setFillColor("#a16a21");
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+  // Bottom-right
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
 
-    // Add centered text
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(36);
-    doc.setTextColor("#ffffff");
-    doc.text("Timing & Predictive Insights", pageWidth / 2, pageHeight / 2, { align: "center", baseline: "middle" });
+  // === CENTER TITLE ===
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(36);
+  doc.setTextColor("#c0c0c0"); // Silver text
+  doc.text("Timing & Predictive Insights", pageWidth / 2, pageHeight / 2 - 10, {
+    align: "center",
+    baseline: "middle",
+  });
+
+  // === SUBTITLE ===
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(18);
+  doc.setTextColor("#ffffff");
+  doc.text("Forecasting Your Path with Precision", pageWidth / 2, pageHeight / 2 + 25, {
+    align: "center",
+  });
+
+  // === DECORATIVE DIVIDER ===
+  doc.setLineWidth(1);
+  doc.setDrawColor("#c0c0c0");
+  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+  doc.circle(pageWidth / 2, y, 2, "F");
+
+  // === OPTIONAL: CLOCK/RADAR MOTIF ===
+  // doc.setDrawColor("#c0c0c0");
+  // doc.setLineWidth(0.7);
+  // const centerX = pageWidth / 2;
+  // const centerY = pageHeight / 2 - 80;
+  // const radius = 30;
+  // // Outer circle
+  // doc.circle(centerX, centerY, radius);
+  // // Inner concentric circle
+  // doc.circle(centerX, centerY, radius - 10);
+  // // Radial lines
+  // for (let i = 0; i < 360; i += 45) {
+  //   const rad = (i * Math.PI) / 180;
+  //   const x = centerX + radius * Math.cos(rad);
+  //   const y = centerY + radius * Math.sin(rad);
+  //   doc.line(centerX, centerY, x, y);
+  // }
+
     const timingSections = [
       "Mahadashas & Antardashas: Life Phases & Opportunities",
       "Planetary Periods & Impact: Short-term & Long-term Influences",
@@ -9528,33 +9743,61 @@ JSON: {
     doc.addPage();
 
     // Draw border
-    doc.setDrawColor("#ffffff");
-    doc.setLineWidth(1.2);
-    // Top-left corner
-    doc.line(margin, margin, margin + corner, margin); // top horizontal
-    doc.line(margin, margin, margin, margin + corner); // left vertical
+   doc.setFillColor("#4b1f65"); // Deep violet
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // Top-right corner
-    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+  // === INNER GOLDEN BORDER ===
+  doc.setDrawColor("#d4af37"); // Gold
+  doc.setLineWidth(2);
+  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
 
-    // Bottom-left corner
-    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+  // === INNER BACKGROUND FILL (Slightly lighter violet) ===
+  doc.setFillColor("#62379b");
+  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-    // Bottom-right corner
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+  // === DECORATIVE CORNERS ===
+  doc.setDrawColor("#f5d06f"); // Soft gold
+  doc.setLineWidth(1.5);
 
-    // Fill background
-    doc.setFillColor("#a16a21");
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+  // Top-left
+  doc.line(margin, margin, margin + corner, margin);
+  doc.line(margin, margin, margin, margin + corner);
 
-    // Add centered text
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(36);
-    doc.setTextColor("#ffffff");
-    doc.text("Remedies & Spiritual Guidance", pageWidth / 2, pageHeight / 2 + 40, { align: "center", baseline: "middle" });
+  // Top-right
+  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+
+  // Bottom-left
+  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+
+  // Bottom-right
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+
+  // === CENTER TITLE ===
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(36);
+  doc.setTextColor("#f5d06f"); // Gold
+  doc.text("Remedies & Spiritual Guidance", pageWidth / 2, pageHeight / 2 - 10, {
+    align: "center",
+    baseline: "middle",
+  });
+
+  // === SUBTITLE ===
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(18);
+  doc.setTextColor("#ffffff");
+  doc.text("Pathways to Inner Peace and Transformation", pageWidth / 2, pageHeight / 2 + 25, {
+    align: "center",
+  });
+
+  // === DECORATIVE DIVIDER ===
+  doc.setLineWidth(1);
+  doc.setDrawColor("#f5d06f");
+  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+  doc.circle(pageWidth / 2, y, 2, "F");
+
     const remediesSections = [
       "General Remedies: Everyday Practices & Rituals",
       "Planet-specific Remedies: Personalized Solutions",
@@ -10600,45 +10843,67 @@ Rahu:{
     doc.addPage();
 
     // Draw border
-    doc.setDrawColor("#ffffff");
-    doc.setLineWidth(1.2);
+    doc.setFillColor("#1a2b40"); // Deep steel-blue
+  doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // Top-left corner
-    doc.line(margin, margin, margin + corner, margin); // top horizontal
-    doc.line(margin, margin, margin, margin + corner); // left vertical
+  // === INNER FRAME ===
+  doc.setFillColor("#2e3f5c"); // Slightly lighter inner rectangle
+  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-    // Top-right corner
-    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+  // === DECORATIVE CORNERS ===
+  doc.setDrawColor("#c0c0c0"); // Silver accents
+  doc.setLineWidth(1.5);
 
-    // Bottom-left corner
-    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+  // Top-left
+  doc.line(margin, margin, margin + corner, margin);
+  doc.line(margin, margin, margin, margin + corner);
 
-    // Bottom-right corner
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+  // Top-right
+  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-    // Fill background
-    doc.setFillColor("#a16a21");
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+  // Bottom-left
+  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-    // Set font and color
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(36);
-    doc.setTextColor("#ffffff");
+  // Bottom-right
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
 
-    // Split text into two lines
-    const line1 = "Advanced Calculations &";
-    const line2 = "Optional Insights";
+  // === CENTER TITLE ===
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(36);
+  doc.setTextColor("#c0c0c0"); // Silver text
 
-    // Calculate vertical positions
-    const centerY = pageHeight / 2;
-    const spacing = lineHeight * 1.5; // increase spacing (adjust multiplier as needed)
+  // Split text into two lines
+  const line1 = "Advanced Calculations &";
+  const line2 = "Optional Insights";
 
-    // Draw lines
-    doc.text(line1, pageWidth / 2, centerY - spacing / 2, { align: "center", baseline: "middle" });
-    doc.text(line2, pageWidth / 2, centerY + spacing / 2, { align: "center", baseline: "middle" });
+  const centerY = pageHeight / 2;
+  const spacing = lineHeight * 1.5; // Adjust spacing between lines
+
+  doc.text(line1, pageWidth / 2, centerY - spacing / 2, {
+    align: "center",
+    baseline: "middle",
+  });
+  doc.text(line2, pageWidth / 2, centerY + spacing / 2, {
+    align: "center",
+    baseline: "middle",
+  });
+
+  // === SUBTITLE ===
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(18);
+  doc.setTextColor("#ffffff");
+  doc.text("Deep Analysis for Informed Decisions", pageWidth / 2, centerY + spacing + 20, {
+    align: "center",
+  });
+
+  // === DECORATIVE DIVIDER ===
+  doc.setLineWidth(1);
+  doc.setDrawColor("#c0c0c0");
+  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+  doc.circle(pageWidth / 2, y, 2, "F");
 
     const advancedSections = [
       "Introduction to Advanced Calculations",
