@@ -158,7 +158,7 @@ function addParagraphs(
         currentY = getPageStartY();
       } else {
         // Paragraph too long → split across pages
-        let remainingLines = [...splitText];
+        const remainingLines = [...splitText];
         while (remainingLines.length > 0) {
           const spaceLeft = bottomLimit - currentY;
           const linesThatFit = Math.floor(spaceLeft / lineHeight);
@@ -177,17 +177,115 @@ function addParagraphs(
         continue; // Skip normal drawing below
       }
     }
-
     // Draw the paragraph
-    doc.text(splitText, x, currentY);
+    // Draw text with support for **bold** markers
+    splitText.forEach((lineText:string) => {
+      const parts = lineText.split(/(\*\*.*?\*\*)/g); // split into bold/non-bold segments
+      let currentX = x;
+
+      parts.forEach(part => {
+        if (!part) return;
+
+        if (part.startsWith("**") && part.endsWith("**")) {
+          // Bold part
+          const clean = part.slice(2, -2);
+          doc.setFont("NotoSans", "bold");
+          doc.text(clean, currentX, currentY);
+          currentX += doc.getTextWidth(clean + " ");
+        } else {
+          // Normal part
+          doc.setFont("NotoSans", "normal");
+          doc.text(part, currentX, currentY);
+          currentX += doc.getTextWidth(part + " ");
+        }
+      });
+
+      currentY += lineHeight;
+    });
+
     currentY += paragraphHeight;
 
     // Add spacing
-    currentY += isSubheading ? 5 : 10;
+    currentY += isSubheading ? 3 : 6;
   }
 
   return currentY;
 }
+// function addParagraphs(
+//   doc: jsPDF,
+//   text: string,
+//   x: number,
+//   y: number,
+//   maxWidth: number,
+//   lineHeight = 20
+// ) {
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const pageHeight = doc.internal.pageSize.getHeight();
+//   const margin = 25;
+//   const bottomLimit = pageHeight - margin;
+//   let currentY = y;
+
+//   const drawPageBorder = () => {
+//     doc.setDrawColor("#a16a21");
+//     doc.setLineWidth(1.5);
+//     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+//   };
+
+//   const getPageStartY = () => margin + 20;
+
+//   drawPageBorder();
+
+//   const paragraphs = text.split("\n");
+
+//   for (let paragraph of paragraphs) {
+//     paragraph = paragraph.trim();
+//     if (!paragraph) continue;
+
+//     // Convert <b>text</b> → special markers
+//     const segments = [];
+//     const regex = /<b>(.*?)<\/b>|([^<]+)/g;
+//     let match;
+//     while ((match = regex.exec(paragraph)) !== null) {
+//       if (match[1]) segments.push({ text: match[1], bold: true });
+//       if (match[2]) segments.push({ text: match[2], bold: false });
+//     }
+
+//     // Combine for wrapping
+//     const fullText = segments.map(s => s.text).join("");
+//     const wrappedLines = doc.splitTextToSize(fullText, maxWidth);
+
+//     // Pagination
+//     if (currentY + wrappedLines.length * lineHeight > bottomLimit) {
+//       doc.addPage();
+//       drawPageBorder();
+//       addHeaderFooter(doc, doc.getNumberOfPages());
+//       currentY = getPageStartY();
+//     }
+
+//     // Render line by line
+//     for (const line of wrappedLines) {
+//       let cursorX = x;
+//       for (const seg of segments) {
+//         const words = seg.text.split(/(\s+)/); // keep spaces
+//         for (const word of words) {
+//           const wordWidth = doc.getTextWidth(word);
+//           if (cursorX + wordWidth > x + maxWidth) {
+//             currentY += lineHeight;
+//             cursorX = x;
+//           }
+//           doc.setFont("NotoSans", seg.bold ? "bold" : "normal");
+//           doc.text(word, cursorX, currentY);
+//           cursorX += wordWidth;
+//         }
+//       }
+//       currentY += lineHeight;
+//     }
+
+//     currentY += 5; // paragraph spacing
+//   }
+
+//   return currentY;
+// }
 
 // --- Utilities for header/footer ---
 const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
@@ -1083,7 +1181,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     //doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
     doc.setTextColor(255, 255, 255);
 
-    let yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
+    const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
     textLines.forEach((line, i) => {
       if (i === 0) {
@@ -4131,6 +4229,14 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     };
     await generatePlanetReportsWithImages(doc, planetData.planets, userData);
     // Add initial "Love and Marriage" page
+
+    function boldTextBeforeColonString(text: string): string {
+      return text.replace(/(^|\n)([^:\n]+):/g, (_, prefix, beforeColon) => {
+        return `${prefix}**${beforeColon.trim()}**:`; // mark bold section
+      });
+    }
+
+
     doc.addPage();
     const margin = 25;
     const corner = 25;
@@ -4196,7 +4302,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     ];
 
     async function fetchLoveSection(sectionPrompt: string) {
-      let fullPrompt = `
+      const fullPrompt = `
 You are a highly experienced Vedic astrologer specializing in Love & Marriage astrology.
 
 Using the provided JSON data, generate a professional, detailed, multi-paragraph report for this section:
@@ -4214,7 +4320,14 @@ Strict Structural Instructions:
 4. Write in 2–4 paragraphs minimum per section.
 5. If the section is "Planetary Periods and Transits", analyze both Mahadasha and Antardasha data provided.
 6. Never repeat any content across sections.
-7. Where colon present (:) before that i want text in that paragragh bold
+
+Guidelines:
+- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
+- Use plain-text **capitalized subheadings**.
+- Present insights in 2–4 short paragraphs or up to 6 bullet points.
+- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
+- Do not reference or mention other sections.
+- Maintain a professional, flowing tone.
 
 For the **"Yogas & Doshas"** section:
 - Use data from "yogas_list".
@@ -5281,7 +5394,9 @@ JSON INPUT:{
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       // Render text with styled subheadings
-      addParagraphs(doc, text, 50, 100, pageWidth - 100);
+      const formatedtext = boldTextBeforeColonString(text);
+      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
+      //drawHtmlLikeText(doc, text, 50, 100, 8, pageWidth - 100);
     }
     doc.addPage();
 
@@ -5368,7 +5483,6 @@ Guidelines:
 - If yogas are mentioned, briefly state their direct **impact on career and wealth** — do not redefine them.
 - Do not reference or mention other sections.
 - Maintain a professional, flowing tone.
-- Where colon present (:) before that i want text in that paragragh bold
 
 language:${userData.language}
 Make sure your response is **unique** to this section and does not overlap with others.
@@ -6186,7 +6300,8 @@ Below is the detailed astrological data for analysis:
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 100);
+      const formatedtext=boldTextBeforeColonString(text);
+      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
     }
 
     doc.addPage();
@@ -6273,12 +6388,12 @@ Using the provided JSON input, generate a professional, unique, and insightful h
 ${sectionPrompt}
 
 Guidelines:
-- Write in clear, human-like tone.
-- Avoid long paragraphs; use more bullet points or short structured lines.
-- Each section must have distinct insights — do not repeat content from other sections.
-- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
-- Keep practical remedies and observations easy to read.
-- Where colon present (:) before that i want text in that paragragh bold
+- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
+- Use plain-text **capitalized subheadings**.
+- Present insights in 2–4 short paragraphs or up to 6 bullet points.
+- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
+- Do not reference or mention other sections.
+- Maintain a professional, flowing tone.
 
 User Language: ${userData.language}
         JSON: {
@@ -6962,7 +7077,8 @@ User Language: ${userData.language}
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 100);
+      const formatedtext=boldTextBeforeColonString(text);
+      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
     }
     doc.addPage();
 
@@ -7035,12 +7151,13 @@ User Language: ${userData.language}
     Using the provided JSON input, generate a professional, detailed report for this section:
     ${sectionPrompt}
     Guidelines:
-- Write in clear, human-like tone.
-- Avoid long paragraphs; use more bullet points or short structured lines.
-- Each section must have distinct insights — do not repeat content from other sections.
-- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
-- Keep practical remedies and observations easy to read.
-- Where colon present (:) before that i want text in that paragragh bold
+- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
+- Use plain-text **capitalized subheadings**.
+- Present insights in 2–4 short paragraphs or up to 6 bullet points.
+- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
+- Do not reference or mention other sections.
+- Maintain a professional, flowing tone.
+
     language: ${userData.language}
     JSON: "response": { Sun:{
         "bot_response": "The Sun and Moon are always direct ",
@@ -8742,7 +8859,8 @@ Rahu:{
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 100);
+      const formatedtext=boldTextBeforeColonString(text);
+      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
     }
 
     // Generate "09 Timing & Predictive Insights" section
@@ -8839,7 +8957,6 @@ Guidelines:
 - Each section must have distinct insights — do not repeat content from other sections.
 - Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
 - Keep practical remedies and observations easy to read.
-- Where colon present (:) before that i want text in that paragragh bold
 language: ${userData.language}
 based on the given JSON birth data.
 
@@ -9699,7 +9816,8 @@ JSON: {
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, cursorY, pageWidth - 50 - 50);
+      const formatedtext=boldTextBeforeColonString(text);
+      addParagraphs(doc, formatedtext, 50, cursorY, pageWidth - 50 - 50);
     }
 
     // --- Helper: addPaginatedTable ---
@@ -9883,13 +10001,12 @@ Generate a well-structured, narrative-style astrology remedies section titled:
 "${sectionPrompt}"
 
 Guidelines:
-- Write in clear, natural language — no markdown, bullets or symbols like ** or ###.
-- Use short, meaningful paragraphs for readability in a PDF.
-- Avoid repetition across different sections.
-- Each remedy should be specific, actionable, and explained briefly.
-- Mention *how and why* each remedy works for this chart.
-- Maintain a warm, reassuring tone suited for a professional astrology report.
-- Where colon present (:) before that i want text in that paragragh bold
+- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
+- Use plain-text **capitalized subheadings**.
+- Present insights in 2–4 short paragraphs or up to 6 bullet points.
+- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
+- Do not reference or mention other sections.
+- Maintain a professional, flowing tone.
 
 Language: ${userData.language}
 
@@ -10902,7 +11019,7 @@ Rahu:{
       });
 
       const data = await response.json();
-      const text =
+      let text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
@@ -10928,7 +11045,8 @@ Rahu:{
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 100);
+      const formatedtext=boldTextBeforeColonString(text);
+      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
 
     }
     doc.addPage();
@@ -11014,17 +11132,13 @@ Rahu:{
 You are an expert, narrative-focused Vedic astrologer.
 Generate a lavishly detailed, highly personalized astrology section titled:
 "${sectionPrompt}"
-🪔 **Guidelines:**
-- Write in clear, fluent, human-like prose.
-- Use short, crisp paragraphs or bullet-style insights (no Markdown symbols like ** or ##).
-- Avoid repetition; each section should give unique insights not found in others.
-- Use gentle headers or short topic transitions where relevant (e.g., “Strength Analysis:”, “Interpretation:”, “Impact:”).
-- Make it suitable for clean PDF layout — no extra formatting symbols.
-- Provide both *technical calculation notes* and *human interpretation*.
-- Keep tone insightful, client-friendly, and balanced between scientific and intuitive.
-- Use the provided data to calculate and interpret: planetary positions, yogas, dashas, shadbala, ashtakvarga, and doshas.
-- Avoid introducing fictional yogas or fabricating data.
--7. Where colon present (:) before that i want text in that paragragh bold
+Guidelines:
+- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
+- Use plain-text **capitalized subheadings**.
+- Present insights in 2–4 short paragraphs or up to 6 bullet points.
+- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
+- Do not reference or mention other sections.
+- Maintain a professional, flowing tone.
 language:${userData.language}
 based on the given JSON birth data.
 
@@ -12245,7 +12359,7 @@ Now write the section titled "${sectionPrompt}" accordingly.
       });
 
       const data = await response.json();
-      const text =
+      let text =
         data.candidates?.[0]?.content?.parts?.[0]?.text ||
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
@@ -12271,7 +12385,8 @@ Now write the section titled "${sectionPrompt}" accordingly.
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(13);
       doc.setTextColor("#a16a21");
-      addParagraphs(doc, text, 50, 100, pageWidth - 100);
+      const formatedtext=boldTextBeforeColonString(text);
+      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
     }
 
     // Generate "12 Q&A & Personalized Advice" secti
