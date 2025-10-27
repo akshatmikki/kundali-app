@@ -148,24 +148,33 @@ function addParagraphs(
     const splitText = doc.splitTextToSize(line, maxWidth);
     const paragraphHeight = splitText.length * lineHeight;
 
-    // --- Widow control ---
-    // If only 1 line of the paragraph fits on this page and others go to next,
-    // move the entire paragraph to the next page.
-    if (currentY + paragraphHeight > bottomLimit && currentY + lineHeight > bottomLimit - 5) {
-      // not enough space even for one line, go to new page
-      doc.addPage();
-      drawPageBorder();
-      addHeaderFooter(doc, doc.getNumberOfPages());
-      currentY = getPageStartY();
-    } else if (currentY + paragraphHeight > bottomLimit) {
-      const remainingSpace = bottomLimit - currentY;
-      const linesThatFit = Math.floor(remainingSpace / lineHeight);
-      if (linesThatFit <= 1) {
-        // Only one line would fit → move full paragraph
+    // --- Widow control & avoid blank page ---
+    if (currentY + paragraphHeight > bottomLimit) {
+      // Check if paragraph can fit if we start on next page
+      if (paragraphHeight + getPageStartY() <= bottomLimit) {
         doc.addPage();
         drawPageBorder();
         addHeaderFooter(doc, doc.getNumberOfPages());
         currentY = getPageStartY();
+      } else {
+        // Paragraph too long → split across pages
+        let remainingLines = [...splitText];
+        while (remainingLines.length > 0) {
+          const spaceLeft = bottomLimit - currentY;
+          const linesThatFit = Math.floor(spaceLeft / lineHeight);
+          const linesToDraw = remainingLines.splice(0, linesThatFit);
+          doc.text(linesToDraw, x, currentY);
+          currentY += linesToDraw.length * lineHeight;
+
+          if (remainingLines.length > 0) {
+            doc.addPage();
+            drawPageBorder();
+            addHeaderFooter(doc, doc.getNumberOfPages());
+            currentY = getPageStartY();
+          }
+        }
+        currentY += isSubheading ? 5 : 10;
+        continue; // Skip normal drawing below
       }
     }
 
@@ -922,7 +931,7 @@ Language: ${userData.language || "English"}.
     // House image
     const imageY = 100;
     let imageHeight = 200;
-    const imagePath = `/assets/houses/house${house.house}.jpg`;
+    const imagePath = `/assets/houses/${house.house}.jpg`;
     try {
       doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
     } catch {
@@ -1277,40 +1286,23 @@ export async function generateAndDownloadFullCosmicReportWithTable(
 `;
 
     // Remove markdown if any
-tocText = removeMarkdown(tocText);
+    tocText = removeMarkdown(tocText);
 
-// --- PDF Rendering ---
-doc.addPage();
-doc.setDrawColor("#a16a21");
-doc.setLineWidth(1.5);
-doc.rect(25, 25, 545, 792, "S");
-
-doc.setFont("NotoSans", "bold");
-doc.setFontSize(22);
-doc.setTextColor("#000");
-doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
-
-doc.setFont("NotoSans", "normal");
-doc.setFontSize(13);
-doc.setTextColor("#a16a21");
-
-// Split lines and print them exactly as-is with spacing
-const lines = tocText.split("\n");
-for (const line of lines) {
-  const trimmed = line.trimEnd(); // keep leading spaces for indentation
-  if (trimmed === "") {
-    yPos += lineHeight / 2; // extra spacing for empty lines
-    continue;
-  }
-  doc.text(trimmed, 50, yPos);
-  yPos += lineHeight;
-
-  // Check if new page is needed
-  if (yPos > doc.internal.pageSize.getHeight() - 50) {
+    // --- PDF Rendering ---
     doc.addPage();
-    yPos = 50; // reset for new page
-  }
-}
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(25, 25, 545, 792, "S");
+
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor("#000");
+    doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
+
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(13);
+    doc.setTextColor("#a16a21");
+    addParagraphs(doc, tocText, 50, 100, pageWidth - 100);
 
     // --- Add Table Content Page with Real API Data ---
     if (kundliData) {
@@ -4195,21 +4187,49 @@ for (const line of lines) {
     doc.circle(pageWidth / 2, ornamentY, 2, "F");
 
     const sections = [
-      "Nakshatras & Moon Signs: Provide a multi-paragraph analysis...",
-      "Planetary Positions & Relationships: Deeply analyze Venus, Mars, Jupiter, Saturn...",
-      "7th House Analysis: Interpret 7th house sign, ruling lord, planets, aspects...",
-      "Divisional Charts (D9 Navamsa & D2 Hora): Explore marriage quality and financial compatibility...",
-      "Yogas & Doshas: Identify Mangal Dosha, Chandra-Mangal, Venus-Mars combinations, remedial advice...",
-      "Planetary Periods and Transits: Detailed analysis of dashas, transit impacts, timing predictions..."
+      "Nakshatras & Moon Signs: Provide a multi-paragraph analysis of the individual's Nakshatra and Moon sign, exploring emotional patterns, romantic behavior, and compatibility indicators.",
+      "Planetary Positions & Relationships: Deeply analyze Venus, Mars, Jupiter, and Saturn in the context of love, romance, and marriage, discussing their strengths, aspects, and interactions.",
+      "7th House Analysis: Interpret the 7th house sign, ruling lord, planetary influences, aspects, and their implications for marriage, partnerships, and long-term commitment.",
+      "Divisional Charts (D9 Navamsa & D2 Hora): Explore the D9 chart for marriage quality and compatibility, and D2 for financial harmony and family prosperity.",
+      "Yogas & Doshas: Identify and explain all love and marriage-related yogas or doshas such as Mangal Dosha, Chandra–Mangal Yoga, Venus–Mars combinations, Rahu–Ketu influences, etc., with meanings, strengths, and remedies.",
+      "Planetary Periods and Transits: Provide a detailed reading of dashas and transits affecting love life, relationship timing, and marriage prospects."
     ];
 
     async function fetchLoveSection(sectionPrompt: string) {
-      const fullPrompt = `
-        You are a highly experienced Vedic astrologer specializing in Love & Marriage astrology.
-        Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
-        ${sectionPrompt}
-        language: ${userData.language}
-        JSON: {
+      let fullPrompt = `
+You are a highly experienced Vedic astrologer specializing in Love & Marriage astrology.
+
+Using the provided JSON data, generate a professional, detailed, multi-paragraph report for this section:
+"${sectionPrompt}"
+
+Strict Structural Instructions:
+1. Only the section titled **"Yogas & Doshas"** should include Yogas or Doshas. 
+   - Do NOT mention Yogas or Doshas (even by name) in any other section.
+   - Other sections must remain analytical, interpretive, or predictive.
+2. If the current section is NOT "Yogas & Doshas", ignore any data about yogas_list.
+3. For all sections:
+   - Use a balanced tone blending authenticity and readability.
+   - Avoid markdown or list syntax.
+   - Use smooth paragraph transitions with natural subheadings (e.g., “Influence of Venus in Love Life”, “Moon and Emotional Expression”).
+4. Write in 2–4 paragraphs minimum per section.
+5. If the section is "Planetary Periods and Transits", analyze both Mahadasha and Antardasha data provided.
+6. Never repeat any content across sections.
+7. Where colon present (:) before that i want text in that paragragh bold
+
+For the **"Yogas & Doshas"** section:
+- Use data from "yogas_list".
+- For each yoga, provide:
+  1. Name
+  2. Meaning (simple + deeper)
+  3. Strength in %
+  4. Planets involved
+  5. Houses involved
+  6. Effects on love/marriage
+  7. Remedies (brief)
+- Write 1 paragraph per yoga minimum.
+- Mention only love/marriage relevance — skip career or general references.
+
+JSON INPUT:{
         "0": {
             "name": "As",
             "zodiac": "Aquarius",
@@ -5225,15 +5245,14 @@ for (const line of lines) {
       "house": 5
     }
   }
-        Make it suitable for PDF display, and do not use markdown and use simple words and complex words.
-      `;
+  `;
 
       const response = await fetch("/api/gemini", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
+          generationConfig: { temperature: 0.6, maxOutputTokens: 4000 }
         })
       });
 
@@ -5243,6 +5262,7 @@ for (const line of lines) {
         `${sectionPrompt.split(":")[0]} section could not be generated.`;
       return removeMarkdown(text);
     }
+
     // Add new page for this section
     const resultlove = await Promise.all(sections.map(fetchLoveSection));
 
@@ -5330,9 +5350,30 @@ for (const line of lines) {
     async function fetchCareerSection(sectionPrompt: string) {
       const fullPrompt = `
 You are a highly experienced Vedic astrologer specializing in Career & Profession astrology.
-Using the provided JSON input, generate a professional, detailed, multi-paragraph report for this section:
-${sectionPrompt}
+Generate a **unique and section-specific** report for this part:
+"${sectionPrompt}"
+
+Context:
+- This is part of a multi-section career report (Houses, Planets, Yogas, Dashas, Guidance, etc.).
+- **Do not repeat or rephrase** any explanation that might appear in other sections.
+- Focus only on what is directly related to this section title and its theme.
+- Avoid generic summaries about the person's career — be precise to the topic.
+- Each section should sound distinct and add new information to the overall report.
+
+Guidelines:
+- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
+- Use plain-text **capitalized subheadings** (e.g., “Main Career Houses:”).
+- Present insights in 2–4 short paragraphs or up to 6 bullet points.
+- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
+- If yogas are mentioned, briefly state their direct **impact on career and wealth** — do not redefine them.
+- Do not reference or mention other sections.
+- Maintain a professional, flowing tone.
+- Where colon present (:) before that i want text in that paragragh bold
+
 language:${userData.language}
+Make sure your response is **unique** to this section and does not overlap with others.
+
+Below is the detailed astrological data for analysis:
         JSON: {
     "0": {
       "name": "As",
@@ -6151,72 +6192,72 @@ language:${userData.language}
     doc.addPage();
 
     // Draw border
-   doc.setFillColor("#e6f5f1"); // Soft teal background
-  doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.setFillColor("#e6f5f1"); // Soft teal background
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-  // === INNER FRAME ===
-  doc.setFillColor("#9cd1c2"); // Subtle green overlay
-  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+    // === INNER FRAME ===
+    doc.setFillColor("#9cd1c2"); // Subtle green overlay
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-  // === DECORATIVE CORNERS ===
-  doc.setDrawColor("#ffffff");
-  doc.setLineWidth(1.5);
+    // === DECORATIVE CORNERS ===
+    doc.setDrawColor("#ffffff");
+    doc.setLineWidth(1.5);
 
-  // Top-left
-  doc.line(margin, margin, margin + corner, margin);
-  doc.line(margin, margin, margin, margin + corner);
+    // Top-left
+    doc.line(margin, margin, margin + corner, margin);
+    doc.line(margin, margin, margin, margin + corner);
 
-  // Top-right
-  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+    // Top-right
+    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-  // Bottom-left
-  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+    // Bottom-left
+    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-  // Bottom-right
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+    // Bottom-right
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
 
-  // === CENTER TITLE ===
-  doc.setFont("NotoSans", "bold");
-  doc.setFontSize(36);
-  doc.setTextColor("#ffffff");
-  doc.text("Health & Wellbeing", pageWidth / 2, pageHeight / 2 - 10, {
-    align: "center",
-    baseline: "middle",
-  });
+    // === CENTER TITLE ===
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(36);
+    doc.setTextColor("#ffffff");
+    doc.text("Health & Wellbeing", pageWidth / 2, pageHeight / 2 - 10, {
+      align: "center",
+      baseline: "middle",
+    });
 
-  // === SUBTITLE ===
-  doc.setFont("NotoSans", "normal");
-  doc.setFontSize(18);
-  doc.setTextColor("#ffffff");
-  doc.text("Balance, Vitality, and Inner Strength", pageWidth / 2, pageHeight / 2 + 25, {
-    align: "center",
-  });
+    // === SUBTITLE ===
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(18);
+    doc.setTextColor("#ffffff");
+    doc.text("Balance, Vitality, and Inner Strength", pageWidth / 2, pageHeight / 2 + 25, {
+      align: "center",
+    });
 
-  // === DECORATIVE DIVIDER ===
-  doc.setLineWidth(1);
-  doc.setDrawColor("#ffffff");
-  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
-  doc.circle(pageWidth / 2, y, 2, "F");
+    // === DECORATIVE DIVIDER ===
+    doc.setLineWidth(1);
+    doc.setDrawColor("#ffffff");
+    doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+    doc.circle(pageWidth / 2, y, 2, "F");
 
-  // === OPTIONAL: SOFT LEAF OR WAVE MOTIFS ===
-  // Simple curved line motifs for vitality
-  // doc.setDrawColor("#ffffff");
-  // doc.setLineWidth(0.8);
-  // doc.curve(
-  //   margin + 20, margin + 60, 
-  //   margin + 40, margin + 20, 
-  //   pageWidth - margin - 40, margin + 20, 
-  //   pageWidth - margin - 20, margin + 60
-  // );
-  // doc.curve(
-  //   margin + 20, pageHeight - margin - 60, 
-  //   margin + 40, pageHeight - margin - 20, 
-  //   pageWidth - margin - 40, pageHeight - margin - 20, 
-  //   pageWidth - margin - 20, pageHeight - margin - 60
-  // );
+    // === OPTIONAL: SOFT LEAF OR WAVE MOTIFS ===
+    // Simple curved line motifs for vitality
+    // doc.setDrawColor("#ffffff");
+    // doc.setLineWidth(0.8);
+    // doc.curve(
+    //   margin + 20, margin + 60, 
+    //   margin + 40, margin + 20, 
+    //   pageWidth - margin - 40, margin + 20, 
+    //   pageWidth - margin - 20, margin + 60
+    // );
+    // doc.curve(
+    //   margin + 20, pageHeight - margin - 60, 
+    //   margin + 40, pageHeight - margin - 20, 
+    //   pageWidth - margin - 40, pageHeight - margin - 20, 
+    //   pageWidth - margin - 20, pageHeight - margin - 60
+    // );
     const healthSections = [
       "Doshas in Vedic Astrology: Manglik, Pitra, and Kaal Sarp doshas, effects on health, and remedies.",
       "Planetary Influence on Health: Sun, Moon, Mars, Saturn, Rahu/Ketu and their effects on vitality and wellbeing.",
@@ -6227,10 +6268,19 @@ language:${userData.language}
 
     async function fetchhealthsection(sectionPrompt: string) {
       const fullPrompt = `
-        You are an expert Vedic astrologer specializing in health and wellbeing.
-        Using the provided JSON input, generate a professional, detailed report for this section:
-        ${sectionPrompt}
-        language:${userData.language}
+       You are an expert Vedic astrologer specializing in health and wellbeing.
+Using the provided JSON input, generate a professional, unique, and insightful health astrology report for this section:
+${sectionPrompt}
+
+Guidelines:
+- Write in clear, human-like tone.
+- Avoid long paragraphs; use more bullet points or short structured lines.
+- Each section must have distinct insights — do not repeat content from other sections.
+- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
+- Keep practical remedies and observations easy to read.
+- Where colon present (:) before that i want text in that paragragh bold
+
+User Language: ${userData.language}
         JSON: {
           "manglik_by_mars": true,
           "bot_response": "You are 6% manglik. ",
@@ -6918,59 +6968,59 @@ language:${userData.language}
 
     // Draw border
     doc.setFillColor("#4b2e83"); // Deep purple
-  doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-  // === INNER GOLDEN BORDER ===
-  doc.setDrawColor("#d4af37"); // Gold
-  doc.setLineWidth(2);
-  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+    // === INNER GOLDEN BORDER ===
+    doc.setDrawColor("#d4af37"); // Gold
+    doc.setLineWidth(2);
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
 
-  // === INNER BACKGROUND FILL (Slightly lighter purple) ===
-  doc.setFillColor("#5e3ca0");
-  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+    // === INNER BACKGROUND FILL (Slightly lighter purple) ===
+    doc.setFillColor("#5e3ca0");
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-  // === DECORATIVE CORNERS ===
-  doc.setDrawColor("#d4af37");
-  doc.setLineWidth(1.5);
+    // === DECORATIVE CORNERS ===
+    doc.setDrawColor("#d4af37");
+    doc.setLineWidth(1.5);
 
-  // Top-left
-  doc.line(margin, margin, margin + corner, margin);
-  doc.line(margin, margin, margin, margin + corner);
+    // Top-left
+    doc.line(margin, margin, margin + corner, margin);
+    doc.line(margin, margin, margin, margin + corner);
 
-  // Top-right
-  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+    // Top-right
+    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-  // Bottom-left
-  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+    // Bottom-left
+    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-  // Bottom-right
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+    // Bottom-right
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
 
-  // === CENTER TITLE ===
-  doc.setFont("NotoSans", "bold");
-  doc.setFontSize(36);
-  doc.setTextColor("#f5d06f"); // Gold text
-  doc.text("Karmic & Purpose Insights", pageWidth / 2, pageHeight / 2 - 10, {
-    align: "center",
-    baseline: "middle",
-  });
+    // === CENTER TITLE ===
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(36);
+    doc.setTextColor("#f5d06f"); // Gold text
+    doc.text("Karmic & Purpose Insights", pageWidth / 2, pageHeight / 2 - 10, {
+      align: "center",
+      baseline: "middle",
+    });
 
-  // === SUBTITLE ===
-  doc.setFont("NotoSans", "normal");
-  doc.setFontSize(18);
-  doc.setTextColor("#ffffff");
-  doc.text("Discover the Path of Your Soul and Destiny", pageWidth / 2, pageHeight / 2 + 25, {
-    align: "center",
-  });
+    // === SUBTITLE ===
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(18);
+    doc.setTextColor("#ffffff");
+    doc.text("Discover the Path of Your Soul and Destiny", pageWidth / 2, pageHeight / 2 + 25, {
+      align: "center",
+    });
 
-  // === DECORATIVE DIVIDER ===
-  doc.setLineWidth(1);
-  doc.setDrawColor("#f5d06f");
-  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
-  doc.circle(pageWidth / 2, y, 2, "F");
+    // === DECORATIVE DIVIDER ===
+    doc.setLineWidth(1);
+    doc.setDrawColor("#f5d06f");
+    doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+    doc.circle(pageWidth / 2, y, 2, "F");
     const karmicSections = [
       "Chara Karakas: Soul Purpose & Life Goals",
       "Planetary Influence on Karmic Path: Sun, Moon, Mars, Saturn, Rahu/Ketu effects",
@@ -6984,6 +7034,13 @@ language:${userData.language}
     You are an expert Vedic astrologer specializing in karmic insights and life purpose.
     Using the provided JSON input, generate a professional, detailed report for this section:
     ${sectionPrompt}
+    Guidelines:
+- Write in clear, human-like tone.
+- Avoid long paragraphs; use more bullet points or short structured lines.
+- Each section must have distinct insights — do not repeat content from other sections.
+- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
+- Keep practical remedies and observations easy to read.
+- Where colon present (:) before that i want text in that paragragh bold
     language: ${userData.language}
     JSON: "response": { Sun:{
         "bot_response": "The Sun and Moon are always direct ",
@@ -8692,73 +8749,73 @@ Rahu:{
     doc.addPage();
 
     // Draw border
-   doc.setFillColor("#0b1f3f"); // Dark navy/blue background
-  doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.setFillColor("#0b1f3f"); // Dark navy/blue background
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-  // === INNER FRAME ===
-  doc.setFillColor("#1a3a66"); // Slightly lighter blue for inner rectangle
-  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+    // === INNER FRAME ===
+    doc.setFillColor("#1a3a66"); // Slightly lighter blue for inner rectangle
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-  // === DECORATIVE CORNERS ===
-  doc.setDrawColor("#c0c0c0"); // Silver
-  doc.setLineWidth(1.5);
+    // === DECORATIVE CORNERS ===
+    doc.setDrawColor("#c0c0c0"); // Silver
+    doc.setLineWidth(1.5);
 
-  // Top-left
-  doc.line(margin, margin, margin + corner, margin);
-  doc.line(margin, margin, margin, margin + corner);
+    // Top-left
+    doc.line(margin, margin, margin + corner, margin);
+    doc.line(margin, margin, margin, margin + corner);
 
-  // Top-right
-  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+    // Top-right
+    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-  // Bottom-left
-  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+    // Bottom-left
+    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-  // Bottom-right
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+    // Bottom-right
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
 
-  // === CENTER TITLE ===
-  doc.setFont("NotoSans", "bold");
-  doc.setFontSize(36);
-  doc.setTextColor("#c0c0c0"); // Silver text
-  doc.text("Timing & Predictive Insights", pageWidth / 2, pageHeight / 2 - 10, {
-    align: "center",
-    baseline: "middle",
-  });
+    // === CENTER TITLE ===
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(36);
+    doc.setTextColor("#c0c0c0"); // Silver text
+    doc.text("Timing & Predictive Insights", pageWidth / 2, pageHeight / 2 - 10, {
+      align: "center",
+      baseline: "middle",
+    });
 
-  // === SUBTITLE ===
-  doc.setFont("NotoSans", "normal");
-  doc.setFontSize(18);
-  doc.setTextColor("#ffffff");
-  doc.text("Forecasting Your Path with Precision", pageWidth / 2, pageHeight / 2 + 25, {
-    align: "center",
-  });
+    // === SUBTITLE ===
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(18);
+    doc.setTextColor("#ffffff");
+    doc.text("Forecasting Your Path with Precision", pageWidth / 2, pageHeight / 2 + 25, {
+      align: "center",
+    });
 
-  // === DECORATIVE DIVIDER ===
-  doc.setLineWidth(1);
-  doc.setDrawColor("#c0c0c0");
-  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
-  doc.circle(pageWidth / 2, y, 2, "F");
+    // === DECORATIVE DIVIDER ===
+    doc.setLineWidth(1);
+    doc.setDrawColor("#c0c0c0");
+    doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+    doc.circle(pageWidth / 2, y, 2, "F");
 
-  // === OPTIONAL: CLOCK/RADAR MOTIF ===
-  // doc.setDrawColor("#c0c0c0");
-  // doc.setLineWidth(0.7);
-  // const centerX = pageWidth / 2;
-  // const centerY = pageHeight / 2 - 80;
-  // const radius = 30;
-  // // Outer circle
-  // doc.circle(centerX, centerY, radius);
-  // // Inner concentric circle
-  // doc.circle(centerX, centerY, radius - 10);
-  // // Radial lines
-  // for (let i = 0; i < 360; i += 45) {
-  //   const rad = (i * Math.PI) / 180;
-  //   const x = centerX + radius * Math.cos(rad);
-  //   const y = centerY + radius * Math.sin(rad);
-  //   doc.line(centerX, centerY, x, y);
-  // }
+    // === OPTIONAL: CLOCK/RADAR MOTIF ===
+    // doc.setDrawColor("#c0c0c0");
+    // doc.setLineWidth(0.7);
+    // const centerX = pageWidth / 2;
+    // const centerY = pageHeight / 2 - 80;
+    // const radius = 30;
+    // // Outer circle
+    // doc.circle(centerX, centerY, radius);
+    // // Inner concentric circle
+    // doc.circle(centerX, centerY, radius - 10);
+    // // Radial lines
+    // for (let i = 0; i < 360; i += 45) {
+    //   const rad = (i * Math.PI) / 180;
+    //   const x = centerX + radius * Math.cos(rad);
+    //   const y = centerY + radius * Math.sin(rad);
+    //   doc.line(centerX, centerY, x, y);
+    // }
 
     const timingSections = [
       "Mahadashas & Antardashas: Life Phases & Opportunities",
@@ -8772,11 +8829,24 @@ Rahu:{
 
     for (const sectionPrompt of timingSections) {
       const fullPrompt = `
-    You are an expert, narrative-focused Vedic astrologer. 
-    Generate a lavishly detailed, highly personalized astrology report section titled:
-    "${sectionPrompt}"
-    language: ${userData.language}
-    based on the given JSON birth data.
+You are an expert, narrative-focused Vedic astrologer. 
+Generate a lavishly detailed, highly personalized astrology report section titled:
+"${sectionPrompt}"
+
+Guidelines:
+- Write in clear, human-like tone.
+- Avoid long paragraphs; use more bullet points or short structured lines.
+- Each section must have distinct insights — do not repeat content from other sections.
+- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
+- Keep practical remedies and observations easy to read.
+- Where colon present (:) before that i want text in that paragragh bold
+language: ${userData.language}
+based on the given JSON birth data.
+
+Include practical timing insights drawn from Mahadashas, Antardashas, transits, and yogas.
+For each section, explain how these timings influence the native’s real-life experiences,
+decision-making, opportunities, and inner growth.
+Write in a warm, insightful, client-ready style (no markdown).
 JSON: {
     "mahadasha": [
       "Moon",
@@ -9643,7 +9713,7 @@ JSON: {
       const tableWidth = 400;
       const colWidth = tableWidth / headers.length;
       const pageWidth = doc.internal.pageSize.getWidth();
-      const pageNumber = () => doc.getNumberOfPages();
+      //const pageNumber = () => doc.getNumberOfPages();
       const startX = (pageWidth - tableWidth) / 2;
 
       const LINE_HEIGHT = 22;
@@ -9743,60 +9813,60 @@ JSON: {
     doc.addPage();
 
     // Draw border
-   doc.setFillColor("#4b1f65"); // Deep violet
-  doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.setFillColor("#4b1f65"); // Deep violet
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-  // === INNER GOLDEN BORDER ===
-  doc.setDrawColor("#d4af37"); // Gold
-  doc.setLineWidth(2);
-  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+    // === INNER GOLDEN BORDER ===
+    doc.setDrawColor("#d4af37"); // Gold
+    doc.setLineWidth(2);
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
 
-  // === INNER BACKGROUND FILL (Slightly lighter violet) ===
-  doc.setFillColor("#62379b");
-  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+    // === INNER BACKGROUND FILL (Slightly lighter violet) ===
+    doc.setFillColor("#62379b");
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-  // === DECORATIVE CORNERS ===
-  doc.setDrawColor("#f5d06f"); // Soft gold
-  doc.setLineWidth(1.5);
+    // === DECORATIVE CORNERS ===
+    doc.setDrawColor("#f5d06f"); // Soft gold
+    doc.setLineWidth(1.5);
 
-  // Top-left
-  doc.line(margin, margin, margin + corner, margin);
-  doc.line(margin, margin, margin, margin + corner);
+    // Top-left
+    doc.line(margin, margin, margin + corner, margin);
+    doc.line(margin, margin, margin, margin + corner);
 
-  // Top-right
-  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+    // Top-right
+    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-  // Bottom-left
-  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+    // Bottom-left
+    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-  // Bottom-right
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+    // Bottom-right
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
 
-  // === CENTER TITLE ===
-  doc.setFont("NotoSans", "bold");
-  doc.setFontSize(36);
-  doc.setTextColor("#f5d06f"); // Gold
-  doc.text("Remedies & Spiritual Guidance", pageWidth / 2, pageHeight / 2 - 10, {
-    align: "center",
-    baseline: "middle",
-  });
+    // === CENTER TITLE ===
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(36);
+    doc.setTextColor("#f5d06f"); // Gold
+    doc.text("Remedies & Spiritual Guidance", pageWidth / 2, pageHeight / 2 - 10, {
+      align: "center",
+      baseline: "middle",
+    });
 
-  // === SUBTITLE ===
-  doc.setFont("NotoSans", "normal");
-  doc.setFontSize(18);
-  doc.setTextColor("#ffffff");
-  doc.text("Pathways to Inner Peace and Transformation", pageWidth / 2, pageHeight / 2 + 25, {
-    align: "center",
-  });
+    // === SUBTITLE ===
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(18);
+    doc.setTextColor("#ffffff");
+    doc.text("Pathways to Inner Peace and Transformation", pageWidth / 2, pageHeight / 2 + 25, {
+      align: "center",
+    });
 
-  // === DECORATIVE DIVIDER ===
-  doc.setLineWidth(1);
-  doc.setDrawColor("#f5d06f");
-  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
-  doc.circle(pageWidth / 2, y, 2, "F");
+    // === DECORATIVE DIVIDER ===
+    doc.setLineWidth(1);
+    doc.setDrawColor("#f5d06f");
+    doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+    doc.circle(pageWidth / 2, y, 2, "F");
 
     const remediesSections = [
       "General Remedies: Everyday Practices & Rituals",
@@ -9808,15 +9878,36 @@ JSON: {
     // --- Loop through each remedies sub-section ---
     async function fetchRemediesSection(sectionPrompt: string) {
       const fullPrompt = `
-    You are an expert, narrative-focused Vedic astrologer.
-    Generate a lavishly detailed, highly personalized astrology remedies section titled:
-    "${sectionPrompt}"
-    language:${userData.language}
-    based on the given JSON birth data.
+You are a compassionate, highly experienced Vedic astrologer and spiritual counselor.
+Generate a well-structured, narrative-style astrology remedies section titled:
+"${sectionPrompt}"
 
-    Include practical remedies such as mantras, gemstones, rituals, donations, yantras, and lifestyle adjustments.
-    Explain how each remedy helps the native balance planetary influences, doshas, and yogas.
-    Write in a warm, insightful, client-ready style (no markdown).
+Guidelines:
+- Write in clear, natural language — no markdown, bullets or symbols like ** or ###.
+- Use short, meaningful paragraphs for readability in a PDF.
+- Avoid repetition across different sections.
+- Each remedy should be specific, actionable, and explained briefly.
+- Mention *how and why* each remedy works for this chart.
+- Maintain a warm, reassuring tone suited for a professional astrology report.
+- Where colon present (:) before that i want text in that paragragh bold
+
+Language: ${userData.language}
+
+Base your analysis entirely on the following *JSON birth data*, including planetary positions, yogas, doshas, and dashas.
+
+Include:
+- **General lifestyle and spiritual practices**
+- **Planet-specific remedies** (mantras, gemstones, colors, fasting)
+- **Dosha remedies** (Manglik, Rahu–Ketu, Shankpal)
+- **Yoga strengthening or mitigation techniques**
+- **Charity, donation, or karmic advice**
+- **Yantras or meditation suggestions** when relevant
+
+Make sure:
+- “General Remedies” are broad daily practices.
+- “Planet-specific Remedies” focus only on 9 planets.
+- “Dosha Remedies” deal with Manglik, Shankpal, Rahu–Ketu balance.
+- “Yoga Remedies” enhance benefic yogas or reduce malefic yoga impact.
     JSON: {
     "mahadasha": [
       "Moon",
@@ -10844,79 +10935,74 @@ Rahu:{
 
     // Draw border
     doc.setFillColor("#1a2b40"); // Deep steel-blue
-  doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-  // === INNER FRAME ===
-  doc.setFillColor("#2e3f5c"); // Slightly lighter inner rectangle
-  doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+    // === INNER FRAME ===
+    doc.setFillColor("#2e3f5c"); // Slightly lighter inner rectangle
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-  // === DECORATIVE CORNERS ===
-  doc.setDrawColor("#c0c0c0"); // Silver accents
-  doc.setLineWidth(1.5);
+    // === DECORATIVE CORNERS ===
+    doc.setDrawColor("#c0c0c0"); // Silver accents
+    doc.setLineWidth(1.5);
 
-  // Top-left
-  doc.line(margin, margin, margin + corner, margin);
-  doc.line(margin, margin, margin, margin + corner);
+    // Top-left
+    doc.line(margin, margin, margin + corner, margin);
+    doc.line(margin, margin, margin, margin + corner);
 
-  // Top-right
-  doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
-  doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+    // Top-right
+    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
 
-  // Bottom-left
-  doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
-  doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+    // Bottom-left
+    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
 
-  // Bottom-right
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
-  doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+    // Bottom-right
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
 
-  // === CENTER TITLE ===
-  doc.setFont("NotoSans", "bold");
-  doc.setFontSize(36);
-  doc.setTextColor("#c0c0c0"); // Silver text
+    // === CENTER TITLE ===
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(36);
+    doc.setTextColor("#c0c0c0"); // Silver text
 
-  // Split text into two lines
-  const line1 = "Advanced Calculations &";
-  const line2 = "Optional Insights";
+    // Split text into two lines
+    const line1 = "Advanced Calculations &";
+    const line2 = "Optional Insights";
 
-  const centerY = pageHeight / 2;
-  const spacing = lineHeight * 1.5; // Adjust spacing between lines
+    const centerY = pageHeight / 2;
+    const spacing = lineHeight * 1.5; // Adjust spacing between lines
 
-  doc.text(line1, pageWidth / 2, centerY - spacing / 2, {
-    align: "center",
-    baseline: "middle",
-  });
-  doc.text(line2, pageWidth / 2, centerY + spacing / 2, {
-    align: "center",
-    baseline: "middle",
-  });
+    doc.text(line1, pageWidth / 2, centerY - spacing / 2, {
+      align: "center",
+      baseline: "middle",
+    });
+    doc.text(line2, pageWidth / 2, centerY + spacing / 2, {
+      align: "center",
+      baseline: "middle",
+    });
 
-  // === SUBTITLE ===
-  doc.setFont("NotoSans", "normal");
-  doc.setFontSize(18);
-  doc.setTextColor("#ffffff");
-  doc.text("Deep Analysis for Informed Decisions", pageWidth / 2, centerY + spacing + 20, {
-    align: "center",
-  });
+    // === SUBTITLE ===
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(18);
+    doc.setTextColor("#ffffff");
+    doc.text("Deep Analysis for Informed Decisions", pageWidth / 2, centerY + spacing + 20, {
+      align: "center",
+    });
 
-  // === DECORATIVE DIVIDER ===
-  doc.setLineWidth(1);
-  doc.setDrawColor("#c0c0c0");
-  doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
-  doc.circle(pageWidth / 2, y, 2, "F");
+    // === DECORATIVE DIVIDER ===
+    doc.setLineWidth(1);
+    doc.setDrawColor("#c0c0c0");
+    doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+    doc.circle(pageWidth / 2, y, 2, "F");
 
     const advancedSections = [
       "Introduction to Advanced Calculations",
       "Fundamentals of Ashtakvarga",
       "Sarvashtakavarga Analysis",
-      "Binnashtakavarga Planetary Analysis",
-      "Shadbala Calculation Methodology",
-      "Individual Planetary Shadbala Analysis",
       "Shadbala-Based Life Predictions",
-      "Dasha System Overview",
       "Detailed Pratyantar Dasha Analysis",
       "Dasha-Based Yearly Predictions",
-      "Grah Yuddha Analysis",
       "Advanced Divisional Chart Analysis",
       "Special Yogas and Rare Combinations",
       "Synthesis & Final Recommendations"
@@ -10928,6 +11014,17 @@ Rahu:{
 You are an expert, narrative-focused Vedic astrologer.
 Generate a lavishly detailed, highly personalized astrology section titled:
 "${sectionPrompt}"
+🪔 **Guidelines:**
+- Write in clear, fluent, human-like prose.
+- Use short, crisp paragraphs or bullet-style insights (no Markdown symbols like ** or ##).
+- Avoid repetition; each section should give unique insights not found in others.
+- Use gentle headers or short topic transitions where relevant (e.g., “Strength Analysis:”, “Interpretation:”, “Impact:”).
+- Make it suitable for clean PDF layout — no extra formatting symbols.
+- Provide both *technical calculation notes* and *human interpretation*.
+- Keep tone insightful, client-friendly, and balanced between scientific and intuitive.
+- Use the provided data to calculate and interpret: planetary positions, yogas, dashas, shadbala, ashtakvarga, and doshas.
+- Avoid introducing fictional yogas or fabricating data.
+-7. Where colon present (:) before that i want text in that paragragh bold
 language:${userData.language}
 based on the given JSON birth data.
 
@@ -12128,6 +12225,13 @@ JSON: {
         "chart": "D60",
         "chart_name": "Shastiamsha"
     },
+    🎯 **Expected Output Style:**
+- 2–3 short paragraphs or well-separated points.
+- Mention the key planetary influences relevant to this section.
+- Include practical astrological observations and simple remedies, where appropriate.
+- Avoid repeating yogas — only mention yogas in the *"Special Yogas and Rare Combinations"* section.
+
+Now write the section titled "${sectionPrompt}" accordingly.
   `;
 
       // --- API Call ---
@@ -12252,16 +12356,17 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
     // --- Generate Detailed Answers per Question ---
     async function generateAnswer(question: string, fullData: Record<string, unknown>, retryCount = 0): Promise<string> {
       const prompt = `
-You are an empathetic and wise Vedic astrologer. Based on this client's complete data
-(including all divisional charts: D1, D9, D10, D60, D2, D3, D4, plus personal metadata),
-write a detailed, client-friendly answer to the question below.
-language:${userData.language}
-Include:
-- Relevant planetary influences (mention houses and planets)
-- Yogas and Dashas affecting this area
-- Remedies, insights, and spiritual guidance
-- Keep tone warm, intuitive, deeply insightful
-- Do NOT use any markdown or special formatting
+You are a concise, insightful Vedic astrologer.
+Based on the client's full birth and divisional chart data (D1, D9, D10, D60, D2, D3, D4) and metadata,
+write a short, to-the-point answer (2–4 sentences) for the question below.
+language: ${userData.language}
+
+Guidelines:
+- Keep it specific, crisp, and practical.
+- Mention only key planetary influences (main planets, houses, or yogas).
+- Avoid long paragraphs or redundant details.
+- If relevant, include one brief remedy or advice.
+- No markdown, symbols, or formatting.
 
 Question: "${question}"
 
