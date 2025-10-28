@@ -110,6 +110,7 @@ function addParagraphs(
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 25;
   const bottomLimit = pageHeight - margin;
+  const rightLimit = pageWidth - margin;
 
   let currentY = y;
 
@@ -121,103 +122,156 @@ function addParagraphs(
 
   const getPageStartY = () => margin + 20;
 
-  // Draw first page border
+  // Initial border
   drawPageBorder();
 
   const lines = text.split("\n");
 
-  for (let line of lines) {
-    line = line.trim();
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
     if (!line) continue;
 
-    // Detect subheadings
-    const isSubheading = line.endsWith(":") || /^[A-Z\s]+$/.test(line);
+    // Detect subheadings (uppercase ending with colon)
+    const isSubheading = /^[A-Z\s]+:$/.test(line);
 
-    // Set font styling
+    // Apply styles
     if (isSubheading) {
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(16);
+      doc.setFontSize(15);
       doc.setTextColor("#000");
+      line = line.toUpperCase();
+
+      // Move to next page if subheading will overflow
+      const nextLine = lines[i + 1]?.trim();
+      if (nextLine) {
+        const nextSplit = doc.splitTextToSize(nextLine, maxWidth);
+        const neededSpace = lineHeight * (1 + nextSplit.length);
+        if (currentY + neededSpace > bottomLimit) {
+          doc.addPage();
+          drawPageBorder();
+          addHeaderFooter(doc, doc.getNumberOfPages());
+          currentY = getPageStartY();
+        }
+      }
     } else {
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
     }
 
-    // Split text into wrapped lines
+    // Split lines into words/segments
     const splitText = doc.splitTextToSize(line, maxWidth);
     const paragraphHeight = splitText.length * lineHeight;
 
-    // --- Widow control & avoid blank page ---
+    // Overflow check
     if (currentY + paragraphHeight > bottomLimit) {
-      // Check if paragraph can fit if we start on next page
-      if (paragraphHeight + getPageStartY() <= bottomLimit) {
+      doc.addPage();
+      drawPageBorder();
+      addHeaderFooter(doc, doc.getNumberOfPages());
+      currentY = getPageStartY();
+    }
+
+    splitText.forEach((lineText: string) => {
+      let currentX = x;
+
+      // --- NEW LOGIC: handle subheading with colon ---
+      if (isSubheading && lineText.includes(":")) {
+        const colonIndex = lineText.indexOf(":");
+        let beforeColon = lineText;
+        let afterColon = "";
+
+        if (colonIndex !== -1) {
+          beforeColon = lineText.slice(0, colonIndex);
+          afterColon = lineText.slice(colonIndex + 1);
+        }
+        const cleanBefore = beforeColon.trim().toUpperCase() + ":";
+
+        // Subheading (bold black uppercase)
+        doc.setFont("NotoSans", "bold");
+        doc.setTextColor("#000");
+        doc.text(cleanBefore, currentX, currentY);
+        currentX += doc.getTextWidth(cleanBefore + " ");
+
+        // After colon → normal brown style (not uppercase)
+        if (afterColon && afterColon.trim()) {
+          doc.setFont("NotoSans", "normal");
+          doc.setTextColor("#a16a21");
+          const cleanAfter = afterColon.trim();
+          doc.text(cleanAfter, currentX, currentY);
+        }
+      } else {
+        // Normal paragraph logic
+        const parts = lineText.split(/(\*\*.*?\*\*)/g);
+
+        parts.forEach((part, index) => {
+          if (!part.trim()) return;
+
+          const isBold = part.startsWith("**") && part.endsWith("**");
+          let clean = part.replace(/^\*\*|\*\*$/g, "").replace(/\*\*/g, "");
+
+          if (isBold) {
+            clean = clean.toUpperCase();
+            doc.setFont("NotoSans", "bold");
+            doc.setTextColor("#000");
+          } // Detect mostly-uppercase text (allow punctuation/numbers)
+          else if (/^[A-Z0-9\s:.,'-]+$/.test(clean.trim()) && clean.trim().length > 2) {
+            doc.setFont("NotoSans", "bold");
+            doc.setTextColor("#000");
+          }
+          else {
+            doc.setFont("NotoSans", "normal");
+            doc.setTextColor("#a16a21");
+          }
+
+          const textWidth = doc.getTextWidth(clean + " ");
+          if (currentX + textWidth > rightLimit) {
+            currentY += lineHeight;
+            currentX = x;
+
+            if (currentY + lineHeight > bottomLimit) {
+              doc.addPage();
+              drawPageBorder();
+              addHeaderFooter(doc, doc.getNumberOfPages());
+              currentY = getPageStartY();
+            }
+          }
+
+          if (isBold && index > 0 && parts[index - 1].trim().endsWith(".")) {
+            currentY += lineHeight * 0.5;
+          }
+
+          doc.text(clean, currentX, currentY);
+          currentX += textWidth;
+        });
+      }
+
+      if (lineText.trim().endsWith(".")) {
+        currentY += lineHeight + 3;
+      } else {
+        currentY += lineHeight;
+      }
+
+      if (currentY + lineHeight > bottomLimit) {
         doc.addPage();
         drawPageBorder();
         addHeaderFooter(doc, doc.getNumberOfPages());
         currentY = getPageStartY();
-      } else {
-        // Paragraph too long → split across pages
-        const remainingLines = [...splitText];
-        while (remainingLines.length > 0) {
-          const spaceLeft = bottomLimit - currentY;
-          const linesThatFit = Math.floor(spaceLeft / lineHeight);
-          const linesToDraw = remainingLines.splice(0, linesThatFit);
-          doc.text(linesToDraw, x, currentY);
-          currentY += linesToDraw.length * lineHeight;
-
-          if (remainingLines.length > 0) {
-            doc.addPage();
-            drawPageBorder();
-            addHeaderFooter(doc, doc.getNumberOfPages());
-            currentY = getPageStartY();
-          }
-        }
-        currentY += isSubheading ? 5 : 10;
-        continue; // Skip normal drawing below
       }
-    }
-    // Draw the paragraph
-    // Draw text with support for **bold** markers
-    splitText.forEach((lineText:string) => {
-      const parts = lineText.split(/(\*\*.*?\*\*)/g); // split into bold/non-bold segments
-      let currentX = x;
-
-      parts.forEach(part => {
-        if (!part) return;
-
-        if (part.startsWith("**") && part.endsWith("**")) {
-          // Bold part
-          const clean = part.slice(2, -2);
-          doc.setFont("NotoSans", "bold");
-          doc.text(clean, currentX, currentY);
-          currentX += doc.getTextWidth(clean + " ");
-        } else {
-          // Normal part
-          doc.setFont("NotoSans", "normal");
-          doc.text(part, currentX, currentY);
-          currentX += doc.getTextWidth(part + " ");
-        }
-      });
-
-      currentY += lineHeight;
     });
 
-    currentY += paragraphHeight;
-
-    // Add spacing
-    currentY += isSubheading ? 3 : 6;
+    currentY += isSubheading ? 4 : 2;
   }
 
   return currentY;
 }
+
 // function addParagraphs(
-//   doc: jsPDF,
-//   text: string,
-//   x: number,
-//   y: number,
-//   maxWidth: number,
-//   lineHeight = 20
+// doc: jsPDF,
+// text: string,
+// x: number,
+// y: number,
+// maxWidth: number,
+// lineHeight = 20
 // ) {
 //   const pageWidth = doc.internal.pageSize.getWidth();
 //   const pageHeight = doc.internal.pageSize.getHeight();
@@ -289,6 +343,7 @@ function addParagraphs(
 
 // --- Utilities for header/footer ---
 const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
+  // Skip first page (no header/footer)
   if (pageNum === 1) return;
 
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -297,18 +352,26 @@ const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
   // Save the current font and style
   const prevFont = doc.getFont().fontName;
   const prevStyle = doc.getFont().fontStyle;
+  const prevColor = doc.getTextColor();
   const prevSize = doc.getFontSize();
 
-  // Apply bold font for footer only
-  doc.setFont("Times", "bold");
-  doc.setFontSize(18);
+  // Footer style
+  doc.setFont("Times", "normal");
+  doc.setTextColor("#a16a21");
+  doc.setFontSize(12);
 
   // Footer text
-  doc.text("© 2025 TrustAstrology. All rights reserved.", pageWidth / 2, pageHeight - 30, { align: "center" });
+  doc.text(
+    "© 2025 TrustAstrology. All rights reserved.",
+    pageWidth / 2,
+    pageHeight - 30,
+    { align: "center" }
+  );
 
   // Restore previous font and style
   doc.setFont(prevFont, prevStyle);
   doc.setFontSize(prevSize);
+  doc.setTextColor(prevColor);
 };
 
 export function svgToBase64PNG(svgText: string, width: number, height: number): Promise<string> {
@@ -439,7 +502,7 @@ Language: ${userData.language || "English"}.
 
     // Title
     doc.setFont("NotoSans", "bold");
-    doc.setFontSize(22);
+    doc.setFontSize(26);
     doc.setTextColor("#000");
     doc.text(`${planet.full_name} (${planet.name}) Report`, pageWidth / 2, 95, {
       align: "center"
@@ -447,7 +510,7 @@ Language: ${userData.language || "English"}.
 
     // Image
     const imagePath = `/assets/planets/${planet.name}.jpg`;
-    const imageY = 100;
+    const imageY = 120;
     let imageHeight = 200;
     try {
       doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
@@ -457,9 +520,9 @@ Language: ${userData.language || "English"}.
     }
 
     // Text setup
-    let cursorY = imageY + imageHeight + 20;
+    let cursorY = imageY + imageHeight + 25;
     doc.setFont("NotoSans", "normal");
-    doc.setFontSize(13);
+    doc.setFontSize(16);
     doc.setTextColor("#a16a21");
 
     const lineHeight = doc.getFontSize() * 1.5;
@@ -690,7 +753,7 @@ Language: ${userData.language || "English"}.
 
 //       // Header
 //       doc.setFont("NotoSans", "bold");
-//       doc.setFontSize(22);
+//       doc.setFontSize(26);
 //       doc.setTextColor("#a16a21");
 //       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
 //     }
@@ -719,7 +782,7 @@ Language: ${userData.language || "English"}.
 //     } catch (err) {
 //       console.error(`Error rendering chart ${chartData.chart_name}`, err);
 //       doc.setFont("NotoSans", "normal");
-//       doc.setFontSize(14);
+//       doc.setFontSize(16);
 //       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, {
 //         align: "center",
 //       });
@@ -828,7 +891,7 @@ async function addAllDivisionalChartsFromJSON(
       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#a16a21");
       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
     }
@@ -850,7 +913,7 @@ async function addAllDivisionalChartsFromJSON(
     } catch (err) {
       console.error(`Error rendering chart ${chartData.chart_name}`, err);
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(14);
+      doc.setFontSize(16);
       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
     }
   }
@@ -905,7 +968,7 @@ async function addAllDivisionalChartsFromJSON(
 //       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
 
 //       doc.setFont("NotoSans", "bold");
-//       doc.setFontSize(22);
+//       doc.setFontSize(26);
 //       doc.setTextColor("#a16a21");
 //       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
 //     }
@@ -941,7 +1004,7 @@ async function addAllDivisionalChartsFromJSON(
 //     } catch (err) {
 //       console.error(`Error rendering chart ${chartData.chart_name}`, err);
 //       doc.setFont("NotoSans", "normal");
-//       doc.setFontSize(14);
+//       doc.setFontSize(16);
 //       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
 //     }
 //   }
@@ -1022,7 +1085,7 @@ Language: ${userData.language || "English"}.
 
     // Title
     doc.setFont("NotoSans", "bold");
-    doc.setFontSize(22);
+    doc.setFontSize(26);
     doc.setTextColor("#000");
     doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 70, { align: "center" });
 
@@ -1031,7 +1094,7 @@ Language: ${userData.language || "English"}.
     let imageHeight = 200;
     const imagePath = `/assets/houses/${house.house}.jpg`;
     try {
-      doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
+      doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 250, imageHeight);
     } catch {
       console.warn(`Image for House ${house.house} not found, skipping image.`);
       imageHeight = 0;
@@ -1040,7 +1103,7 @@ Language: ${userData.language || "English"}.
     // Setup text
     let cursorY = imageY + imageHeight + 30;
     doc.setFont("NotoSans", "normal");
-    doc.setFontSize(13);
+    doc.setFontSize(16);
     doc.setTextColor("#a16a21");
 
     const lineHeight = doc.getFontSize() * 1.5;
@@ -1212,11 +1275,11 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         doc.setLineWidth(1.5);
         doc.rect(25, 25, 545, 792, "S");
         doc.setFont("NotoSans", "bold");
-        doc.setFontSize(22);
+        doc.setFontSize(26);
         doc.setTextColor("#000");
         doc.text(title, pageWidth / 2, 60, { align: "center" });
         doc.setFont("NotoSans", "normal");
-        doc.setFontSize(13);
+        doc.setFontSize(16);
         doc.setTextColor("#a16a21");
       };
 
@@ -1341,13 +1404,13 @@ export async function generateAndDownloadFullCosmicReportWithTable(
    4.10 Planetary Aspects on 7th House
    4.11 Divisional Charts (D9 - Navamsa, D2 - Hora)
    4.12 Yogas & Doshas: Mangal, Venus-Mars, Chandra-Mangal
-   4.13 Planetary Periods: Dasha & Transits
+   4.13 Planetary Periods: Dasha 
 
 05 Career & Profession
    5.1 Houses Related to Career: 1st, 2nd, 6th, 10th
    5.2 Planetary Traits & Amatyakaraka Insights
    5.3 Nakshatra / Moon Sign Influence: Work Style & Preferred Profession
-   5.4 Dashas, Yogas & Transits: Career Success Timing
+   5.4 Dashas, Yogas: Career Success Timing
 
 06 Health & Wellbeing
    6.1 Doshas in Vedic Astrology: Manglik, Pitra, Kaalsarp
@@ -1393,12 +1456,12 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.rect(25, 25, 545, 792, "S");
 
     doc.setFont("NotoSans", "bold");
-    doc.setFontSize(22);
+    doc.setFontSize(26);
     doc.setTextColor("#000");
     doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
 
     doc.setFont("NotoSans", "normal");
-    doc.setFontSize(13);
+    doc.setFontSize(16);
     doc.setTextColor("#a16a21");
     addParagraphs(doc, tocText, 50, 100, pageWidth - 100);
 
@@ -4298,7 +4361,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       "7th House Analysis: Interpret the 7th house sign, ruling lord, planetary influences, aspects, and their implications for marriage, partnerships, and long-term commitment.",
       "Divisional Charts (D9 Navamsa & D2 Hora): Explore the D9 chart for marriage quality and compatibility, and D2 for financial harmony and family prosperity.",
       "Yogas & Doshas: Identify and explain all love and marriage-related yogas or doshas such as Mangal Dosha, Chandra–Mangal Yoga, Venus–Mars combinations, Rahu–Ketu influences, etc., with meanings, strengths, and remedies.",
-      "Planetary Periods and Transits: Provide a detailed reading of dashas and transits affecting love life, relationship timing, and marriage prospects."
+      "Planetary Periods : Provide a detailed reading of dashas affecting love life, relationship timing, and marriage prospects."
     ];
 
     async function fetchLoveSection(sectionPrompt: string) {
@@ -4318,7 +4381,7 @@ Strict Structural Instructions:
    - Avoid markdown or list syntax.
    - Use smooth paragraph transitions with natural subheadings (e.g., “Influence of Venus in Love Life”, “Moon and Emotional Expression”).
 4. Write in 2–4 paragraphs minimum per section.
-5. If the section is "Planetary Periods and Transits", analyze both Mahadasha and Antardasha data provided.
+5. If the section is "Planetary Periods", analyze both Mahadasha and Antardasha data provided.
 6. Never repeat any content across sections.
 
 Guidelines:
@@ -5389,7 +5452,7 @@ JSON INPUT:{
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
@@ -5458,13 +5521,12 @@ JSON INPUT:{
       "Houses Related to Career: Analyze 10th, 6th, and 2nd houses for career insights.",
       "Planetary Positions Affecting Career: Explain planetary influences on profession, leadership, and growth.",
       "Yogas Influencing Career and Wealth: Discuss relevant yogas and their impact on career success.",
-      "Dashas and Transits for Career Timing: Provide timing predictions and career opportunities.",
+      "Dashas for Career Timing: Provide timing predictions and career opportunities.",
       "Practical Career Guidance: Give actionable advice for career advancement, entrepreneurship, and financial growth."
     ];
 
     async function fetchCareerSection(sectionPrompt: string) {
       const fullPrompt = `
-You are a highly experienced Vedic astrologer specializing in Career & Profession astrology.
 Generate a **unique and section-specific** report for this part:
 "${sectionPrompt}"
 
@@ -6293,14 +6355,14 @@ Below is the detailed astrological data for analysis:
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext=boldTextBeforeColonString(text);
+      const formatedtext = boldTextBeforeColonString(text);
       addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
     }
 
@@ -6387,13 +6449,12 @@ Below is the detailed astrological data for analysis:
 Using the provided JSON input, generate a professional, unique, and insightful health astrology report for this section:
 ${sectionPrompt}
 
-Guidelines:
-- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
-- Use plain-text **capitalized subheadings**.
-- Present insights in 2–4 short paragraphs or up to 6 bullet points.
-- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
-- Do not reference or mention other sections.
-- Maintain a professional, flowing tone.
+ Guidelines:
+- Write in clear, human-like tone.
+- Avoid long paragraphs; use more bullet points or short structured lines.
+- Each section must have distinct insights — do not repeat content from other sections.
+- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
+- Keep practical remedies and observations easy to read.
 
 User Language: ${userData.language}
         JSON: {
@@ -7070,14 +7131,14 @@ User Language: ${userData.language}
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext=boldTextBeforeColonString(text);
+      const formatedtext = boldTextBeforeColonString(text);
       addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
     }
     doc.addPage();
@@ -7151,12 +7212,11 @@ User Language: ${userData.language}
     Using the provided JSON input, generate a professional, detailed report for this section:
     ${sectionPrompt}
     Guidelines:
-- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
-- Use plain-text **capitalized subheadings**.
-- Present insights in 2–4 short paragraphs or up to 6 bullet points.
-- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
-- Do not reference or mention other sections.
-- Maintain a professional, flowing tone.
+- Write in clear, human-like tone.
+- Avoid long paragraphs; use more bullet points or short structured lines.
+- Each section must have distinct insights — do not repeat content from other sections.
+- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
+- Keep practical remedies and observations easy to read.
 
     language: ${userData.language}
     JSON: "response": { Sun:{
@@ -8852,14 +8912,14 @@ Rahu:{
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext=boldTextBeforeColonString(text);
+      const formatedtext = boldTextBeforeColonString(text);
       addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
     }
 
@@ -8960,7 +9020,7 @@ Guidelines:
 language: ${userData.language}
 based on the given JSON birth data.
 
-Include practical timing insights drawn from Mahadashas, Antardashas, transits, and yogas.
+Include practical timing insights drawn from Mahadashas, Antardashas, and yogas.
 For each section, explain how these timings influence the native’s real-life experiences,
 decision-making, opportunities, and inner growth.
 Write in a warm, insightful, client-ready style (no markdown).
@@ -9718,7 +9778,7 @@ JSON: {
             ]
         }
     ],
-    Include practical timing insights drawn from Mahadashas, Antardashas, transits, and yogas.
+    Include practical timing insights drawn from Mahadashas, Antardashas,  and yogas.
     For each section, explain how these timings influence the native’s real-life experiences,
     decision-making, opportunities, and inner growth.
     Write in a warm, insightful, client-ready style (no markdown).
@@ -9748,13 +9808,13 @@ JSON: {
 
       // --- Section Title ---
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       // --- Section Subtitle ---
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
       doc.text(sectionPrompt.split(":")[1] || "", pageWidth / 2, 80, { align: "center" });
 
@@ -9814,9 +9874,9 @@ JSON: {
 
       // --- Regular content paragraphs ---
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext=boldTextBeforeColonString(text);
+      const formatedtext = boldTextBeforeColonString(text);
       addParagraphs(doc, formatedtext, 50, cursorY, pageWidth - 50 - 50);
     }
 
@@ -9863,7 +9923,7 @@ JSON: {
       // --- DRAW HEADER ROW ---
       const drawHeader = (yPos: number) => {
         doc.setFont("NotoSans", "bold");
-        doc.setFontSize(13);
+        doc.setFontSize(16);
         doc.setFillColor(161, 106, 33);
         doc.setTextColor(255, 255, 255);
         doc.rect(startX, yPos - 7, tableWidth, LINE_HEIGHT, "F");
@@ -10001,12 +10061,12 @@ Generate a well-structured, narrative-style astrology remedies section titled:
 "${sectionPrompt}"
 
 Guidelines:
-- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
-- Use plain-text **capitalized subheadings**.
-- Present insights in 2–4 short paragraphs or up to 6 bullet points.
-- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
-- Do not reference or mention other sections.
-- Maintain a professional, flowing tone.
+- Write in clear, natural language — no markdown, bullets or symbols like ** or ###.
+- Use short, meaningful paragraphs for readability in a PDF.
+- Avoid repetition across different sections.
+- Each remedy should be specific, actionable, and explained briefly.
+- Mention *how and why* each remedy works for this chart.
+- Maintain a warm, reassuring tone suited for a professional astrology report.
 
 Language: ${userData.language}
 
@@ -10025,6 +10085,7 @@ Make sure:
 - “Planet-specific Remedies” focus only on 9 planets.
 - “Dosha Remedies” deal with Manglik, Shankpal, Rahu–Ketu balance.
 - “Yoga Remedies” enhance benefic yogas or reduce malefic yoga impact.
+
     JSON: {
     "mahadasha": [
       "Moon",
@@ -11038,14 +11099,14 @@ Rahu:{
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext=boldTextBeforeColonString(text);
+      const formatedtext = boldTextBeforeColonString(text);
       addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
 
     }
@@ -11132,17 +11193,20 @@ Rahu:{
 You are an expert, narrative-focused Vedic astrologer.
 Generate a lavishly detailed, highly personalized astrology section titled:
 "${sectionPrompt}"
-Guidelines:
-- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
-- Use plain-text **capitalized subheadings**.
-- Present insights in 2–4 short paragraphs or up to 6 bullet points.
-- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
-- Do not reference or mention other sections.
-- Maintain a professional, flowing tone.
+🪔 **Guidelines:**
+- Write in clear, fluent, human-like prose.
+- Use short, crisp paragraphs or bullet-style insights (no Markdown symbols like ** or ##).
+- Avoid repetition; each section should give unique insights not found in others.
+- Use gentle headers or short topic transitions where relevant (e.g., “Strength Analysis:”, “Interpretation:”, “Impact:”).
+- Make it suitable for clean PDF layout — no extra formatting symbols.
+- Provide both *technical calculation notes* and *human interpretation*.
+- Keep tone insightful, client-friendly, and balanced between scientific and intuitive.
+- Use the provided data to calculate and interpret: planetary positions, yogas, dashas, shadbala, ashtakvarga, and doshas.
+- Avoid introducing fictional yogas or fabricating data.
 language:${userData.language}
 based on the given JSON birth data.
 
-Include precise calculations, interpretations, and insights from planetary positions, houses, yogas, dashas, transits, and doshas.
+Include precise calculations, interpretations, and insights from planetary positions, houses, yogas, dashas, and doshas.
 Explain how each factor impacts the native's life in detail.
 Write in a warm, insightful, client-ready style (no markdown).
 JSON: {
@@ -12339,11 +12403,6 @@ JSON: {
         "chart": "D60",
         "chart_name": "Shastiamsha"
     },
-    🎯 **Expected Output Style:**
-- 2–3 short paragraphs or well-separated points.
-- Mention the key planetary influences relevant to this section.
-- Include practical astrological observations and simple remedies, where appropriate.
-- Avoid repeating yogas — only mention yogas in the *"Special Yogas and Rare Combinations"* section.
 
 Now write the section titled "${sectionPrompt}" accordingly.
   `;
@@ -12378,37 +12437,39 @@ Now write the section titled "${sectionPrompt}" accordingly.
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext=boldTextBeforeColonString(text);
+      const formatedtext = boldTextBeforeColonString(text);
       addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
     }
 
-    // Generate "12 Q&A & Personalized Advice" secti
-
-    // --- Helper: Delay ---
-    // --- Helper ---
+    // Generate "12 Q&A & Personalized Advice" section
     const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
     // --- Generate 12–15 Personalized Questions (Categorized) ---
     async function generateQuestions(fullData: AstrologyData) {
       const questionPrompt = `
-You are an expert Vedic astrologer and holistic consultant.
-Analyze the following *complete client data* — including multi-chart birth data (D1, D9, D10, D60, D2, D3, D4),
-plus any personal or contextual data provided (location, date/time, gender).
-language:${userData.language}
-Generate 12–15 *personalized, specific* client questions organized in categories:
+You are an expert Vedic astrologer and holistic life consultant.
+Analyze the following client data — including divisional charts (D1, D9, D10, D60, D2, D3, D4) and personal info (birth date, time, place, gender).
+
+language: ${userData.language}
+
+Generate 12–15 *short, natural, and personalized questions* in a conversational tone — like how a real person would ask them.
+Each question should be meaningful, clear, and directly related to the client's planetary placements and life context.
+Avoid long or complex sentences.
+
+Categorize them under these headings:
 
 CAREER:
-- 2–3 questions
+- 2–3 short questions
 
 LOVE & RELATIONSHIPS:
-- 2–3 questions
+- 2–3 short questions
 
 HEALTH:
 - 2 questions
@@ -12417,18 +12478,28 @@ WEALTH:
 - 2 questions
 
 FAME & SOCIAL RECOGNITION:
-- 1–2 questions
+- 1–2 short questions
 
 SPIRITUAL GROWTH:
-- 1–2 questions
+- 1–2 short questions
 
-Format:
+✨ Style examples:
+- "Will I become famous?"
+- "When can I make more money and grow in my career?"
+- "Do I have any doshas and how can I reduce the negative effects?"
+- "Is there a chance of foreign travel for work?"
+- "How will my married life be?"
+
+Format strictly as:
 CAREER:
 1. <question>
 2. <question>
-...
 
-Remove any markdown or special characters in the output.
+LOVE & RELATIONSHIPS:
+1. <question>
+2. <question>
+
+(No markdown, no extra symbols.)
 
 JSON Input: ${JSON.stringify(fullData, null, 2)}
 `;
@@ -12438,7 +12509,7 @@ JSON Input: ${JSON.stringify(fullData, null, 2)}
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: questionPrompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 3000 }
+          generationConfig: { temperature: 0.8, maxOutputTokens: 3000 }
         })
       });
 
@@ -12543,12 +12614,12 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       doc.rect(25, 25, 545, 792, "S");
 
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
       doc.text("Q&A & Personalized Guidance", pageWidth / 2, 60, { align: "center" });
 
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(13);
+      doc.setFontSize(16);
       doc.setTextColor("#a16a21");
 
       // Step 4: Add all content
@@ -12574,6 +12645,14 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       d2: d2ChartJson,
       d3: d3ChartJson,
       d4: d4ChartJson,
+      d5: d5ChartJson,
+      d7: d7ChartJson,
+      d8: d8ChartJson,
+      d12: d12ChartJson,
+      d16: d16ChartJson,
+      d24: d24ChartJson,
+      d27: d27ChartJson,
+      d30: d30ChartJson,
       Default: Default
     });
 
