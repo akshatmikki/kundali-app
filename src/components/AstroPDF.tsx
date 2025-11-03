@@ -1,3 +1,4 @@
+"use client";
 import { useState, useEffect } from "react";
 import {
   Container,
@@ -13,6 +14,7 @@ import {
   Alert
 } from "@mui/material";
 import { generateAndDownloadFullCosmicReportWithTable } from "./CosmicDMReport_Fixed";
+//import { fetchAllAstroData, AstroData } from "../server/fetchallastrodata";
 
 interface UserData {
   name: string;
@@ -121,50 +123,89 @@ export default function AstroPDF() {
 
 
   const handleGenerateReport = async () => {
-    setError(null);
+  setError(null);
 
-    // Check if all necessary fields are filled
-    if (!dob || !time || !lat || !lon || !name || !sex || !place || !country || !language) {
-      setError("Please fill in all required fields (including DOB, time, location, and language).");
-      return;
-    }
+  // Validate input fields
+  if (!dob || !time || !lat || !lon || !name || !sex || !place || !country || !language) {
+    setError("Please fill in all required fields (including DOB, time, location, and language).");
+    return;
+  }
 
-    setLoading(true);
-    try {
-      // Prepare user data with all form inputs
-      const userData = {
-        name,
-        sex,
-        dob,
-        time,
-        place,
-        state,
-        country,
-        latitude: Number(lat),
-        longitude: Number(lon),
-        language
-      };
+  setLoading(true);
+  try {
+    const userData = {
+      name,
+      sex,
+      dob,
+      time,
+      place,
+      state,
+      country,
+      latitude: Number(lat),
+      longitude: Number(lon),
+      language,
+    };
 
-      // Call the enhanced function with table content integration
-      await generateAndDownloadFullCosmicReportWithTable(
-        name,
-        dob,
-        time,
-        `${place}${state ? `, ${state}` : ''}, ${country}`,
-        Number(lat),
-        Number(lon),
-        userData
-      );
+//     const formatDateToDDMMYYYY = (isoDate: string): string => {
+//   const [year, month, day] = isoDate.split("-");
+//   return `${day}/${month}/${year}`;
+// };
 
-      setError("Report generated successfully with Avakahada Chakra table! Check your downloads.");
-    } catch (err) {
-      console.error("Report generation failed:", err);
-      setError("Failed to generate report. Please check the console for details.");
-    } finally {
-      setLoading(false);
-    }
-  };
+//     // ✅ STEP 1: Fetch all astrology data (JSON)
+//     const formattedDOB = formatDateToDDMMYYYY(dob);
 
+// const res = await fetch("/api/fetch-astro", {
+//   method: "POST",
+//   headers: { "Content-Type": "application/json" },
+//   body: JSON.stringify({
+//     name,
+//     dob: formattedDOB, // ✅ formatted for VedicAstroAPI
+//     time,
+//     lat: Number(lat),
+//     lon: Number(lon),
+//   }),
+// });
+
+//     if (!res.ok) throw new Error("API failed to fetch astrology data.");
+
+//     // ✅ Clone response so we can read it twice
+//     const resClone = res.clone();
+
+//     // 1️⃣ Save JSON file locally
+//     const blob = await resClone.blob();
+//     const url = window.URL.createObjectURL(blob);
+//     const a = document.createElement("a");
+//     a.href = url;
+//     a.download = "astro_data.json";
+//     document.body.appendChild(a);
+//     a.click();
+//     a.remove();
+//     window.URL.revokeObjectURL(url);
+
+//     // 2️⃣ Parse JSON for PDF generation
+//     const allAstroData = await res.json();
+
+//     console.log("✅ All Astrology Data:", allAstroData);
+
+    // ✅ STEP 2: Generate the Cosmic PDF using that data
+    await generateAndDownloadFullCosmicReportWithTable(
+      name,
+      dob,
+      time,
+      `${place}${state ? `, ${state}` : ""}, ${country}`,
+      Number(lat),
+      Number(lon),
+      userData
+    );
+
+    setError("Report generated successfully with Avakahada Chakra table! Check your downloads.");
+  } catch (err) {
+    console.error("Report generation failed:", err);
+    setError("Failed to generate report. Please check the console for details.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <Container

@@ -1,21 +1,85 @@
 import { jsPDF } from "jspdf";
-import { generateReusableTableContent, generateTableContentPrompt } from "./ReusableTableContent";
+import { generateReusableTableContent } from "./ReusableTableContent";
 import removeMarkdown from "remove-markdown";
 import Default from "../app/data/Default.json";
 import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js";
-import { svg2pdf } from "svg2pdf.js";
+import { readAstroJSON } from "@/server/readastrofile";
 
-type AstrologyData = {
-  d1?: object;
-  d9?: object;
-  d10?: object;
-  d60?: object;
-  d2?: object;
-  d3?: object;
-  d4?: object;
-  Default?: object;
-  [key: string]: object | undefined;
+type PlanetName =
+  | "sun"
+  | "moon"
+  | "mars"
+  | "mercury"
+  | "jupiter"
+  | "venus"
+  | "saturn"
+  | "rahu"
+  | "ketu";
+
+// Define specific keys for all data sections using mapped types
+type AstroData = {
+  [K in PlanetName as `planet_report_${K}`]: object;
+} & {
+  [K in PlanetName as `retrogrades_${K}`]: object;
+} & {
+  [K in PlanetName as `transit_dates_${K}`]: object;
+} & {
+  [`planetary_aspects_planets`]: object;
+} & {
+  [`planet_details`]: object;
 };
+
+function sanitizeText(text: string): string {
+  return text
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/—|–/g, "-")
+    .replace(/[•·]/g, "-")
+    .replace(/\u00A0/g, " ") // non-breaking spaces
+    .replace(/\s+\n/g, "\n") // trim trailing spaces before newlines
+    .replace(/\n{3,}/g, "\n\n") // collapse excessive blank lines
+    .replace(/[^\u0009\u000A\u000D\u0020-\u007E]/g, "") // remove non-printable chars only
+    .trim();
+}
+
+const PLANETS = [
+  "Sun",
+  "Moon",
+  "Mars",
+  "Mercury",
+  "Jupiter",
+  "Venus",
+  "Saturn",
+  "Rahu",
+  "Ketu",
+];
+
+async function callBedrock(prompt: string, jsonData: any) {
+  const res = await fetch("/api/bedrock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, jsonData }),
+  });
+
+  const text = await res.text(); // first get text
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    console.error("❌ Non-JSON response from /api/bedrock:", text);
+    throw new Error("Server did not return valid JSON.");
+  }
+
+  if (!res.ok) {
+    throw new Error(data.error || "Bedrock API failed.");
+  }
+
+  // 🧹 Remove reasoning tag
+  const cleanedMessage = data.message?.replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "").trim() || "";
+  console.log("🪄 Bedrock Output:", cleanedMessage);
+  return cleanedMessage;
+}
 
 interface UserData {
   name: string;
@@ -30,74 +94,6 @@ interface UserData {
   language: string;
 }
 
-// Type for a single planet in a chart
-interface ChartPlanet {
-  name: string;          // short code like "Su" or "Mo"
-  full_name: string;     // full name like "Sun" or "Moon"
-  zodiac: string;        // zodiac sign
-  rasi_no: number;       // rasi number (1–12)
-  house: number;         // house number (1–12)
-  retro: boolean;        // whether retrograde
-  local_degree: number;  // degree in sign
-}
-
-// Type for a chart object like D1, D9, etc.
-interface DivisionalChart {
-  [key: string]: ChartPlanet | string; // keys "0".."9" are planets, plus "chart" and "chart_name"
-  chart: string;
-  chart_name: string;
-}
-
-interface Planet {
-  planetId?: string;         // optional if not in all datasets
-  full_name: string;
-  name: string;
-  nakshatra: string;
-  nakshatra_no: number;
-  nakshatra_pada: number;
-  retro: boolean;
-  is_combust?: boolean;
-  is_planet_set?: boolean;
-  rasi_no?: number;
-  house?: number;
-  local_degree?: number;
-  global_degree?: number;
-  progress_in_percentage?: number;
-  zodiac?: string;
-  zodiac_lord?: string;
-  basic_avastha?: string;
-  lord_status?: string;
-  [key: string]: unknown;    // for any extra fields
-}
-
-interface House {
-  house: string;
-  rasi_no: number;
-  zodiac: string;
-  aspected_by_planet: string[];
-  aspected_by_planet_index: number[];
-  planets?: Planet[];        // array of planets in this house
-  cusp_sub_lord?: string;
-  cusp_sub_sub_lord?: string;
-  bhavmadhya?: number;
-  [key: string]: unknown;    // extra fields
-}
-
-const houses: House[] = [
-  { house: '1', rasi_no: 10, zodiac: 'Capricorn', aspected_by_planet: [], aspected_by_planet_index: [], planets: [{ planetId: '0', full_name: 'Ascendant', name: 'As', nakshatra: 'Vishakha', nakshatra_no: 16, nakshatra_pada: 2, retro: false }, { planetId: '7', full_name: 'Saturn', name: 'Sa', nakshatra: 'Jyeshtha', nakshatra_no: 18, nakshatra_pada: 2, retro: false }], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 23.888 },
-  { house: '2', rasi_no: 11, zodiac: 'Aquarius', aspected_by_planet: ['Moon', 'Rahu'], aspected_by_planet_index: [2, 8], planets: [], cusp_sub_lord: 'Rahu', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 24.682 },
-  { house: '3', rasi_no: 12, zodiac: 'Pisces', aspected_by_planet: ['Mars'], aspected_by_planet_index: [3], planets: [], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 23.836 },
-  { house: '4', rasi_no: 1, zodiac: 'Aries', aspected_by_planet: ['Sun', 'Jupiter', 'Rahu'], aspected_by_planet_index: [1, 5, 8], planets: [], cusp_sub_lord: 'Venus', cusp_sub_sub_lord: 'Saturn', bhavmadhya: 22.39 },
-  { house: '5', rasi_no: 2, zodiac: 'Taurus', aspected_by_planet: ['Mercury', 'Venus'], aspected_by_planet_index: [4, 6], planets: [{ planetId: '8', full_name: 'Rahu', name: 'Ra', nakshatra: 'UttaraBhadra', nakshatra_no: 26, nakshatra_pada: 3, retro: true }], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Moon', bhavmadhya: 23.422 },
-  { house: '6', rasi_no: 3, zodiac: 'Gemini', aspected_by_planet: ['Saturn', 'Ketu'], aspected_by_planet_index: [7, 9], planets: [{ planetId: '5', full_name: 'Jupiter', name: 'Ju', nakshatra: 'Ashvini', nakshatra_no: 1, nakshatra_pada: 2, retro: true }], cusp_sub_lord: 'Rahu', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 24.672 },
-  { house: '7', rasi_no: 4, zodiac: 'Cancer', aspected_by_planet: [], aspected_by_planet_index: [], planets: [], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 23.888 },
-  { house: '8', rasi_no: 5, zodiac: 'Leo', aspected_by_planet: ['Ketu'], aspected_by_planet_index: [9], planets: [], cusp_sub_lord: 'Rahu', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 24.682 },
-  { house: '9', rasi_no: 6, zodiac: 'Virgo', aspected_by_planet: [], aspected_by_planet_index: [], planets: [{ planetId: '2', full_name: 'Moon', name: 'Mo', nakshatra: 'Punarvasu', nakshatra_no: 7, nakshatra_pada: 3, retro: false }], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 23.836 },
-  { house: '10', rasi_no: 7, zodiac: 'Libra', aspected_by_planet: ['Ketu'], aspected_by_planet_index: [9], planets: [{ planetId: '1', full_name: 'Sun', name: 'Su', nakshatra: 'Magha', nakshatra_no: 10, nakshatra_pada: 2, retro: false }, { planetId: '3', full_name: 'Mars', name: 'Ma', nakshatra: 'Magha', nakshatra_no: 10, nakshatra_pada: 2, retro: false }, { planetId: '4', full_name: 'Mercury', name: 'Me', nakshatra: 'Magha', nakshatra_no: 10, nakshatra_pada: 2, retro: false }, { planetId: '6', full_name: 'Venus', name: 'Ve', nakshatra: 'Magha', nakshatra_no: 10, nakshatra_pada: 2, retro: false }], cusp_sub_lord: 'Sun', cusp_sub_sub_lord: 'Mercury', bhavmadhya: 22.39 },
-  { house: '11', rasi_no: 8, zodiac: 'Scorpio', aspected_by_planet: ['Mars', 'Saturn'], aspected_by_planet_index: [3, 7], planets: [{ planetId: '9', full_name: 'Ketu', name: 'Ke', nakshatra: 'Hasta', nakshatra_no: 13, nakshatra_pada: 1, retro: true }], cusp_sub_lord: 'Saturn', cusp_sub_sub_lord: 'Sun', bhavmadhya: 23.422 },
-  { house: '12', rasi_no: 9, zodiac: 'Sagittarius', aspected_by_planet: ['Jupiter', 'Rahu'], aspected_by_planet_index: [5, 8], planets: [], cusp_sub_lord: 'Rahu', cusp_sub_sub_lord: 'Rahu', bhavmadhya: 24.672 }
-];
-
 function addParagraphs(
   doc: jsPDF,
   text: string,
@@ -110,7 +106,6 @@ function addParagraphs(
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 25;
   const bottomLimit = pageHeight - margin;
-  const rightLimit = pageWidth - margin;
 
   let currentY = y;
 
@@ -122,224 +117,108 @@ function addParagraphs(
 
   const getPageStartY = () => margin + 20;
 
-  // Initial border
+  // ✅ Draw first border
   drawPageBorder();
+
+  const cleanMarkdown = (txt: string) =>
+    txt.replace(/[*#_>|]/g, "").trim();
 
   const lines = text.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
-    let line = lines[i].trim();
+    let line = cleanMarkdown(lines[i]);
     if (!line) continue;
 
-    // Detect subheadings (uppercase ending with colon)
+    // ✅ Detect subheadings (full uppercase with colon)
     const isSubheading = /^[A-Z\s]+:$/.test(line);
 
-    // Apply styles
     if (isSubheading) {
       doc.setFont("NotoSans", "bold");
       doc.setFontSize(15);
       doc.setTextColor("#000");
-      line = line.toUpperCase();
-
-      // Move to next page if subheading will overflow
-      const nextLine = lines[i + 1]?.trim();
-      if (nextLine) {
-        const nextSplit = doc.splitTextToSize(nextLine, maxWidth);
-        const neededSpace = lineHeight * (1 + nextSplit.length);
-        if (currentY + neededSpace > bottomLimit) {
-          doc.addPage();
-          drawPageBorder();
-          addHeaderFooter(doc, doc.getNumberOfPages());
-          currentY = getPageStartY();
-        }
-      }
     } else {
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
       doc.setTextColor("#a16a21");
     }
 
-    // Split lines into words/segments
-    const splitText = doc.splitTextToSize(line, maxWidth);
-    const paragraphHeight = splitText.length * lineHeight;
+    // ✅ Safely wrap long text within maxWidth
+    const wrappedLines = doc.splitTextToSize(line, maxWidth);
 
-    // Overflow check
-    if (currentY + paragraphHeight > bottomLimit) {
-      doc.addPage();
-      drawPageBorder();
-      addHeaderFooter(doc, doc.getNumberOfPages());
-      currentY = getPageStartY();
-    }
-
-    splitText.forEach((lineText: string) => {
-      let currentX = x;
-
-      // --- NEW LOGIC: handle subheading with colon ---
-      if (isSubheading && lineText.includes(":")) {
-        const colonIndex = lineText.indexOf(":");
-        let beforeColon = lineText;
-        let afterColon = "";
-
-        if (colonIndex !== -1) {
-          beforeColon = lineText.slice(0, colonIndex);
-          afterColon = lineText.slice(colonIndex + 1);
-        }
-        const cleanBefore = beforeColon.trim().toUpperCase() + ":";
-
-        // Subheading (bold black uppercase)
-        doc.setFont("NotoSans", "bold");
-        doc.setTextColor("#000");
-        doc.text(cleanBefore, currentX, currentY);
-        currentX += doc.getTextWidth(cleanBefore + " ");
-
-        // After colon → normal brown style (not uppercase)
-        if (afterColon && afterColon.trim()) {
-          doc.setFont("NotoSans", "normal");
-          doc.setTextColor("#a16a21");
-          const cleanAfter = afterColon.trim();
-          doc.text(cleanAfter, currentX, currentY);
-        }
-      } else {
-        // Normal paragraph logic
-        const parts = lineText.split(/(\*\*.*?\*\*)/g);
-
-        parts.forEach((part, index) => {
-          if (!part.trim()) return;
-
-          const isBold = part.startsWith("**") && part.endsWith("**");
-          let clean = part.replace(/^\*\*|\*\*$/g, "").replace(/\*\*/g, "");
-
-          if (isBold) {
-            clean = clean.toUpperCase();
-            doc.setFont("NotoSans", "bold");
-            doc.setTextColor("#000");
-          } // Detect mostly-uppercase text (allow punctuation/numbers)
-          else if (/^[A-Z0-9\s:.,'-]+$/.test(clean.trim()) && clean.trim().length > 2) {
-            doc.setFont("NotoSans", "bold");
-            doc.setTextColor("#000");
-          }
-          else {
-            doc.setFont("NotoSans", "normal");
-            doc.setTextColor("#a16a21");
-          }
-
-          const textWidth = doc.getTextWidth(clean + " ");
-          if (currentX + textWidth > rightLimit) {
-            currentY += lineHeight;
-            currentX = x;
-
-            if (currentY + lineHeight > bottomLimit) {
-              doc.addPage();
-              drawPageBorder();
-              addHeaderFooter(doc, doc.getNumberOfPages());
-              currentY = getPageStartY();
-            }
-          }
-
-          if (isBold && index > 0 && parts[index - 1].trim().endsWith(".")) {
-            currentY += lineHeight * 0.5;
-          }
-
-          doc.text(clean, currentX, currentY);
-          currentX += textWidth;
-        });
-      }
-
-      if (lineText.trim().endsWith(".")) {
-        currentY += lineHeight + 3;
-      } else {
-        currentY += lineHeight;
-      }
-
+    for (const wrappedLine of wrappedLines) {
       if (currentY + lineHeight > bottomLimit) {
         doc.addPage();
         drawPageBorder();
         addHeaderFooter(doc, doc.getNumberOfPages());
         currentY = getPageStartY();
       }
-    });
 
-    currentY += isSubheading ? 4 : 2;
+      // --- Markdown-style bold detection + UPPERCASE detection ---
+      const parts = wrappedLine.split(/(\*\*.*?\*\*|\*.*?\*|#.*?#)/g);
+
+      let currentX = x;
+
+      for (const part of parts) {
+        if (!part.trim()) continue;
+
+        let isBold = false;
+        let clean = part;
+
+        // ✅ Detect markdown-based bold
+        if (/^\*\*.*\*\*$/.test(part)) {
+          isBold = true;
+          clean = part.replace(/^\*\*|\*\*$/g, "");
+        } else if (/^\*.*\*$/.test(part)) {
+          isBold = true;
+          clean = part.replace(/^\*|\*$/g, "");
+        } else if (/^#.*#$/.test(part)) {
+          isBold = true;
+          clean = part.replace(/^#|#$/g, "");
+        }
+
+        clean = cleanMarkdown(clean);
+        if (!clean) continue;
+
+        // ✅ Also detect fully UPPERCASE segments (e.g. “CAREER”, “MOON IN CAPRICORN”)
+        const isAllCaps =
+          clean.length > 1 &&
+          /^[A-Z0-9\s.,'’\-()]+$/.test(clean) &&
+          /[A-Z]/.test(clean); // ensure at least one A–Z
+
+        if (isAllCaps) {
+          doc.setFont("NotoSans", "bold");
+          doc.setTextColor("#000");
+        } else {
+          doc.setFont("NotoSans", "normal");
+          doc.setTextColor("#a16a21");
+        }
+
+        // ✅ Ensure text doesn’t overflow horizontally
+        const availableWidth = pageWidth - margin - currentX;
+        const subLines = doc.splitTextToSize(clean, availableWidth);
+
+        for (const subLine of subLines) {
+          if (currentY + lineHeight > bottomLimit) {
+            doc.addPage();
+            drawPageBorder();
+            addHeaderFooter(doc, doc.getNumberOfPages());
+            currentY = getPageStartY();
+          }
+
+          doc.text(subLine, currentX, currentY);
+          currentY += lineHeight;
+          currentX = x; // reset to start of line
+        }
+      }
+
+      currentY += 4; // add space between paragraphs
+    }
+
+    currentY += isSubheading ? 6 : 2;
   }
 
   return currentY;
 }
-
-// function addParagraphs(
-// doc: jsPDF,
-// text: string,
-// x: number,
-// y: number,
-// maxWidth: number,
-// lineHeight = 20
-// ) {
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const pageHeight = doc.internal.pageSize.getHeight();
-//   const margin = 25;
-//   const bottomLimit = pageHeight - margin;
-//   let currentY = y;
-
-//   const drawPageBorder = () => {
-//     doc.setDrawColor("#a16a21");
-//     doc.setLineWidth(1.5);
-//     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
-//   };
-
-//   const getPageStartY = () => margin + 20;
-
-//   drawPageBorder();
-
-//   const paragraphs = text.split("\n");
-
-//   for (let paragraph of paragraphs) {
-//     paragraph = paragraph.trim();
-//     if (!paragraph) continue;
-
-//     // Convert <b>text</b> → special markers
-//     const segments = [];
-//     const regex = /<b>(.*?)<\/b>|([^<]+)/g;
-//     let match;
-//     while ((match = regex.exec(paragraph)) !== null) {
-//       if (match[1]) segments.push({ text: match[1], bold: true });
-//       if (match[2]) segments.push({ text: match[2], bold: false });
-//     }
-
-//     // Combine for wrapping
-//     const fullText = segments.map(s => s.text).join("");
-//     const wrappedLines = doc.splitTextToSize(fullText, maxWidth);
-
-//     // Pagination
-//     if (currentY + wrappedLines.length * lineHeight > bottomLimit) {
-//       doc.addPage();
-//       drawPageBorder();
-//       addHeaderFooter(doc, doc.getNumberOfPages());
-//       currentY = getPageStartY();
-//     }
-
-//     // Render line by line
-//     for (const line of wrappedLines) {
-//       let cursorX = x;
-//       for (const seg of segments) {
-//         const words = seg.text.split(/(\s+)/); // keep spaces
-//         for (const word of words) {
-//           const wordWidth = doc.getTextWidth(word);
-//           if (cursorX + wordWidth > x + maxWidth) {
-//             currentY += lineHeight;
-//             cursorX = x;
-//           }
-//           doc.setFont("NotoSans", seg.bold ? "bold" : "normal");
-//           doc.text(word, cursorX, currentY);
-//           cursorX += wordWidth;
-//         }
-//       }
-//       currentY += lineHeight;
-//     }
-
-//     currentY += 5; // paragraph spacing
-//   }
-
-//   return currentY;
-// }
 
 // --- Utilities for header/footer ---
 const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
@@ -416,7 +295,7 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
 
 const generatePlanetReportsWithImages = async (
   doc: jsPDF,
-  planets: Record<string, Planet>,
+  AstroData: AstroData,
   userData: UserData
 ) => {
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -426,448 +305,242 @@ const generatePlanetReportsWithImages = async (
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
 
-  const planetEntries = Object.entries(planets);
+  const PLANETS = [
+    "Sun",
+    "Moon",
+    "Mars",
+    "Mercury",
+    "Jupiter",
+    "Venus",
+    "Saturn",
+    "Rahu",
+    "Ketu",
+  ];
 
-  // 🔹 Step 1: Prepare prompts
-  const prompts = planetEntries.map(([planetKey, planet]) => ({
-    planetKey,
-    planet,
-    prompt: `
-You are an expert Vedic astrologer and a skilled storyteller. 
-Generate a detailed, immersive two-page narrative for the planet ${planet.full_name} (${planet.name}) 
-without markdown and don't show any page numbers (e.g., "Page 1" or "Page 2").
+  // === Step 1: Prepare Promises for all planets ===
+  const planetPromises = PLANETS.map(async (planetName) => {
+    const nameKey = planetName.toLowerCase() as PlanetName;
 
-Include:
-- Introduction and significance of the planet in Vedic astrology
-- Zodiac sign and house placement
-- Nakshatra, degrees, nakshatra lord and pada
-- Retrograde or combust influences
-- Planet’s condition (avastha) and lord status
-- Personality traits, talents, and struggles
-- Aspects to other houses or planets
-- Traditional Vedic references and mantras
-- Insights on life lessons, growth, and destiny
--use simple words not complex words difficult to understand
-- Real-life Indian examples: 
-  - For intellect and vision: Dr. A.P.J. Abdul Kalam, C.V. Raman
-  - For creativity and art: M.F. Husain, Amrita Sher-Gil
-  - For music and emotion: Lata Mangeshkar, Zakir Hussain
-  - For leadership and ethics: Ratan Tata, Indra Nooyi
-  - For resilience and spiritual growth: Swami Vivekananda, Mahatma Gandhi
+    const planetReport = AstroData[`planet_report_${nameKey}`];
+    const retroData = AstroData[`retrogrades_${nameKey}`];
+    const transitData = AstroData[`transit_dates_${nameKey}`];
+    const aspectData = AstroData[`planetary_aspects_planets`];
+    const planetdetails = AstroData[`planet_details`];
 
-Integrate these examples naturally in your narrative to illustrate traits, challenges, or life lessons associated with the planet.
+    if (!planetReport) {
+      console.warn(`⚠️ No planet report found for ${planetName}`);
+      return { planetName, text: `Report for ${planetName} not available.` };
+    }
 
-JSON data for this planet: ${JSON.stringify(planet)}
-Language: ${userData.language || "English"}.
-`
-  }));
+    const combinedData = {
+      planetReport,
+      retroData: retroData || null,
+      transitData: transitData || null,
+      aspectData: aspectData || null,
+      planetdetails,
+    };
 
-  // 🔹 Step 2: Fetch all reports concurrently
-  const reports = await Promise.all(
-    prompts.map(async ({ planetKey, planet, prompt }) => {
-      try {
-        const response = await fetch("/api/gemini", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
-          })
-        });
+    const prompt = `
+You are an expert Vedic astrologer and storyteller.
+Generate a structured, detailed report for ${planetName} based on the following combined data.
 
-        const data = await response.json();
-        const text =
-          data.candidates?.[0]?.content?.parts?.[0]?.text ||
-          `Planet ${planet.full_name} report could not be generated.`;
-        return { planetKey, planet, text: removeMarkdown(text) };
-      } catch (err) {
-        console.error(`Error generating report for ${planet.full_name}:`, err);
-        return {
-          planetKey,
-          planet,
-          text: `Planet ${planet.full_name} report could not be generated.`
-        };
-      }
-    })
-  );
+3.1 Planet Placement  
+→ From "planetReport", describe its house, zodiac, degree, and Nakshatra.  
+→ Interpret personality, focus, and life themes.
 
-  // 🔹 Step 3: Render reports sequentially (preserve display order)
-  for (const { planet, text } of reports) {
+3.2 Planetary Aspects (Drishti)  
+→ Explain which houses/zodiacs are aspected and how they affect life areas.
+
+3.3 Planetary Strength & Nature (Shadbala & Report)  
+→ Use "planetReport" data to describe its strength and nature (benefic/malefic).
+
+3.4 KP Planetary Analysis  
+→ Based on "planetReport" and general KP principles, analyze its significations and sublord influence.
+
+3.5 Retrogrades & Transits  
+→ Mention current retrograde or transit effects for 2025.
+
+End with a short, uplifting **summary** of lessons and strengths.
+
+Language: ${userData.language || "English"}
+`;
+
+    try {
+      const text = await callBedrock(prompt, {combinedData});
+      return { planetName, text: sanitizeText(text) };
+    } catch (err) {
+      console.error(`Error generating ${planetName} report:`, err);
+      return { planetName, text: `Report for ${planetName} could not be generated.` };
+    }
+  });
+
+  // === Step 2: Wait for all promises to finish ===
+  const planetReports = await Promise.all(planetPromises);
+
+  // === Step 3: Render each report sequentially into PDF ===
+  for (const { planetName, text } of planetReports) {
     doc.addPage();
     addHeaderFooter(doc, doc.getNumberOfPages());
-    // Border
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
-    // Title
     doc.setFont("NotoSans", "bold");
     doc.setFontSize(26);
     doc.setTextColor("#000");
-    doc.text(`${planet.full_name} (${planet.name}) Report`, pageWidth / 2, 95, {
-      align: "center"
-    });
+    doc.text(`${planetName} Report`, pageWidth / 2, 95, { align: "center" });
 
-    // Image
-    const imagePath = `/assets/planets/${planet.name}.jpg`;
+    const nameKey = planetName.toLowerCase();
+    const imageCode = nameKey.slice(0, 2);
+    const imagePath = `/assets/planets/${imageCode}.jpg`;
     const imageY = 120;
     let imageHeight = 200;
+
     try {
       doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 200, imageHeight);
-    } catch (err) {
-      console.warn(`Image for planet ${planet.name} not found, skipping image.`);
+    } catch {
+      console.warn(`⚠️ Image not found for ${planetName}`);
       imageHeight = 0;
     }
 
-    // Text setup
     let cursorY = imageY + imageHeight + 25;
     doc.setFont("NotoSans", "normal");
     doc.setFontSize(16);
     doc.setTextColor("#a16a21");
 
     const lineHeight = doc.getFontSize() * 1.5;
-    const leftPadding = 10;
-    const rightPadding = 10;
-    const maxTextWidth = contentWidth - leftPadding - rightPadding;
-
-    const lines = doc.splitTextToSize(text, maxTextWidth);
+    const textWidth = contentWidth - 20;
+    const lines = doc.splitTextToSize(text, textWidth);
 
     for (const line of lines) {
       if (cursorY + lineHeight > bottomLimit - 10) {
         doc.addPage();
+        addHeaderFooter(doc, doc.getNumberOfPages());
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
-        addHeaderFooter(doc, doc.getNumberOfPages());
         cursorY = marginY + 20;
-
       }
-      doc.text(line, marginX + leftPadding, cursorY);
+      doc.text(line, marginX + 10, cursorY);
       cursorY += lineHeight;
     }
   }
 };
-
-// --- Utility function for paragraphs ---
-// const addParagraphs = (doc: any, text: any, startX: any, startY: any) => {
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const maxWidth = pageWidth - startX - 40;
-//   const lineHeight = 16;
-//   const maxHeight = 750; // bottom margin cutoff
-//   const lines = doc.splitTextToSize(text, maxWidth);
-//   let y = startY;
-
-//   for (let i = 0; i < lines.length; i++) {
-//     if (y > maxHeight) {
-//       doc.addPage();
-//       doc.setDrawColor("#a16a21");
-//       doc.setLineWidth(1.5);
-//       doc.rect(25, 25, 545, 792, "S");
-//       y = 50; // reset Y position for new page
-//     }
-//     doc.text(lines[i], startX, y);
-//     y += lineHeight;
-//   }
-// };
-
-// // 1️⃣ Generate SVG chart
-// function generateChartSVG(chartJson: ChartJson): string {
-//   const width = 400;
-//   const height = 400;
-//   const border = 10;
-//   const cx = width / 2;
-//   const cy = height / 2;
-//   const lineColor = "#a16a21";
-//   const retroColor = "#c0392b";
-//   const planetColor = "#f0e68c";
-//   const svgBackground = "#000";
-
-//   const svgParts: string[] = [
-//     `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" style="background:${svgBackground}">`,
-//     `<rect x="${border}" y="${border}" width="${width - 2 * border}" height="${height - 2 * border}" fill="none" stroke="${lineColor}" stroke-width="1.5"/>`
-//   ];
-
-//   // Draw the diamond layout (North Indian style)
-//   const top = border;
-//   const bottom = height - border;
-//   const left = border;
-//   const right = width - border;
-
-//   svgParts.push(`
-//     <line x1="${cx}" y1="${top}" x2="${right}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
-//     <line x1="${right}" y1="${cy}" x2="${cx}" y2="${bottom}" stroke="${lineColor}" stroke-width="1"/>
-//     <line x1="${cx}" y1="${bottom}" x2="${left}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
-//     <line x1="${left}" y1="${cy}" x2="${cx}" y2="${top}" stroke="${lineColor}" stroke-width="1"/>
-//     <line x1="${left}" y1="${cy}" x2="${right}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>
-//     <line x1="${cx}" y1="${top}" x2="${cx}" y2="${bottom}" stroke="${lineColor}" stroke-width="1"/>
-//   `);
-
-//   // Define approximate house centers for text placement
-//   const offset = (width - 2 * border) / 4;
-//   const houseCenters: Record<number, [number, number]> = {
-//     1: [cx, cy + offset * 0.8], // bottom center
-//     2: [cx - offset * 0.6, cy + offset * 0.6],
-//     3: [cx - offset, cy],
-//     4: [cx - offset * 0.6, cy - offset * 0.6],
-//     5: [cx, cy - offset * 0.8], // top center
-//     6: [cx + offset * 0.6, cy - offset * 0.6],
-//     7: [cx + offset, cy],
-//     8: [cx + offset * 0.6, cy + offset * 0.6],
-//     9: [cx + offset * 0.2, cy + offset * 0.2],
-//     10: [cx, cy],
-//     11: [cx - offset * 0.2, cy - offset * 0.2],
-//     12: [cx - offset * 0.2, cy + offset * 0.2]
-//   };
-
-//   const houseOccupancy: Record<number, number> = {};
-
-//   // Draw planets in their houses
-//   for (const key in chartJson) {
-//     if (key === "chart" || key === "chart_name") continue;
-//     const planet = chartJson[key] as PlanetInfo;
-//     const baseCoords = houseCenters[planet.house];
-//     if (!baseCoords) continue;
-
-//     const occupancy = houseOccupancy[planet.house] || 0;
-//     const yOffset = occupancy * 14 - 8; // vertical stacking
-//     houseOccupancy[planet.house] = occupancy + 1;
-
-//     const fillColor = planet.retro ? retroColor : planetColor;
-
-//     svgParts.push(`
-//       <text 
-//         x="${baseCoords[0]}" 
-//         y="${baseCoords[1] + yOffset}" 
-//         text-anchor="middle" 
-//         font-size="12" 
-//         fill="${fillColor}" 
-//         font-family="Arial"
-//       >
-//         ${planet.name}
-//       </text>
-//     `);
-//   }
-
-//   // Chart title at bottom
-//   svgParts.push(`
-//     <text 
-//       x="${cx}" 
-//       y="${height - 10}" 
-//       text-anchor="middle" 
-//       font-size="14" 
-//       fill="${lineColor}" 
-//       font-weight="bold" 
-//       font-family="Arial"
-//     >
-//       ${chartJson.chart_name || chartJson.chart || ""}
-//     </text>
-//   `);
-
-//   svgParts.push(`</svg>`);
-//   return svgParts.join("");
-// }
-
-// async function svgToBase64WithBackground(
-//   svgText: string,
-//   backgroundImagePath: string,
-//   width: number,
-//   height: number
-// ): Promise<string> {
-//   return new Promise<string>((resolve, reject) => {
-//     // Create canvas
-//     const canvas = document.createElement("canvas");
-//     canvas.width = width;
-//     canvas.height = height;
-//     const ctx = canvas.getContext("2d");
-//     if (!ctx) return reject("Canvas context not available");
-
-//     // Load background image
-//     const bgImg = new Image();
-//     bgImg.crossOrigin = "anonymous";
-//     bgImg.src = backgroundImagePath;
-
-//     bgImg.onload = () => {
-//       // Draw background
-//       ctx.drawImage(bgImg, 0, 0, width, height);
-
-//       // Create SVG image
-//       const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
-//       const url = URL.createObjectURL(svgBlob);
-//       const svgImg = new Image();
-//       svgImg.crossOrigin = "anonymous";
-//       svgImg.src = url;
-
-//       svgImg.onload = () => {
-//         // Draw SVG on top of background
-//         ctx.drawImage(svgImg, 0, 0, width, height);
-//         URL.revokeObjectURL(url);
-
-//         // Convert to Base64
-//         const base64 = canvas.toDataURL("image/png");
-//         resolve(base64);
-//       };
-
-//       svgImg.onerror = (err) => {
-//         URL.revokeObjectURL(url);
-//         reject("Error loading SVG image: " + err);
-//       };
-//     };
-
-//     bgImg.onerror = (err) => {
-//       reject("Error loading background image: " + err);
-//     };
-//   });
-// }
-
-// async function addAllDivisionalChartsFromJSON(
-//   doc: any,
-//   divisionalChartsData: any[],
-//   backgroundImagePath: string
-// ) {
-//   const chartsPerPage = 2;
-//   const imgWidth = 340;
-//   const imgHeight = 300;
-//   const spacingY = 50;
-//   const marginTop = 100;
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const pageHeight = doc.internal.pageSize.getHeight();
-//   const textColor = "#f0e68c";
-
-//   for (let i = 0; i < divisionalChartsData.length; i++) {
-//     const chartData = divisionalChartsData[i];
-
-//     // Construct SVG URL
-//     const chartType =
-//       chartData.chart_name?.toLowerCase() ||
-//       chartData.title?.toLowerCase() ||
-//       chartData.chart?.toLowerCase() ||
-//       "chalit";
-//     const cleanChartType = chartType.replace(/\s+/g, "").replace(/[^a-z0-9_]/g, "");
-//     const svgUrl = `https://kundali.s3.ap-south-1.amazonaws.com/chart-image/d/website/${cleanChartType}/6706532ae537cb10d068d30c.svg`;
-
-//     if (i % chartsPerPage === 0) {
-//       if (i > 0) doc.addPage();
-//       doc.setDrawColor("#a16a21");
-//       doc.setLineWidth(1.5);
-//       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
-
-//       // Header
-//       doc.setFont("NotoSans", "bold");
-//       doc.setFontSize(26);
-//       doc.setTextColor("#a16a21");
-//       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
-//     }
-
-//     const positionInPage = i % chartsPerPage;
-//     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
-
-//     // Chart title
-//     doc.setFont("NotoSans", "bold");
-//     doc.setFontSize(16);
-//     doc.setTextColor(textColor);
-//     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, {
-//       align: "center",
-//     });
-
-//     try {
-//       // Fetch SVG
-//       const response = await fetch(svgUrl);
-//       const svgText = await response.text();
-
-//       // Convert SVG to Base64 with background
-//       const base64 = await svgToBase64WithBackground(svgText, backgroundImagePath, imgWidth, imgHeight);
-
-//       const xPos = (pageWidth - imgWidth) / 2;
-//       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
-//     } catch (err) {
-//       console.error(`Error rendering chart ${chartData.chart_name}`, err);
-//       doc.setFont("NotoSans", "normal");
-//       doc.setFontSize(16);
-//       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, {
-//         align: "center",
-//       });
-//     }
-//   }
-
-//   // Add headers/footers
-//   const totalPages = doc.getNumberOfPages();
-//   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-//     doc.setPage(pageNum);
-//     addHeaderFooter(doc, pageNum);
-//   }
-// }
-
-async function loadSVGAsImage(svgUrl: string): Promise<HTMLImageElement> {
-  // Fetch the SVG as text
-  const response = await fetch(svgUrl);
-  if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
-  const svgText = await response.text();
-
-  // Encode as base64 data URL
-  const base64 = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgText)))}`;
-
-  // Create image element
+// Helper: convert SVG text to an HTMLImageElement (using Blob URL)
+async function loadSVGTextAsImage(svgText: string, width = 500, height = 500): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
+    const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src = base64;
-    img.onload = () => resolve(img);
-    img.onerror = (e) => reject(new Error("Failed to parse SVG into image: " + e));
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = (e) => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Failed to load SVG image: " + String(e)));
+    };
+    img.src = url;
   });
 }
 
-async function svgToBase64WithBackgroundCached(
-  svgText: string,
-  backgroundImage: HTMLImageElement,
-  width: number,
-  height: number
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return reject("Canvas context not available");
+// Convert an SVG string directly to a PNG data URL (calls loadSVGTextAsImage)
+async function svgTextToPngBase64(svgText: string, width: number, height: number): Promise<string> {
+  const img = await loadSVGTextAsImage(svgText, width, height);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL("image/png");
+}
 
-    // Draw the background (which can now safely be SVG)
-    ctx.drawImage(backgroundImage, 0, 0, width, height);
-
-    // If overlay SVG exists, draw it
-    if (svgText && svgText.trim() !== "") {
-      const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
-      const url = URL.createObjectURL(svgBlob);
-      const overlay = new Image();
-      overlay.crossOrigin = "anonymous";
-      overlay.src = url;
-
-      overlay.onload = () => {
-        ctx.drawImage(overlay, 0, 0, width, height);
-        URL.revokeObjectURL(url);
-        resolve(canvas.toDataURL("image/png"));
-      };
-
-      overlay.onerror = (err) => {
-        URL.revokeObjectURL(url);
-        reject("Error loading overlay SVG: " + err);
-      };
-    } else {
-      resolve(canvas.toDataURL("image/png"));
+/**
+ * Generate a pure SVG string for a Kundli (D1) using the divisional chart object.
+ * @param {Record<string, any>} chartObj - mapping numeric keys -> planet entries (like your JSON)
+ * @param {number} size - pixel size for the SVG square (default 500)
+ * @returns {string} SVG string (500x500 by default)
+ */
+function generateKundliSVG(chartObj: Record<string, any>, size = 500): string {
+  // Build houses (12) with planet short names + (R) when retro
+  const houses = Array.from({ length: 12 }, () => []);
+  // note: chartObj keys are strings "0","1",...
+  Object.keys(chartObj).forEach(k => {
+    // skip non numeric keys like "chart" or "chart_name"
+    if (!/^\d+$/.test(k)) return;
+    const p = chartObj[k];
+    // display short name and retro marker if retrofit
+    const name = p.name || p.full_name || "";
+    const display = p.retro ? `${name}(R)` : name;
+    const houseIndex = (typeof p.house === "number") ? (p.house - 1) : (Number(p.house) - 1);
+    if (!Number.isNaN(houseIndex) && houseIndex >= 0 && houseIndex < 12) {
+      houses[houseIndex].push(display);
     }
   });
-}
-interface DivisionalChartPDF {
-  chart_name: string;
-  svg?: string;         // Optional SVG overlay
-  chart_svg?: string;   // Optional alternative SVG
+
+  // positions (x,y) roughly mapped from your previous left/top CSS rectangles (center points)
+  const coords = [
+    { x: 250, y: 125 }, // house 1
+    { x: 125, y: 35 },  // house 2
+    { x: 35, y: 125 },  // house 3
+    { x: 125, y: 250 }, // house 4
+    { x: 35, y: 375 },  // house 5
+    { x: 125, y: 460 }, // house 6
+    { x: 250, y: 375 }, // house 7
+    { x: 375, y: 460 }, // house 8
+    { x: 465, y: 375 }, // house 9
+    { x: 375, y: 250 }, // house 10
+    { x: 465, y: 125 }, // house 11
+    { x: 375, y: 35 }   // house 12
+  ];
+
+  // create lines / border similar to your existing svg markup
+  const stroke = "rgb(0,164,255)";
+  const strokeWidth = 5;
+
+  // build <text> tspans for each house (multi line)
+  const houseTexts = houses.map((items, i) => {
+    const lines = items.length ? items : [""]; // keep empty if none
+    // join with tspan to place each on new line (dy increments)
+    const tspans = lines.map((t, idx) =>
+      `<tspan x="${coords[i].x}" dy="${idx === 0 ? '0' : '1.2em'}">${escapeXml(t)}</tspan>`
+    ).join("");
+    // large group with same font family and anchor middle
+    return `<text x="${coords[i].x}" y="${coords[i].y}" font-family="Lucida Sans, Arial, Helvetica, sans-serif" font-size="14" fill="#535353" text-anchor="middle">${tspans}</text>`;
+  }).join("");
+
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <rect width="100%" height="100%" fill="#ffffff" />
+    <line x1="0" y1="0" x2="${size}" y2="${size}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="${size}" y1="0" x2="0" y2="${size}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="3" y1="0" x2="3" y2="${size}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="0" y1="${size - 3}" x2="${size}" y2="${size - 3}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="${size - 3}" y1="${size}" x2="${size - 3}" y2="0" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="0" y1="3" x2="${size}" y2="3" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="${size / 2}" y1="0" x2="0" y2="${size / 2}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="${size / 2}" y1="0" x2="${size}" y2="${size / 2}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="${size / 2}" y1="${size}" x2="${size}" y2="${size / 2}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="${size / 2}" y1="${size}" x2="0" y2="${size / 2}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    ${houseTexts}
+  </svg>`.trim();
+
+  return svg;
 }
 
-// Utility type for the function input
-type DivisionalChartsPDF = DivisionalChartPDF[];
+// Simple XML-escape helper for placing text inside SVG safely
+function escapeXml(unsafe: string): string {
+  return String(unsafe || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
-async function addAllDivisionalChartsFromJSON(
-  doc: jsPDF,
-  divisionalChartsData: DivisionalChartsPDF
-) {
+async function addAllDivisionalChartsFromAstroData(doc: jsPDF, chartList: { chart_name: string }[], astroData: any) {
   const chartsPerPage = 2;
   const imgWidth = 340;
   const imgHeight = 300;
@@ -877,15 +550,33 @@ async function addAllDivisionalChartsFromJSON(
   const pageHeight = doc.internal.pageSize.getHeight();
   const textColor = "#a16a21";
 
-  // ✅ Fetch and convert your Google Drive SVG once
-  const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
-  const backgroundImage = await loadSVGAsImage(backgroundSvgUrl);
+  // Step 1️⃣ — Filter only charts that exist in astrdata
+  let divisionalCharts = chartList
+    .map((item) => {
+      const key = `divisional_chart_${item.chart_name.toLowerCase()}`;
+      const chartData = astroData[key];
+      if (!chartData) return null; // skip missing
+      const chartNum = parseInt(item.chart_name.replace(/[^0-9]/g, ""), 10) || 0;
+      return {
+        chart_name: item.chart_name.toUpperCase(),
+        chart_num: chartNum,
+        chart_data: chartData
+      };
+    })
+    .filter(Boolean);
 
-  for (let i = 0; i < divisionalChartsData.length; i++) {
-    const chartData = divisionalChartsData[i];
+  // Step 2️⃣ — Sort by number if available (so D1, D2, D9 etc. stay in order)
+  divisionalCharts.sort((a, b) => a.chart_num - b.chart_num);
 
+  // Step 3️⃣ — Render all charts
+  for (let i = 0; i < divisionalCharts.length; i++) {
+    const chartData = divisionalCharts[i];
+
+    // New page every 2 charts
     if (i % chartsPerPage === 0) {
       if (i > 0) doc.addPage();
+
+      // Border + Title
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
@@ -899,15 +590,17 @@ async function addAllDivisionalChartsFromJSON(
     const positionInPage = i % chartsPerPage;
     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
 
+    // Chart label
     doc.setFont("NotoSans", "bold");
     doc.setFontSize(16);
     doc.setTextColor(textColor);
-    doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
+    doc.text(`DIVISIONAL CHART - ${chartData.chart_name}`, pageWidth / 2, currentY - 10, { align: "center" });
 
     try {
-      // Use cached SVG background
-      const overlaySvgText = chartData.svg || chartData.chart_svg || "";
-      const base64 = await svgToBase64WithBackgroundCached(overlaySvgText, backgroundImage, imgWidth, imgHeight);
+      // Convert chart JSON → SVG → PNG
+      const svgText = generateKundliSVG(chartData.chart_data, 500);
+      const base64 = await svgTextToPngBase64(svgText, imgWidth, imgHeight);
+
       const xPos = (pageWidth - imgWidth) / 2;
       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
     } catch (err) {
@@ -918,7 +611,7 @@ async function addAllDivisionalChartsFromJSON(
     }
   }
 
-  // Add headers/footers
+  // Step 4️⃣ — Add header/footer to each page
   const totalPages = doc.getNumberOfPages();
   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
     doc.setPage(pageNum);
@@ -926,98 +619,7 @@ async function addAllDivisionalChartsFromJSON(
   }
 }
 
-// // Helper: Convert Blob → Base64
-// async function blobToBase64(blob: Blob): Promise<string> {
-//   return new Promise((resolve, reject) => {
-//     const reader = new FileReader();
-//     reader.onloadend = () => resolve(reader.result as string);
-//     reader.onerror = reject;
-//     reader.readAsDataURL(blob);
-//   });
-// }
-// async function fetchSVGFromUrl(url: string): Promise<SVGSVGElement> {
-//   const response = await fetch(url);
-//   if (!response.ok) throw new Error(`Failed to fetch SVG: ${response.statusText}`);
-//   const svgText = await response.text();
-//   const parser = new DOMParser();
-//   const svgElement = parser.parseFromString(svgText, "image/svg+xml").documentElement as unknown as SVGSVGElement;
-//   return svgElement;
-// }
-
-// async function addAllDivisionalChartsFromJSON(doc: jsPDF, divisionalChartsData: DivisionalChartsPDF) {
-//   const chartsPerPage = 2;
-//   const imgWidth = 250;
-//   const imgHeight = 200;
-//   const spacingY = 50;
-//   const marginTop = 100;
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const pageHeight = doc.internal.pageSize.getHeight();
-//   const textColor = "#a16a21";
-
-//   // ✅ Fetch background SVG once as vector
-//   const backgroundSvgUrl = "https://raw.githubusercontent.com/akshatmikki/chart-asset/refs/heads/main/6706532ae537cb10d068d30c.svg";
-//   const backgroundSVG = await fetchSVGFromUrl(backgroundSvgUrl);
-
-//   for (let i = 0; i < divisionalChartsData.length; i++) {
-//     const chartData = divisionalChartsData[i];
-
-//     if (i % chartsPerPage === 0) {
-//       if (i > 0) doc.addPage();
-//       doc.setDrawColor("#a16a21");
-//       doc.setLineWidth(1.5);
-//       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
-
-//       doc.setFont("NotoSans", "bold");
-//       doc.setFontSize(26);
-//       doc.setTextColor("#a16a21");
-//       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
-//     }
-
-//     const positionInPage = i % chartsPerPage;
-//     const currentY = marginTop + positionInPage * (imgHeight + spacingY);
-
-//     doc.setFont("NotoSans", "bold");
-//     doc.setFontSize(16);
-//     doc.setTextColor(textColor);
-//     doc.text(chartData.chart_name?.toUpperCase() || "Divisional Chart", pageWidth / 2, currentY - 10, { align: "center" });
-
-//     try {
-//       const overlaySvgText = chartData.svg || chartData.chart_svg || "";
-//       const parser = new DOMParser();
-//       const overlaySVG = overlaySvgText.trim()
-//         ? (parser.parseFromString(overlaySvgText, "image/svg+xml").documentElement as unknown as SVGSVGElement)
-//         : null;
-
-//       // Background SVG should also be typed correctly
-//       const backgroundSVG = await fetchSVGFromUrl(backgroundSvgUrl) as SVGSVGElement;
-
-//       const xPos = (pageWidth - imgWidth) / 2;
-
-//       // Draw background SVG
-//       svg2pdf(backgroundSVG, doc, { x: xPos, y: currentY, width: imgWidth, height: imgHeight });
-
-//       // Draw overlay SVG if exists
-//       if (overlaySVG) {
-//         svg2pdf(overlaySVG, doc, { x: xPos, y: currentY, width: imgWidth, height: imgHeight });
-//       }
-
-//     } catch (err) {
-//       console.error(`Error rendering chart ${chartData.chart_name}`, err);
-//       doc.setFont("NotoSans", "normal");
-//       doc.setFontSize(16);
-//       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
-//     }
-//   }
-
-//   // Add headers/footers
-//   const totalPages = doc.getNumberOfPages();
-//   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-//     doc.setPage(pageNum);
-//     addHeaderFooter(doc, pageNum);
-//   }
-// }
-
-const generateHouseReports = async (doc: jsPDF, houses: House[], userData: UserData) => {
+const generateHouseReports = async (doc: jsPDF, AstroData: any, userData: UserData) => {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -1025,98 +627,98 @@ const generateHouseReports = async (doc: jsPDF, houses: House[], userData: UserD
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
 
-  // 🔹 Step 1: Prepare all prompts
-  const prompts = houses.map((house) => ({
-    house,
-    prompt: `
-You are an expert Vedic astrologer and storyteller. 
-Generate a detailed, story-like horoscope report (700–1000 words) for House ${house.house} (${house.zodiac}) 
-from JSON data, but don't include the JSON itself or any markdown formatting.
+  const kpHouses = AstroData?.kp_houses || [];
 
-Include:
-- House Overview
-- House Lord Significance
-- House Strength (Ashtakvarga)
-- Effects of Planets (nakshatra, retrograde, aspects)
-- Personalized insights with real-life examples, referencing famous Indian personalities and cultural scenarios
-  (e.g., M.F. Husain, Lata Mangeshkar, Dr. A.P.J. Abdul Kalam, Ratan Tata)
-- A symbolic theme for this house (describe naturally, not as an image reference)
--use simple words don't use difficult words
-- if no data present for specific then dont write like While I don't have this 
-
-JSON data: ${JSON.stringify(house)}
-Language: ${userData.language || "English"}.
-`
+  // ✅ Step 1: Extract only necessary fields
+  const simplifiedHouses = kpHouses.map((house: any) => ({
+    house: house.house,
+    sign: house.sign,
+    lord: house.lord,
+    sub_lord: house.sub_lord,
+    nakshatra: house.nakshatra,
+    nakshatra_lord: house.nakshatra_lord,
+    planets_in_house: house.planets_in_house,
+    cusp_longitude: house.cusp_longitude,
+    cusp_sign: house.cusp_sign,
+    cusp_nakshatra: house.cusp_nakshatra,
+    cusp_sub_lord: house.cusp_sub_lord,
+    ashtakvarga_points: house.ashtakvarga_points,
+    significators: house.significators,
   }));
 
-  // 🔹 Step 2: Generate all reports in parallel
-  const reports = await Promise.all(
-    prompts.map(async ({ house, prompt }) => {
-      try {
-        const response = await fetch("/api/gemini", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.6, maxOutputTokens: 2000 }
-          })
-        });
+  // ✅ Step 2: Prepare structured prompts
+  const prompts = simplifiedHouses.map((house: any) => ({
+    house,
+    prompt: `
+You are an expert Vedic and KP astrologer.  
+Generate a **well-structured, story-like analysis (700–1000 words)** for **House ${house.house}**, using this simplified KP-style JSON data.
 
-        const data = await response.json();
-        const text =
-          data.candidates?.[0]?.content?.parts?.[0]?.text ||
-          `House ${house.house} report could not be generated.`;
-        return { house, text: removeMarkdown(text) };
-      } catch (err) {
-        console.error(`Error fetching house ${house.house}:`, err);
-        return { house, text: `House ${house.house} report could not be generated.` };
-      }
-    })
-  );
+Follow this exact section structure:
+──────────────────────────────
+2.1 Overview of 12 Houses  
+2.2 House Lords & Significance  
+2.3 House Strength using Ashtakvarga  
+2.4 Effects of Planets in Houses  
+2.5 KP Houses & Cuspal Analysis  
+──────────────────────────────
+Language: ${userData.language || "English"}.
+`,
+  }));
 
-  // 🔹 Step 3: Add all reports sequentially to the PDF (preserve order)
+  // ✅ Step 3: Generate reports concurrently via AWS Bedrock API
+const reports = await Promise.all(
+  prompts.map(async ({ house, prompt }: { house: string; prompt: string }) => {
+    const text = await callBedrock(prompt, {house});
+    return { house, text: sanitizeText(text) };
+  })
+);
+
+
+  // ✅ Step 4: Render each house report into the PDF
   for (const { house, text } of reports) {
     doc.addPage();
     addHeaderFooter(doc, doc.getNumberOfPages());
-    // Draw border
+
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
 
-    // Title
     doc.setFont("NotoSans", "bold");
     doc.setFontSize(26);
     doc.setTextColor("#000");
-    doc.text(`House ${house.house}: ${house.zodiac}`, pageWidth / 2, 70, { align: "center" });
+    doc.text(`House ${house.house}`, pageWidth / 2, 70, { align: "center" });
 
-    // House image
-    const imageY = 100;
-    let imageHeight = 200;
+    // 🖼️ Load & render image
     const imagePath = `/assets/houses/${house.house}.jpg`;
-    try {
-      doc.addImage(imagePath, "JPG", pageWidth / 2 - 100, imageY, 250, imageHeight);
-    } catch {
-      console.warn(`Image for House ${house.house} not found, skipping image.`);
-      imageHeight = 0;
-    }
+    const imageY = 100;
+    const imageWidth = 250;
 
-    // Setup text
-    let cursorY = imageY + imageHeight + 30;
+    const imageHeight = await new Promise<number>((resolve) => {
+      const img = new Image();
+      img.src = imagePath;
+      img.onload = () => {
+        const aspectRatio = img.height / img.width;
+        const height = imageWidth * aspectRatio;
+        const imageX = (pageWidth - imageWidth) / 2;
+        doc.addImage(img, "JPG", imageX, imageY, imageWidth, height);
+        resolve(height);
+      };
+      img.onerror = () => resolve(0);
+    });
+
+    let cursorY = imageY + imageHeight + 25;
+    const lineHeight = 24;
     doc.setFont("NotoSans", "normal");
     doc.setFontSize(16);
     doc.setTextColor("#a16a21");
-
-    const lineHeight = doc.getFontSize() * 1.5;
     const usableWidth = contentWidth - 30;
     const lines = doc.splitTextToSize(text, usableWidth);
 
     for (const line of lines) {
       if (cursorY + lineHeight > bottomLimit - 10) {
         doc.addPage();
-        doc.setDrawColor("#a16a21");
-        doc.setLineWidth(1.5);
-        doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
         addHeaderFooter(doc, doc.getNumberOfPages());
+        doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
         cursorY = marginY + 30;
       }
       doc.text(line, marginX + 15, cursorY);
@@ -1136,49 +738,7 @@ export async function generateAndDownloadFullCosmicReportWithTable(
   userData: UserData
 ) {
   try {
-
-    const kundliData = {
-      "gana": "rakshas",
-      "yoni": "cat",
-      "vasya": "Jalachara",
-      "nadi": "Antya",
-      "varna": "Brahmin",
-      "paya": "Iron",
-      "tatva": "Jal (Water)",
-      "life_stone": "coral",
-      "lucky_stone": "ruby",
-      "fortune_stone": "yellow sapphire",
-      "name_start": "Di",
-      "ascendant_sign": "Aries",
-      "ascendant_nakshatra": "Bharani",
-      "rasi": "Cancer",
-      "rasi_lord": "Moon",
-      "nakshatra": "Ashlesha",
-      "nakshatra_lord": "Mercury",
-      "nakshatra_pada": 4,
-      "sun_sign": "Capricorn",
-      "tithi": "K.Pratipada",
-      "karana": "Kaulava",
-      "yoga": "Saubhagya"
-    };
-    const sunriseData = {
-      "sun_rise": "6:32 AM",
-      "bot_response": "Sun rises at 6:32 AM"
-    };
-    const sunsetData = {
-      "sun_set": "6:33 PM",
-      "bot_response": "Sun sets at 6:33 PM"
-    };
-    const moonSignData = {
-      "moon_sign": "Taurus",
-      "bot_response": "Your moon sign is Taurus",
-      "prediction": "Taurus natives are known for being dependable, practical, strong-willed, loyal, and sensual. You love beautiful things. You are good at finances, and hence, make capable financial managers. You are generous and dependable. You can be very stubborn, self-indulgent, frugal, and lazy. You have a possessive streak."
-    };
-    const sunSignData = {
-      "sun_sign": "Pisces",
-      "prediction": "The last and 12th Sign of the zodiac, Pisces seems to take on the attributes of all the other 11 Signs. Dreamy and romantic Pisces has a creative flair. You can be compassionate and selfless towards others. Ruled by Neptune, Pisces natives live in your own world. You can be quite detached and have a spiritual bent. Peace and harmony are essential to them. Confrontation and conflict are not your cup of tea.",
-      "bot_response": "Your sun sign is Pisces"
-    };
+    const astroData = await readAstroJSON("Saurabh_astro_data.json");
 
     // 3️⃣ Create PDF
     const doc = new jsPDF("p", "pt", "a4");
@@ -1266,11 +826,10 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     // --- Generate Disclaimer Page using AI ---
     const generateIntroSections = async (doc: jsPDF, userData: UserData) => {
       const pageWidth = doc.internal.pageSize.getWidth();
-      //const pageHeight = doc.internal.pageSize.getHeight();
 
       // Helper for PDF layout
       const addPageWithTitle = (title: string, useNewPage = true) => {
-        if (useNewPage) doc.addPage(); // only add a new page if specified
+        if (useNewPage) doc.addPage();
         doc.setDrawColor("#a16a21");
         doc.setLineWidth(1.5);
         doc.rect(25, 25, 545, 792, "S");
@@ -1283,171 +842,222 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         doc.setTextColor("#a16a21");
       };
 
-      const language = userData.language || "English";
+      // 🧾 STATIC TEXT CONTENTS (replace with your own text)
+      const disclaimerText = `
+Disclaimer for Comprehensive Vedic Astrology Report
+This comprehensive astrology report is prepared based on the principles of
+Vedic Astrology, also known as Jyotisha, an ancient Indian system of
+understanding the influences of celestial bodies on human life. It is important
+to understand that this report is intended for informational and guidance
+purposes only.
+Astrology is not an exact science and should not be interpreted as providing
+definitive or deterministic predictions about the future. Instead, this report
+offers potential insights into your inherent tendencies, strengths, challenges,
+and potential life path based on your unique birth chart.
+Please be aware that astrological interpretations can vary significantly
+between different astrologers and across various astrological traditions. The
+interpretations presented in this report reflect the understanding and expertise
+of the astrologer who prepared it and may not align perfectly with other
+interpretations you may encounter.
+Any remedies, suggestions, or recommendations provided within this report
+are offered as potential supportive measures and should not be considered a
+substitute for professional advice from qualified medical, legal, financial, or
+psychological professionals. Always consult with appropriate experts for any
+health concerns, legal matters, financial decisions, or mental health issues.
+The results and outcomes described in this report are not guaranteed and may
+vary significantly from person to person. Individual experiences are
+influenced by a multitude of factors, including personal choices,
+environmental influences, and free will, all of which interact with the
+astrological influences in complex ways.
+Astrologer shall not be liable for any direct, indirect,
+incidental, consequential, or punitive damages arising out of the use of or
+reliance on this astrology report. You acknowledge and agree that you are
+solely responsible for your own decisions and actions.
+While we endeavor to provide accurate and insightful interpretations,
+remember that the cosmos operates on a grand and mysterious scale. Use this
+report as a tool for self-discovery and personal growth, and embrace the
+journey with an open mind and a hopeful heart. May the wisdom of the stars
+illuminate your path.
+  `;
 
-      // 🧠 Step 1: Prepare all prompts
-      const disclaimerPrompt =
-        "You are an expert Vedic astrologer writing a disclaimer for a comprehensive astrology report. " +
-        `Write a professional, comprehensive disclaimer in ${language} language. The disclaimer should: ` +
-        "1. Explain that the report is based on Vedic astrology principles. " +
-        "2. Clarify that astrology is for guidance, not deterministic predictions. " +
-        "3. Mention that interpretations may vary across astrologers and traditions. " +
-        "4. State that remedies and suggestions are not substitutes for medical or legal advice. " +
-        "5. Emphasize that results vary for each individual. " +
-        "6. Include appropriate legal disclaimers about liability. " +
-        "7. End with an encouraging, cosmic perspective message. " +
-        "Write in a warm, professional tone that maintains the mystical nature of astrology while being legally sound. " +
-        "Keep it comprehensive but readable, around 300–400 words. " +
-        `Language: ${language}.`;
+      const authorText = `
+Subject: Welcome to Your Personalized Cosmic Journey!
+Dearest Friend,
+Welcome! I'm absolutely thrilled to present you with your personalized Vedic
+Astrology report. I truly believe this is more than just a document; it's a map
+to a deeper understanding of yourself and your place in the grand cosmic
+design.
+For many years, I've been captivated by the ancient wisdom of Vedic
+Astrology. It started as a personal quest for self-discovery and quickly
+blossomed into a lifelong passion. I've spent countless hours studying the
+intricate interplay of planets, signs, and houses, always amazed by the
+profound insights they offer. It's been an honour to guide others on their
+journeys using this beautiful science.
+This report is a culmination of my experience, carefully blending ancient
+Vedic principles with practical, modern-day interpretations. You'll find it
+delves into the core aspects of your birth chart, revealing your strengths,
+challenges, and potential. It's designed not just to predict, but to empower
+you to make conscious choices and navigate life's path with greater clarity
+and confidence.
+While this report offers valuable guidance, remember that astrology is a tool,
+not a definitive answer. Your intuition and personal connection to the
+information are paramount. Trust your inner wisdom as you explore these
+insights, and allow them to resonate with your own experiences.
+The ultimate goal of this report is to foster self-awareness and personal
+growth. By understanding the cosmic influences at play in your life, you can
+unlock your hidden potential, overcome obstacles, and create a life that is
+truly aligned with your soul's purpose.
+I encourage you to approach this report with an open mind and a curious
+heart. Allow the information to inspire reflection and self-discovery. This is
+your journey, and I hope this report serves as a valuable companion along the
+way.
+Wishing you clarity, growth, and abundant blessings on your path.
+Warmly,
+Your Astrologer,
+TrustAstrology
+  `;
 
-      const authorPrompt =
-        "You are a professional Vedic astrologer writing a personal message to introduce a comprehensive astrology report. " +
-        `Write a warm, personal message in ${language} language. The message should: ` +
-        "1. Welcome the reader to their personalized cosmic report. " +
-        "2. Share the author's experience and passion for astrology. " +
-        "3. Explain how the report blends ancient wisdom with practical insights. " +
-        "4. Emphasize the importance of intuition and personal connection. " +
-        "5. Encourage open-minded exploration of the insights. " +
-        "6. Focus on self-awareness and personal growth. " +
-        "7. End with warm wishes and mention the brand 'TrustAstrology' as your professional signature. " +
-        "Write in a personal, warm tone that feels like a letter from a trusted astrologer. " +
-        "Keep it around 250–300 words. " +
-        `Language: ${language}.`;
+      const studyText = `
+Unlocking Your Cosmic Blueprint: A Guide to Your Vedic Astrology Report
+Welcome to a journey of self-discovery through the wisdom of Vedic
+astrology! Your personalized report is more than just a document; it's a map
+to understanding your inherent strengths, potential challenges, and life's
+purpose. To truly unlock its value, approach it with intention and patience.
+First Impressions Matter, But Subsequent Readings Reveal More: Don't
+expect to grasp everything in one sitting. Read your report multiple times,
+each time with a fresh perspective. The first read provides a general
+overview, while subsequent readings will unveil deeper nuances and
+connections.
+Layers of Insight: Think of your report as an onion – each layer reveals a
+new dimension of understanding. Start with the broad interpretations of
+planets and houses, then delve into the more specific aspects and planetary
+periods (Dashas). The true power lies in understanding how these layers
+interact to shape your unique destiny.
+Cultivate Calm & Focus: Before diving in, create a quiet and peaceful
+environment. Take a few deep breaths, clear your mind, and approach the
+report with an open heart. This will allow you to absorb the information
+more effectively.
+Note-Taking and Reflection: Actively engage with the report. Take notes on
+key insights, recurring themes, and areas that resonate with you. Reflect on
+how these insights relate to your past experiences and current circumstances.
+Practical Application is Key: Don't just read the report – apply its guidance!
+If the report highlights a strength in communication, look for opportunities to
+use your skills. If it identifies a potential challenge in relationships, be
+mindful of your interactions and work on cultivating healthier connections.
+A Living Document: Your Vedic astrology report isn't a one-time read.
+Revisit it periodically, especially during significant life transitions. As you
+evolve, your understanding of the report will also deepen.
+Empowerment Through Awareness: Ultimately, your Vedic astrology report
+is a tool for self-empowerment. It provides insights to inform your decisions,
+not dictate them. Use this knowledge to make conscious choices that align
+with your true self and lead you toward a fulfilling life. Embrace your
+cosmic blueprint and embark on your journey with confidence!
+  `;
 
-      const studyPrompt =
-        "You are an expert Vedic astrologer writing a study guide for a comprehensive astrology report. " +
-        `Write a helpful study guide in ${language} language explaining how to best read and use a Vedic astrology report. The guide should: ` +
-        "1. Explain the importance of reading the report multiple times. " +
-        "2. Emphasize the layered nature of cosmic insights. " +
-        "3. Suggest creating a calm, focused mindset before reading. " +
-        "4. Recommend taking notes and reflecting on insights. " +
-        "5. Explain how to apply the guidance practically. " +
-        "6. Encourage revisiting the report over time. " +
-        "7. Emphasize personal empowerment and decision-making. " +
-        "Write in an encouraging, educational tone that helps readers maximize the value of their astrology report. " +
-        "Keep it around 250–300 words. " +
-        `Language: ${language}.`;
-
-      // 🧠 Step 2: Fire all fetches concurrently
-      const [disclaimerData, authorData, studyData] = await Promise.all([
-        fetch("/api/gemini", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: disclaimerPrompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 2000 }
-          })
-        }).then((res) => res.json()),
-
-        fetch("/api/gemini", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: authorPrompt }] }],
-            generationConfig: { temperature: 0.8, maxOutputTokens: 1000 }
-          })
-        }).then((res) => res.json()),
-
-        fetch("/api/gemini", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: studyPrompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
-          })
-        }).then((res) => res.json())
-      ]);
-
-      // 🧠 Step 3: Extract clean text (with fallback)
-      const disclaimerText = removeMarkdown(disclaimerData?.candidates?.[0]?.content?.parts?.[0]?.text || "Disclaimer content could not be generated.");
-      const authorText = removeMarkdown(authorData?.candidates?.[0]?.content?.parts?.[0]?.text || "Author message could not be generated.");
-      const studyText = removeMarkdown(studyData?.candidates?.[0]?.content?.parts?.[0]?.text || "Study guide could not be generated.");
-
-      // --- Add sections AFTER cover page ---
-      addPageWithTitle("DISCLAIMER", false); // false = don’t create a new page; continue on current page
+      // 🧠 Add sections to PDF
+      addPageWithTitle("DISCLAIMER", false);
       addParagraphs(doc, disclaimerText, 50, 100, pageWidth - 100);
 
-      addPageWithTitle("MESSAGE FROM THE AUTHOR", true); // now start a new page
+      addPageWithTitle("MESSAGE FROM THE AUTHOR", true);
       addParagraphs(doc, authorText, 50, 100, pageWidth - 100);
 
       addPageWithTitle("BEST WAY TO STUDY THE REPORT", true);
       addParagraphs(doc, studyText, 50, 100, pageWidth - 100);
     };
+
     await generateIntroSections(doc, userData);
     // --- Generate Table of Contents using AI ---
     let tocText = `
-01 Immediate Personal Insights
-   1.1 Basic Details
-   1.2 Lucky Number & Color (Nakshatra Based)
-   1.3 Snapshot of Chart
+01. Immediate Personal Insights
+ 1.1 Basic Birth & Ascendant Details (Moon Sign, Sun Sign, Ascendant)
+ 1.2 Lucky Number & Color (Nakshatra Based)
+ 1.3 Snapshot of Chart (Planetary Overview)
+ 1.4 Numerology Analysis
+ 1.5 Personality Traits & Characteristics
 
-02 Houses (Bhavas)
-   2.1 Overview of 12 Houses
-   2.2 House Lords & Significance
-   2.3 House Strength using Ashtakvarga
-   2.4 Effects of Planets in Houses
+02. Houses (Bhavas)
+ 2.1 Overview of 12 Houses
+ 2.2 House Lords & Significance
+ 2.3 House Strength using Ashtakvarga
+ 2.4 Effects of Planets in Houses
+ 2.5 KP Houses & Cuspal Analysis
 
-03 Planets
-   3.1 Planet Placement: Which House Each Planet is In
-   3.2 Planetary Aspects (Drishti)
+03. Planets
+ 3.1 Planet Placement: Which House Each Planet is In
+ 3.2 Planetary Aspects (Drishti)
+ 3.3 Planetary Strength & Nature (Shadbala & Report)
+ 3.4 KP Planetary Analysis
+ 3.5 Retrogrades & Transits 
 
-04 Love & Marriage
-   4.1 Nakshatras & Moon Signs: Emotional Needs, Compatibility
-   4.2 Moon Sign (Rashi): Temperament & Emotional Responses
-   4.3 Nakshatra (Lunar Mansion): Psychological Traits & Compatibility
-   4.4 Planetary Positions & Relationships
-   4.5 Venus: Love, Romance, Attraction
-   4.6 Mars: Sexual Compatibility & Assertiveness
-   4.7 Jupiter: Marriage Timing & Spouse Characteristics
-   4.8 Saturn: Delays, Challenges, Karmic Lessons
-   4.9 7th House: Marriage & Partnerships
-   4.10 Planetary Aspects on 7th House
-   4.11 Divisional Charts (D9 - Navamsa, D2 - Hora)
-   4.12 Yogas & Doshas: Mangal, Venus-Mars, Chandra-Mangal
-   4.13 Planetary Periods: Dasha 
+04. Love & Marriage
+ 4.1 Nakshatras & Moon Signs: Emotional Needs & Compatibility
+ 4.2 Moon Sign (Rashi): Temperament & Emotional Expression
+ 4.3 Nakshatra (Lunar Mansion): Psychological Traits & Bonding
+ 4.4 Planetary Positions & Relationship Patterns
+ 4.5 Venus: Love, Romance & Attraction
+ 4.6 Mars: Passion, Assertiveness & Sexual Compatibility
+ 4.7 Jupiter: Marriage Timing & Spouse Characteristics
+ 4.8 Saturn: Delays, Karmic Lessons & Longevity of Bond
+ 4.9 7th House: Marriage, Partnership & Spouse Indications
+ 4.10 Planetary Aspects on 7th House
+ 4.11 Divisional Charts (D9 - Navamsa, D2 - Hora)
+ 4.12 Yogas & Doshas: Mangal, Chandra-Mangal, Venus-Mars
+ 4.13 Dashas Influencing Relationships (Mahadasha, Antardasha)
 
-05 Career & Profession
-   5.1 Houses Related to Career: 1st, 2nd, 6th, 10th
-   5.2 Planetary Traits & Amatyakaraka Insights
-   5.3 Nakshatra / Moon Sign Influence: Work Style & Preferred Profession
-   5.4 Dashas, Yogas: Career Success Timing
+05. Career & Profession
+ 5.1 Houses Related to Career: 1st, 2nd, 6th, 10th
+ 5.2 Planetary Traits & Amatyakaraka Insights
+ 5.3 Nakshatra / Moon Sign Influence: Work Style & Profession
+ 5.4 Dashas & Yogas: Career Growth & Success Timing
+ 5.5 Divisional Chart (D10 - Dasamsa) Insights
 
-06 Health & Wellbeing
-   6.1 Doshas in Vedic Astrology: Manglik, Pitra, Kaalsarp
-   6.2 Planetary Influence on Health: Sun, Moon, Mars, Saturn, Rahu/Ketu
-   6.3 Houses Related to Health: 1st, 6th, 8th, 12th
-   6.4 Nakshatra & Moon Sign: Emotional Balance & Mental Wellbeing
-   6.5 Ayurvedic / Dosha Correlation: Vata, Pitta, Kapha Imbalances
+06. Health & Wellbeing
+ 6.1 Doshas in Vedic Astrology: Manglik, Pitra, Kaalsarp, Papasamaya
+ 6.2 Planetary Influence on Health: Sun, Moon, Mars, Saturn, Rahu/Ketu
+ 6.3 Houses Related to Health: 1st, 6th, 8th, 12th
+ 6.4 Nakshatra & Moon Sign: Emotional and Mental Balance
+ 6.5 Ayurvedic Correlation: Vata, Pitta, Kapha Imbalances
+ 6.6 Remedies for Health-Related Doshas
 
-07 Karmic & Purpose Insights
-   7.1 Chara Karakas: Soul Purpose & Life Goals
-   7.2 Sade Sati Journey: Challenges, Transformations, Remedies
-   7.3 Mangalik & Yogas: Special Planetary Combinations
-   7.4 Astrological Doshas: Karmic Blocks & Lessons
+07. Karmic & Purpose Insights
+ 7.1 Chara Karakas: Soul Purpose & Life Goals
+ 7.2 Sade Sati Journey: Phases, Challenges & Remedies
+ 7.3 Karmic Yogas & Mangalik Combinations
+ 7.4 Astrological Doshas: Karmic Blocks & Lessons
+ 7.5 Retrograde Planets: Past-Life Influences
 
-08 Timing & Predictive Insights
-   8.1 Mahadashas & Antardashas: Life Phases & Opportunities
-   8.2 Planetary Periods & Impact: Short-term & Long-term Influences
-   8.3 Favorable & Challenging Periods
+08. Timing & Predictive Insights
+ 8.1 Mahadasha Overview: Major Life Phases
+ 8.2 Antardasha Details: Sub-Periods & Impact
+ 8.3 Paryantar & Yogini Dashas: Micro Life Events
+ 8.4 Transit Dates of Planets (Predictions)
+ 8.5 AI-Based 12-Month Prediction (Favorable vs Challenging Periods)
 
-09 Remedies & Spiritual Guidance
-   9.1 Rudraksha Guidance & Gemstones
-   9.2 Mantra Chanting & Yantras
-   9.3 Charitable Actions & Spiritual Practices
+09. Remedies & Spiritual Guidance
+ 9.1 Rudraksha Guidance & Recommendations
+ 9.2 Gemstone Remedies & Gem Details
+ 9.3 Mantra Chanting & Yantra Suggestions
+ 9.4 Charitable Actions & Spiritual Practices
+ 9.5 Sade Sati & Dosha Remedies
 
-10 Advanced Calculations & Optional Insights
-   10.1 Ashtakvarga: Strength & Fortune Analysis
-   10.2 Shadbala: Sixfold Planetary Strength
-   10.3 Pratyantar Dasha: Sub-periods for Predictive Astrology
-   10.4 Planetary Wars (Grah Yuddha) & Special Charts (Divisional Charts)
+10. Advanced Calculations & Optional Insights
+ 10.1 Ashtakvarga: Strength & Fortune Analysis
+ 10.2 Shadbala: Sixfold Planetary Strength
+ 10.3 Divisional Charts Summary (D1–D12 Overview)
+ 10.4 Pratyantar Dasha: Sub-Periods for Predictive Analysis
+ 10.5 Planetary Wars (Grah Yuddha) & Retrograde Impacts
 
-11 Q&A & Personalized Advice
-   11.1 Frequently Asked Questions
-   11.2 Next Steps: Using Insights & Remedies for Personal Growth
+11. Panchang & Astronomical Insights
+ 11.1 Sunrise & Sunset Timings (Birth Day Reference)
+ 11.2 Moonrise & Moonset Timings
+ 11.3 Choghadiya Muhurta: Daily Auspicious Hours
+ 11.4 Hora Muhurta: Planetary Hour Influences
+
+12. Q&A & Personalized Advice
+ 12.1 Frequently Asked Questions
+ 12.2 Next Steps: Using Insights & Remedies for Personal Growth
+ 12.3 Personalized Astro Guidance & Conclusion
 `;
-
-    // Remove markdown if any
-    tocText = removeMarkdown(tocText);
 
     // --- PDF Rendering ---
     doc.addPage();
@@ -1460,2437 +1070,97 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.setTextColor("#000");
     doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
 
+    // --- Variables for layout ---
     doc.setFont("NotoSans", "normal");
-    doc.setFontSize(16);
-    doc.setTextColor("#a16a21");
-    addParagraphs(doc, tocText, 50, 100, pageWidth - 100);
+    doc.setFontSize(14);
+    const lines = tocText.trim().split("\n");
+    let z = 100;
+    const lineHeights = 18;
+    const marginTop = 50;
+    const marginBottoms = 50;
+    const pageHeights = doc.internal.pageSize.getHeight();
 
-    // --- Add Table Content Page with Real API Data ---
-    if (kundliData) {
-      await generateReusableTableContent({
-        doc,
-        kundliData,
-        sunriseData,
-        sunsetData,
-        moonSignData,
-        sunSignData,
-        userData: userData,
-        title: "AVAKAHADA CHAKRA",
-        showUserInfo: true
-      });
-    } else {
-      console.warn("No kundli data available, skipping Avakahada Chakra table");
+    // --- Helper to add new bordered page ---
+    function addNewPage() {
+      doc.addPage();
+      doc.setDrawColor("#a16a21");
+      doc.setLineWidth(1.5);
+      doc.rect(25, 25, 545, 792, "S");
+      z = marginTop + 50; // Reset y for new page
     }
 
-    doc.addPage();
-    const d1ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 15.866820172851817
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 24.383712157784657
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 3,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 14.491055785897743
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 11,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 2.5880530022346377
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 21.59603241563974
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 20.98044718334978
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 8.277985344623858
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 28.855789512124545
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 3,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 14.764735922346517
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 14.764735922346517
-      },
-      "chart": "D1",
-      "chart_name": "Lagna"
-    };
-    const d2ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 2.17340427697701
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 2,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 18.767424315569315
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 2,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 28.982111571795485
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 2,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 5.1761060044692755
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 2,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 13.192064831279481
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 1,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 11.960894366699563
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 2,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 16.555970689247715
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 2,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 27.71157902424909
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 2,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 29.529471844693035
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 2,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 29.529471844693035
-      },
-      "chart": "D2",
-      "chart_name": "Hora"
-    };
-    const d3ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 18.260106415465515
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 2,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 13.151136473353972
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 3,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 13.473167357693228
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 7,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 7.764159006703913
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 2,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 4.788097246919051
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 1,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 2.9413415500492874
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 5,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 24.833956033871573
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 2,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 26.56736853637358
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 3,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 14.294207767039552
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 9,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 14.294207767039552
-      },
-      "chart": "D3",
-      "chart_name": "Dreshkana"
-    };
-    const d3sChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 16.086702138488505
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 24.383712157784657
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 3,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 14.491055785897743
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 11,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 2.5880530022346377
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 21.59603241563974
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 20.98044718334978
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 8.277985344623858
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 28.855789512124545
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 3,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 14.764735922346517
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 14.764735922346517
-      },
-      "chart": "D3-s",
-      "chart_name": "D3-Somanatha"
-    };
-    const d4ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 4.34680855395402
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 7.53484863113863
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 12,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 27.96422314359097
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 5,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 10.352212008938551
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 10,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 26.384129662558962
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 9,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 23.921788733399126
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 6,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 3.1119413784954304
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 25.42315804849818
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 12,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 29.05894368938607
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 6,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 29.05894368938607
-      },
-      "chart": "D4",
-      "chart_name": "Chaturthamsha"
-    };
-    const d5ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 20.433510692442553
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 12,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 1.918560788923287
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 11,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 12.455278929488713
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 1,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 12.940265011173189
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 11,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 17.980162078198873
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 6,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 14.90223591674885
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 4,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 11.389926723119288
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 12,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 24.278947560622782
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 11,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 13.823679611732587
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 5,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 13.823679611732587
-      },
-      "chart": "D5",
-      "chart_name": "Panchamsha"
-    };
-    const d7ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 22.606914969419563
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 6,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 20.68598510449283
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 3,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 11.437390501284199
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 8,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 18.116371015642464
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 6,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 1.1722269094784679
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 10,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 26.863130283448754
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 7,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 27.945897412366776
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 7,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 21.990526584871986
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 3,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 13.353151456425621
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 9,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 13.353151456425621
-      },
-      "chart": "D7",
-      "chart_name": "Saptamsa"
-    };
-    const d8ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 8.69361710790804
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 1,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 15.06969726227726
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 3,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 25.92844628718194
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 2,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 20.704424017877102
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 2,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 22.768259325117924
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 2,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 17.84357746679825
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 12,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 6.223882756990861
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 2,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 20.84631609699636
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 3,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 28.11788737877214
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 3,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 28.11788737877214
-      },
-      "chart": "D8",
-      "chart_name": "Ashtamsa"
-    };
-    const d9ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 24.78031924639663
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 1,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 9.453409420062144
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 7,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 10.419502073079684
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 3,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 23.29247702011174
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Capricorn",
-        "rasi_no": 10,
-        "house": 12,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 14.364291740757835
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 3,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 8.824024650148203
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 11,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 14.501868101614946
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 2,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 19.70210560912119
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 7,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 12.882623301118656
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 1,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 12.88262330111911
-      },
-      "chart": "D9",
-      "chart_name": "Navamsa"
-    };
-    const d10ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 10.867021384885106
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 9,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 3.837121577846574
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 2,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 24.910557858977427
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 6,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 25.880530022346377
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 8,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 5.960324156397746
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 10,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 29.8044718334977
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 6,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 22.779853446238576
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 10,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 18.557895121245565
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 2,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 27.647359223465173
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 8,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 27.647359223465173
-      },
-      "chart": "D10",
-      "chart_name": "Dasamsa"
-    };
-    const d10rChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 10.867021384885106
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 5,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 3.837121577846574
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 2,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 24.910557858977427
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 6,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 25.880530022346377
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 6,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 5.960324156397746
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 10,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 29.8044718334977
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 6,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 22.779853446238576
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 4,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 18.557895121245565
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 2,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 27.647359223465173
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 8,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 27.647359223465173
-      },
-      "chart": "D10-R",
-      "chart_name": "Dasamsa-EvenReverse"
-    };
-    const d12ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 13.04042566186206
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 22.60454589341589
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Capricorn",
-        "rasi_no": 10,
-        "house": 2,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 23.892669430772912
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 6,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 1.056636026815653
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 12,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 19.152388987676204
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 11,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 11.76536620019715
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 6,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 9.335824135486291
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 3,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 16.269474145494314
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Capricorn",
-        "rasi_no": 10,
-        "house": 2,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 27.176831068158208
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 8,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 27.176831068158208
-      },
-      "chart": "D12",
-      "chart_name": "Dwadasamsa"
-    };
-    const d16ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 17.38723421581608
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Capricorn",
-        "rasi_no": 10,
-        "house": 6,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 0.13939452455451828
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 8,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 21.856892574363883
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 10,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 11.408848035754204
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 4,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 15.536518650235848
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 12,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 5.687154933596503
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 5,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 12.447765513981722
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 8,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 11.692632193992722
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 8,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 26.235774757544277
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 8,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 26.235774757544277
-      },
-      "chart": "D16",
-      "chart_name": "Shodashamsa"
-    };
-    const d20ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 21.734042769770213
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 7,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 7.674243155693148
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 4,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 19.821115717954854
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 12,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 21.761060044692755
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 5,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 11.920648312795493
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Capricorn",
-        "rasi_no": 10,
-        "house": 8,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 29.6089436669954
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 12,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 15.559706892477152
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 7.11579024249113
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 4,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 25.294718446930347
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 4,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 25.294718446930347
-      },
-      "chart": "D20",
-      "chart_name": "Vimsamsa"
-    };
-    const d24ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 26.08085132372412
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 7,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 15.209091786831777
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 12,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 17.785338861545824
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 3,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 2.113272053631306
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 5,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 8.304777975352408
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 5,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 23.5307324003943
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 7,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 18.671648270972582
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 11,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 2.5389482909886283
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 12,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 24.353662136316416
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 12,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 24.353662136316416
-      },
-      "chart": "D24",
-      "chart_name": "ChaturVimshamsha"
-    };
-    const d24rChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 26.08085132372412
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 5,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 15.209091786831777
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 12,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 17.785338861545824
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 3,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 2.113272053631306
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 7,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 8.304777975352408
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 5,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 23.5307324003943
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 7,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 18.671648270972582
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 1,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 2.5389482909886283
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 12,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 24.353662136316416
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 12,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 24.353662136316416
-      },
-      "chart": "D24-R",
-      "chart_name": "D24-R"
-    };
-    const d27ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 14.340957739189435
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 7,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 28.360228260185977
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 12,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 1.258506219238825
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 1,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 9.877431060335212
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 5,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 13.092875222271687
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 5,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 26.47207395044279
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 6,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 13.505604304844383
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 11,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 29.106316827361297
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 12,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 8.647869903355968
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 12,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 8.647869903355968
-      },
-      "chart": "D27",
-      "chart_name": "Bhamsha"
-    };
-    const d40ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 13.468085539540425
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 12,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 15.348486311386296
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 7,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 9.642231435909707
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 11,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 13.52212008938551
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 8,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 23.841296625590985
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 3,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 29.217887333990802
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 11,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 1.119413784954304
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 6,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 14.23158048498226
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 7,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 20.589436893860693
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 7,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 20.589436893860693
-      },
-      "chart": "D40",
-      "chart_name": "KhaVedamsa"
-    };
-    const d45ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 3.9015962319822393
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 10,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 17.267047100305717
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Capricorn",
-        "rasi_no": 10,
-        "house": 4,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 22.097510365397284
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 10,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 26.46238510055869
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 6,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 11.821458703785538
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Taurus",
-        "rasi_no": 2,
-        "house": 8,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 14.120123250739198
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 1,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 12.509340508071546
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 5,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 8.510528045604588
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 5,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 4.41311650559237
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 11,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 4.413116505591461
-      },
-      "chart": "D45",
-      "chart_name": "AkshaVedamsa"
-    };
-    const d60ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 5.2021283093099555
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 2,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 23.022729467080353
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 11,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 29.46334715386456
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 8,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 5.283180134078265
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 9,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 5.761944938385568
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 6,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 28.826831000988022
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 5,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 16.679120677432365
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 11,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 21.34737072747157
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Capricorn",
-        "rasi_no": 10,
-        "house": 12,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 15.88415534079104
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 6,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 15.88415534079104
-      },
-      "chart": "D60",
-      "chart_name": "Shastiamsha"
-    };
-    const d30ChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": false,
-        "full_name": "Ascendant",
-        "local_degree": 2.6010641546549778
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 12,
-        "retro": false,
-        "full_name": "Sun",
-        "local_degree": 11.511364733540177
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": false,
-        "full_name": "Moon",
-        "local_degree": 14.73167357693228
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 5,
-        "retro": false,
-        "full_name": "Mars",
-        "local_degree": 17.641590067039132
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Capricorn",
-        "rasi_no": 10,
-        "house": 2,
-        "retro": true,
-        "full_name": "Mercury",
-        "local_degree": 17.880972469192784
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 7,
-        "retro": false,
-        "full_name": "Jupiter",
-        "local_degree": 29.41341550049401
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 3,
-        "retro": false,
-        "full_name": "Venus",
-        "local_degree": 8.339560338716183
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Scorpio",
-        "rasi_no": 8,
-        "house": 12,
-        "retro": false,
-        "full_name": "Saturn",
-        "local_degree": 25.673685363735785
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": true,
-        "full_name": "Rahu",
-        "local_degree": 22.94207767039552
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Sagittarius",
-        "rasi_no": 9,
-        "house": 1,
-        "retro": true,
-        "full_name": "Ketu",
-        "local_degree": 22.94207767039552
-      },
-      "chart": "D30",
-      "chart_name": "Trimshamsha"
-    };
-    const chalitChartJson = {
-      "0": {
-        "pseudo_rasi_no": 3,
-        "house": 1,
-        "rasi_no": 3,
-        "zodiac": "Gemini",
-        "retro": false,
-        "name": "As",
-        "local_degree": 16.086702138488505
-      },
-      "1": {
-        "rasi_no": 12,
-        "zodiac": "Pisces",
-        "retro": false,
-        "name": "Su",
-        "house": 10,
-        "pseudo_rasi_no": 12
-      },
-      "2": {
-        "rasi_no": 5,
-        "zodiac": "Leo",
-        "retro": false,
-        "name": "Mo",
-        "house": 3,
-        "pseudo_rasi_no": 5
-      },
-      "3": {
-        "rasi_no": 1,
-        "zodiac": "Aries",
-        "retro": false,
-        "name": "Ma",
-        "house": 11,
-        "pseudo_rasi_no": 1
-      },
-      "4": {
-        "rasi_no": 12,
-        "zodiac": "Pisces",
-        "retro": true,
-        "name": "Me",
-        "house": 10,
-        "pseudo_rasi_no": 12
-      },
-      "5": {
-        "rasi_no": 11,
-        "zodiac": "Aquarius",
-        "retro": false,
-        "name": "Ju",
-        "house": 9,
-        "pseudo_rasi_no": 11
-      },
-      "6": {
-        "rasi_no": 11,
-        "zodiac": "Aquarius",
-        "retro": false,
-        "name": "Ve",
-        "house": 9,
-        "pseudo_rasi_no": 11
-      },
-      "7": {
-        "rasi_no": 12,
-        "zodiac": "Pisces",
-        "retro": false,
-        "name": "Sa",
-        "house": 10,
-        "pseudo_rasi_no": 12
-      },
-      "8": {
-        "rasi_no": 5,
-        "zodiac": "Leo",
-        "retro": true,
-        "name": "Ra",
-        "house": 3,
-        "pseudo_rasi_no": 5
-      },
-      "9": {
-        "rasi_no": 11,
-        "zodiac": "Aquarius",
-        "retro": true,
-        "name": "Ke",
-        "house": 9,
-        "pseudo_rasi_no": 11
-      },
-      "chart": "chalit",
-      "chart_name": "Bhav-chalit"
-    };
-    const sunChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 1,
-        "retro": false,
-        "local_degree": 24.383712157784657
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 1,
-        "retro": false,
-        "local_degree": 24.383712157784657
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 6,
-        "retro": false,
-        "local_degree": 14.491055785897743
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 2,
-        "retro": false,
-        "local_degree": 2.5880530022346377
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 1,
-        "retro": true,
-        "local_degree": 21.59603241563974
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 12,
-        "retro": false,
-        "local_degree": 20.98044718334978
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 12,
-        "retro": false,
-        "local_degree": 8.277985344623858
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 1,
-        "retro": false,
-        "local_degree": 28.855789512124545
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 6,
-        "retro": true,
-        "local_degree": 14.764735922346517
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 12,
-        "retro": true,
-        "local_degree": 14.764735922346517
-      },
-      "chart": "sun",
-      "chart_name": "Sun Chart"
-    };
-    const moonChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 1,
-        "retro": false,
-        "local_degree": 14.491055785897743
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 8,
-        "retro": false,
-        "local_degree": 24.383712157784657
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 1,
-        "retro": false,
-        "local_degree": 14.491055785897743
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 9,
-        "retro": false,
-        "local_degree": 2.5880530022346377
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 8,
-        "retro": true,
-        "local_degree": 21.59603241563974
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 7,
-        "retro": false,
-        "local_degree": 20.98044718334978
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 7,
-        "retro": false,
-        "local_degree": 8.277985344623858
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 8,
-        "retro": false,
-        "local_degree": 28.855789512124545
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 1,
-        "retro": true,
-        "local_degree": 14.764735922346517
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 7,
-        "retro": true,
-        "local_degree": 14.764735922346517
-      },
-      "chart": "moon",
-      "chart_name": "Moon Chart"
-    };
-    const kpchalitChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 1,
-        "retro": false,
-        "pseudo_rasi": "Gemini",
-        "pseudo_rasi_no": 3,
-        "local_degree": 16.192953312625132
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": false,
-        "pseudo_rasi": "Pisces",
-        "pseudo_rasi_no": 12,
-        "local_degree": 24.489963331921285
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 3,
-        "retro": false,
-        "pseudo_rasi": "Leo",
-        "pseudo_rasi_no": 5,
-        "local_degree": 14.59730696003437
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Aries",
-        "rasi_no": 1,
-        "house": 10,
-        "retro": false,
-        "pseudo_rasi": "Aries",
-        "pseudo_rasi_no": 1,
-        "local_degree": 2.694304176371265
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": true,
-        "pseudo_rasi": "Pisces",
-        "pseudo_rasi_no": 12,
-        "local_degree": 21.702283589776368
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": false,
-        "pseudo_rasi": "Aquarius",
-        "pseudo_rasi_no": 11,
-        "local_degree": 21.08669835748641
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 8,
-        "retro": false,
-        "pseudo_rasi": "Aquarius",
-        "pseudo_rasi_no": 11,
-        "local_degree": 8.384236518760485
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": false,
-        "pseudo_rasi": "Pisces",
-        "pseudo_rasi_no": 12,
-        "local_degree": 28.962040686261172
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 3,
-        "retro": true,
-        "pseudo_rasi": "Leo",
-        "pseudo_rasi_no": 5,
-        "local_degree": 14.870987096483145
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": true,
-        "pseudo_rasi": "Aquarius",
-        "pseudo_rasi_no": 11,
-        "local_degree": 14.870987096483145
-      },
-      "midheaven": 12.6392021384885,
-      "ascendant": 16.086702138488505,
-      "chart": "kp_chalit",
-      "chart_name": "KP Chalit"
-    };
-    const transitChartJson = {
-      "0": {
-        "name": "As",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 1
-      },
-      "1": {
-        "name": "Su",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 4,
-        "retro": false
-      },
-      "2": {
-        "name": "Mo",
-        "zodiac": "Cancer",
-        "rasi_no": 4,
-        "house": 2,
-        "retro": false
-      },
-      "3": {
-        "name": "Ma",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 5,
-        "retro": false
-      },
-      "4": {
-        "name": "Me",
-        "zodiac": "Libra",
-        "rasi_no": 7,
-        "house": 5,
-        "retro": false
-      },
-      "5": {
-        "name": "Ju",
-        "zodiac": "Gemini",
-        "rasi_no": 3,
-        "house": 1,
-        "retro": false
-      },
-      "6": {
-        "name": "Ve",
-        "zodiac": "Virgo",
-        "rasi_no": 6,
-        "house": 4,
-        "retro": false
-      },
-      "7": {
-        "name": "Sa",
-        "zodiac": "Pisces",
-        "rasi_no": 12,
-        "house": 10,
-        "retro": false
-      },
-      "8": {
-        "name": "Ra",
-        "zodiac": "Aquarius",
-        "rasi_no": 11,
-        "house": 9,
-        "retro": true
-      },
-      "9": {
-        "name": "Ke",
-        "zodiac": "Leo",
-        "rasi_no": 5,
-        "house": 3,
-        "retro": true
-      },
-      "chart": "transit",
-      "chart_name": "Transit Chart"
-    };
+    // --- Draw each line ---
+    lines.forEach(line => {
+      if (line.trim() === "") {
+        z += 10;
+        return;
+      }
 
-    await addAllDivisionalChartsFromJSON(doc, [
+      // Check if next line will overflow page height
+      if (z + lineHeights > pageHeights - marginBottoms) {
+        addNewPage();
+      }
+
+      const isSubtopic = /^\s*\d+\.\d+/.test(line);
+      const x = isSubtopic ? 80 : 50;
+
+      if (!isSubtopic) {
+        doc.setFont("NotoSans", "bold");
+        doc.setTextColor("#a16a21");
+      } else {
+        doc.setFont("NotoSans", "normal");
+        doc.setTextColor("#000");
+      }
+
+      doc.text(line.trim(), x, z);
+      z += lineHeights;
+    });
+
+    // --- Add Table Content Page with Real API Data ---
+
+    await generateReusableTableContent({
+      doc,
+      astroData,
+      userData: userData,
+      title: "AVAKAHADA CHAKRA",
+      showUserInfo: true
+    });
+
+    const minimalAstroData = {
+  nakshatra: astroData?.nakshatra,
+  planet_details: astroData?.planet_details,
+  gem_suggestion: astroData?.gem_suggestion,
+};
+
+const fullPrompt = `
+You are an expert Vedic astrologer and writer.
+Generate the "Lucky Number & Color (Nakshatra Based)" section for an astrology report.
+
+TASK:
+Write 2–4 flowing paragraphs (no bullet points, no tables) describing:
+1. How the Nakshatra influences auspicious colors and lucky numbers.
+2. The meaning and symbolism of these choices.
+3. Gemstone guidance based on planetary harmony.
+4. Spiritual or lifestyle advice aligned with their Nakshatra.
+
+Tone: spiritual, elegant, poetic but informative.
+`;
+
+// ✅ Structured payload — JSON and prompt separated
+let text = await callBedrock(fullPrompt, {minimalAstroData});
+text = sanitizeText(text);
+    doc.addPage();
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(25, 25, 545, 792, "S");
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(26);
+    doc.text("Lucky Number & Color (Nakshatra Based)", pageWidth / 2, 60, { align: "center" });
+    addParagraphs(doc, text, 50, 100, pageWidth - 100);
+    doc.addPage();
+
+    // Generate SVG
+    await addAllDivisionalChartsFromAstroData(doc, [
       { chart_name: "chalit" },
       { chart_name: "d9" },
       { chart_name: "d10" },
@@ -3913,384 +1183,94 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       { chart_name: "moon" },
       { chart_name: "kp_chalit" },
       { chart_name: "transit" },
+    ], astroData);
 
-    ]);
-
-    const ashtakvarga_order = [
-      "Sun",
-      "Moon",
-      "Mars",
-      "Mercury",
-      "Jupiter",
-      "Venus",
-      "Saturn",
-      "Ascendant"
+    const numerologySections = [
+      "4.1 Mulank (Birth Number): Explain the influence of the Birth Number (radical_number) and its ruling planet (radical_ruler), personality traits, thinking patterns, emotional tendencies, favorable colors, metals, gemstones, friendly numbers, favorite deity, and mantra. End with how this number defines the person’s core identity and how to strengthen it.",
+      "4.2 Bhagyank (Life Path Number): Describe the meaning of the Life Path (destiny) number — the person’s purpose, karmic journey, strengths, and challenges. Mention its harmony or contrast with the Birth Number and conclude with a practical insight for alignment.",
+      "4.3 Success Number (Name Number): Explain how the name number influences career success, fame, and personal magnetism. Discuss compatibility using friendly, evil, and neutral numbers. Conclude with insights on how name vibrations affect destiny.",
+      "4.4 Connection Number: Analyze the relationship between Birth, Destiny, and Name Numbers. Include the Personal Day Number interpretation and offer guidance for balancing energies using gemstones, colors, or affirmations. End with a motivational summary of their overall vibration."
     ];
 
-    const ashtakvarga_points = [
-      [5, 5, 4, 6, 4, 2, 4, 3, 5, 4, 2, 4],
-      [4, 3, 2, 5, 6, 3, 3, 4, 6, 3, 6, 4],
-      [5, 4, 2, 5, 3, 3, 3, 3, 5, 3, 0, 3],
-      [4, 7, 5, 6, 5, 4, 5, 4, 4, 4, 1, 5],
-      [6, 4, 3, 5, 7, 2, 6, 6, 3, 6, 4, 4],
-      [4, 5, 8, 3, 4, 3, 4, 2, 5, 5, 6, 3],
-      [4, 3, 1, 6, 4, 2, 2, 2, 3, 4, 4, 4],
-      [3, 3, 5, 6, 5, 4, 4, 4, 5, 4, 3, 4]
-    ];
+    async function fetchNumerologySection(sectionPrompt: string) {
+      const requiredKeys = [
+        "numerology_prediction",
+        "numero_table",
+        "gem_suggestion",
+        "gem_details",
+        "personal_characteristics",
+      ];
 
-    const ashtakvarga_total = [32, 31, 25, 36, 33, 19, 27, 24, 31, 29, 23, 27];
+      // Extract only necessary data from astroData
+      const filteredData = Object.fromEntries(
+        Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
+      );
 
-    houses.forEach((house, houseIndex) => {
-      const avData: Record<string, number> = {};
+      const fullPrompt = `
+You are an expert Numerologist and Vedic astrologer.
 
-      // assign planet-wise points
-      ashtakvarga_order.forEach((planet, planetIndex) => {
-        avData[planet] = ashtakvarga_points[planetIndex][houseIndex];
-      });
+Using the following filtered JSON data, generate the section:
+"${sectionPrompt}"
 
-      // assign total points
-      avData.total = ashtakvarga_total[houseIndex];
+Guidelines:
+- Write in 2–4 elegant, insight-rich paragraphs.
+- Tone: warm, premium, and professional (avoid casual tone).
+- Focus on **Birth Number**, **Destiny Number**, **Name Number**, and **Connection Number** meanings.
+- Include: ruling planet, traits, strengths, emotional tendencies, friendly & evil numbers, colors, metals, gemstones, and practical guidance.
+- Avoid repetition or raw data. Interpret intelligently.
+- End with a smooth concluding or transitional line.
+- Format output as plain text (no markdown symbols or bullet points).
+- Use **bold** for key terms like **Number 3**, **Jupiter**, **Life Path 5**, etc.
+- Make it PDF-ready — no lists, only short structured paragraphs.
+`;
 
-      // attach to house
-      house.ashtakvarga = avData;
-    });
+      let text = await callBedrock(fullPrompt, {filteredData});
+      text = sanitizeText(text);
+      return text;
+    }
 
-    await generateHouseReports(doc, houses, userData);
+    for (const sectionPrompt of numerologySections) {
+      const texts = await fetchNumerologySection(sectionPrompt);
 
-    const planetData = {
-      "planets": {
-        "1": {
-          "name": "Su",
-          "full_name": "Sun",
-          "local_degree": 27.83755839588116,
-          "global_degree": 297.83755839588116,
-          "progress_in_percentage": 92.79186131960387,
-          "rasi_no": 10,
-          "zodiac": "Capricorn",
-          "house": 10,
-          "speed_radians_per_day": 1.170910493827214e-8,
-          "retro": false,
-          "nakshatra": "Dhanista",
-          "nakshatra_lord": "Mars",
-          "nakshatra_pada": 2,
-          "nakshatra_no": 23,
-          "zodiac_lord": "Saturn",
-          "is_planet_set": false,
-          "basic_avastha": "Mritya",
-          "lord_status": "Benefic"
-        },
-        "2": {
-          "name": "Mo",
-          "full_name": "Moon",
-          "local_degree": 8.18777419124902,
-          "global_degree": 8.18777419124902,
-          "progress_in_percentage": 27.292580637496734,
-          "rasi_no": 1,
-          "zodiac": "Aries",
-          "house": 1,
-          "speed_radians_per_day": 1.6538708847736627e-7,
-          "retro": false,
-          "nakshatra": "Ashvini",
-          "nakshatra_lord": "Ketu",
-          "nakshatra_pada": 3,
-          "nakshatra_no": 1,
-          "zodiac_lord": "Mars",
-          "is_planet_set": false,
-          "basic_avastha": "Kumara",
-          "lord_status": "Neutral",
-          "is_combust": false
-        },
-        "3": {
-          "name": "Ma",
-          "full_name": "Mars",
-          "local_degree": 9.030010949047437,
-          "global_degree": 309.03001094904744,
-          "progress_in_percentage": 30.10003649682479,
-          "rasi_no": 11,
-          "zodiac": "Aquarius",
-          "house": 11,
-          "speed_radians_per_day": 9.149948559670794e-9,
-          "retro": false,
-          "nakshatra": "Shatabhisha",
-          "nakshatra_lord": "Rahu",
-          "nakshatra_pada": 1,
-          "nakshatra_no": 24,
-          "zodiac_lord": "Saturn",
-          "is_planet_set": false,
-          "basic_avastha": "Kumara",
-          "lord_status": "Benefic",
-          "is_combust": true
-        },
-        "4": {
-          "name": "Me",
-          "full_name": "Mercury",
-          "local_degree": 11.054228091085577,
-          "global_degree": 311.0542280910856,
-          "progress_in_percentage": 36.847426970285255,
-          "rasi_no": 11,
-          "zodiac": "Aquarius",
-          "house": 11,
-          "speed_radians_per_day": -4.112011316872197e-9,
-          "retro": true,
-          "nakshatra": "Shatabhisha",
-          "nakshatra_lord": "Rahu",
-          "nakshatra_pada": 2,
-          "nakshatra_no": 24,
-          "zodiac_lord": "Saturn",
-          "is_planet_set": false,
-          "basic_avastha": "Kumara",
-          "lord_status": "Malefic",
-          "is_combust": false
-        },
-        "5": {
-          "name": "Ju",
-          "full_name": "Jupiter",
-          "local_degree": 16.362201044564813,
-          "global_degree": 166.3622010445648,
-          "progress_in_percentage": 54.540670148549374,
-          "rasi_no": 6,
-          "zodiac": "Virgo",
-          "house": 6,
-          "speed_radians_per_day": -6.076388888886652e-10,
-          "retro": true,
-          "nakshatra": "Hasta",
-          "nakshatra_lord": "Moon",
-          "nakshatra_pada": 2,
-          "nakshatra_no": 13,
-          "zodiac_lord": "Mercury",
-          "is_planet_set": true,
-          "basic_avastha": "Yuva",
-          "lord_status": "Highly Benefic",
-          "is_combust": false
-        },
-        "6": {
-          "name": "Ve",
-          "full_name": "Venus",
-          "local_degree": 13.926196074415714,
-          "global_degree": 283.9261960744157,
-          "progress_in_percentage": 46.420653581385714,
-          "rasi_no": 10,
-          "zodiac": "Capricorn",
-          "house": 10,
-          "speed_radians_per_day": 1.4477237654320978e-8,
-          "retro": false,
-          "nakshatra": "Sravana",
-          "nakshatra_lord": "Moon",
-          "nakshatra_pada": 2,
-          "nakshatra_no": 22,
-          "zodiac_lord": "Saturn",
-          "is_planet_set": false,
-          "basic_avastha": "Yuva",
-          "lord_status": "Malefic",
-          "is_combust": false
-        },
-        "7": {
-          "name": "Sa",
-          "full_name": "Saturn",
-          "local_degree": 15.737591417352604,
-          "global_degree": 165.7375914173526,
-          "progress_in_percentage": 52.45863805784201,
-          "rasi_no": 6,
-          "zodiac": "Virgo",
-          "house": 6,
-          "speed_radians_per_day": -4.5331790123448455e-10,
-          "retro": true,
-          "nakshatra": "Hasta",
-          "nakshatra_lord": "Moon",
-          "nakshatra_pada": 2,
-          "nakshatra_no": 13,
-          "zodiac_lord": "Mercury",
-          "is_planet_set": true,
-          "basic_avastha": "Yuva",
-          "lord_status": "Malefic",
-          "is_combust": false
-        },
-        "8": {
-          "name": "Ra",
-          "full_name": "Rahu",
-          "local_degree": 16.811770410094866,
-          "global_degree": 106.81177041009487,
-          "progress_in_percentage": 56.03923470031622,
-          "rasi_no": 4,
-          "zodiac": "Cancer",
-          "house": 4,
-          "retro": true,
-          "nakshatra": "Ashlesha",
-          "nakshatra_lord": "Mercury",
-          "nakshatra_pada": 1,
-          "nakshatra_no": 9,
-          "zodiac_lord": "Moon",
-          "is_planet_set": true,
-          "basic_avastha": "Yuva",
-          "lord_status": "Neutral",
-          "is_combust": false
-        },
-        "9": {
-          "name": "Ke",
-          "full_name": "Ketu",
-          "local_degree": 16.81177041009488,
-          "global_degree": 286.8117704100949,
-          "progress_in_percentage": 56.039234700316264,
-          "rasi_no": 10,
-          "zodiac": "Capricorn",
-          "house": 10,
-          "retro": true,
-          "nakshatra": "Sravana",
-          "nakshatra_lord": "Moon",
-          "nakshatra_pada": 3,
-          "nakshatra_no": 22,
-          "zodiac_lord": "Saturn",
-          "is_planet_set": false,
-          "basic_avastha": "Yuva",
-          "lord_status": "Malefic",
-          "is_combust": false
-        }
-      },
-      "dasa": {
-        "birth_dasa": "Ketu>Ju>Me",
-        "current_dasa": "Ma>Ve>Ju",
-        "birth_dasa_time": "07/01/1977",
-        "current_dasa_time": "01/06/2025"
-      },
-      "lucky": {
-        "gem": ["cat's eye"],
-        "num": [7, 9],
-        "colors": ["black"],
-        "letters": ["C", "L"],
-        "name_start": ["chu", "chae", "cho", "ia"]
-      },
-      "rasi_info": {
-        "rasi": "Aries",
-        "nakshatra": "Ashvini",
-        "nakshatra_pada": 3
-      },
-      "panchang": {
-        "ayanamsa": 23.599288692335666,
-        "ayanamsa_name": "Lahiri",
-        "day_of_birth": "Tuesday",
-        "day_lord": "Mars",
-        "hora_lord": "Saturn",
-        "sunrise_at_birth": "06:47:59",
-        "sunset_at_birth": "18:22:59",
-        "karana": "Taitula",
-        "yoga": "Subha",
-        "tithi": "Shasti"
-      },
-      "ghatka_chakra": {
-        "rasi": "Aries",
-        "tithi": ["1 (প্রতিপদ)", "6 (ষষ্ঠী)", "11 (একাদশী)"],
-        "day": "Sunday",
-        "nakshatra": "Magha",
-        "tatva": "Jal (Water)",
-        "lord": "Venus",
-        "same_sex_lagna": "Aries",
-        "opposite_sex_lagna": "Libra"
-      },
-      "planet_reports": [
-        {
-          "planet_considered": "Sun",
-          "planet_location": 10,
-          "planet_native_location": 11,
-          "planet_zodiac": "Cancer",
-          "zodiac_lord": "Moon",
-          "zodiac_lord_location": "Virgo",
-          "zodiac_lord_house_location": 12,
-          "zodiac_lord_strength": "Neutral",
-          "planet_strength": "Neutral",
-          "gayatri_mantra": "Om Bhaskaraya Vidmahe Mahadyutikaraya Dheemahi Tanno Adityah Prachodayaat",
-          "verbal_location": "Lord of the 11th lord in 12th house",
-          "character_keywords_positive": ["principled", "Attractive", "Virtuous", "Creative"],
-          "character_keywords_negative": ["indecisive", "Doubtful"]
-        }
-      ],
-      "houses": {
-        "1": {
-          "house": "1",
-          "rasi_no": 10,
-          "zodiac": "Capricorn",
-          "aspected_by_planet": [],
-          "aspected_by_planet_index": []
-        },
-        "2": {
-          "house": "2",
-          "rasi_no": 11,
-          "zodiac": "Aquarius",
-          "aspected_by_planet": ["Moon", "Rahu"],
-          "aspected_by_planet_index": [2, 8]
-        },
-        "3": {
-          "house": "3",
-          "rasi_no": 12,
-          "zodiac": "Pisces",
-          "aspected_by_planet": ["Mars"],
-          "aspected_by_planet_index": [3]
-        },
-        "4": {
-          "house": "4",
-          "rasi_no": 1,
-          "zodiac": "Aries",
-          "aspected_by_planet": ["Sun", "Jupiter", "Rahu"],
-          "aspected_by_planet_index": [1, 5, 8]
-        },
-        "5": {
-          "house": "5",
-          "rasi_no": 2,
-          "zodiac": "Taurus",
-          "aspected_by_planet": ["Mercury", "Venus"],
-          "aspected_by_planet_index": [4, 6]
-        },
-        "6": {
-          "house": "6",
-          "rasi_no": 3,
-          "zodiac": "Gemini",
-          "aspected_by_planet": ["Saturn", "Ketu"],
-          "aspected_by_planet_index": [7, 9]
-        },
-        "7": {
-          "house": "7",
-          "rasi_no": 4,
-          "zodiac": "Cancer",
-          "aspected_by_planet": [],
-          "aspected_by_planet_index": []
-        },
-        "8": {
-          "house": "8",
-          "rasi_no": 5,
-          "zodiac": "Leo",
-          "aspected_by_planet": ["Ketu"],
-          "aspected_by_planet_index": [9]
-        },
-        "9": {
-          "house": "9",
-          "rasi_no": 6,
-          "zodiac": "Virgo",
-          "aspected_by_planet": [],
-          "aspected_by_planet_index": []
-        },
-        "10": {
-          "house": "10",
-          "rasi_no": 7,
-          "zodiac": "Libra",
-          "aspected_by_planet": ["Ketu"],
-          "aspected_by_planet_index": [9]
-        },
-        "11": {
-          "house": "11",
-          "rasi_no": 8,
-          "zodiac": "Scorpio",
-          "aspected_by_planet": ["Mars", "Saturn"],
-          "aspected_by_planet_index": [3, 7]
-        },
-        "12": {
-          "house": "12",
-          "rasi_no": 9,
-          "zodiac": "Sagittarius",
-          "aspected_by_planet": ["Jupiter", "Rahu"],
-          "aspected_by_planet_index": [5, 8]
-        }
-      }
-    };
-    await generatePlanetReportsWithImages(doc, planetData.planets, userData);
+      doc.addPage();
+      doc.setDrawColor("#a16a21");
+      doc.setLineWidth(1.5);
+      doc.rect(25, 25, 545, 792, "S");
+      doc.setFont("NotoSans", "bold");
+      doc.setFontSize(26);
+      doc.setTextColor("#000");
+      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
+
+      //const formattedText = boldTextBeforeColonString(texts);
+      addParagraphs(doc, texts, 50, 100, pageWidth - 100);
+    }
+    const personalityPrompt = `
+You are an expert Vedic astrologer and psychologist.
+Based on the following astro data, generate "1.5 Personality Traits & Characteristics" 
+describing personality type, behavior, strengths, and emotional tendencies.
+
+STYLE:
+- Warm, elegant tone.
+- 2–3 paragraphs.
+- Bold important traits.
+`;
+
+   let personalityText = await callBedrock(personalityPrompt, {astroData}); 
+   personalityText = sanitizeText(personalityText);
+    doc.addPage();
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(25, 25, 545, 792, "S");
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor("#000");
+    doc.text("1.5 Personality Traits & Characteristics", pageWidth / 2, 60, { align: "center" });
+    doc.setTextColor("#a16a21");
+    addParagraphs(doc, personalityText, 50, 100, pageWidth - 100);
+
+    await generateHouseReports(doc, astroData, userData);
+
+    await generatePlanetReportsWithImages(doc, astroData, userData);
     // Add initial "Love and Marriage" page
 
     function boldTextBeforeColonString(text: string): string {
@@ -4298,7 +1278,6 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         return `${prefix}**${beforeColon.trim()}**:`; // mark bold section
       });
     }
-
 
     doc.addPage();
     const margin = 25;
@@ -4356,1087 +1335,112 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     doc.circle(pageWidth / 2, ornamentY, 2, "F");
 
     const sections = [
-      "Nakshatras & Moon Signs: Provide a multi-paragraph analysis of the individual's Nakshatra and Moon sign, exploring emotional patterns, romantic behavior, and compatibility indicators.",
-      "Planetary Positions & Relationships: Deeply analyze Venus, Mars, Jupiter, and Saturn in the context of love, romance, and marriage, discussing their strengths, aspects, and interactions.",
-      "7th House Analysis: Interpret the 7th house sign, ruling lord, planetary influences, aspects, and their implications for marriage, partnerships, and long-term commitment.",
-      "Divisional Charts (D9 Navamsa & D2 Hora): Explore the D9 chart for marriage quality and compatibility, and D2 for financial harmony and family prosperity.",
-      "Yogas & Doshas: Identify and explain all love and marriage-related yogas or doshas such as Mangal Dosha, Chandra–Mangal Yoga, Venus–Mars combinations, Rahu–Ketu influences, etc., with meanings, strengths, and remedies.",
-      "Planetary Periods : Provide a detailed reading of dashas affecting love life, relationship timing, and marriage prospects."
+      "Nakshatras & Moon Signs: Provide an in-depth interpretation of the individual's Nakshatra and Moon Sign, focusing on emotional needs, compatibility tendencies, and patterns in intimate connections.",
+      "Moon Sign (Rashi): Explain the emotional temperament, instinctive reactions, and expressive style in relationships as governed by the Moon sign.",
+      "Nakshatra (Lunar Mansion): Discuss psychological traits, emotional bonding style, and deeper subconscious motivations influenced by the native’s Nakshatra.",
+      "Planetary Positions & Relationship Patterns: Analyze how the placement and aspects of key planets (especially Venus, Mars, Jupiter, and Saturn) shape love life, attachment style, and relationship experiences.",
+      "Venus: Examine love language, romantic expression, desires in partnerships, and overall capacity for affection, harmony, and attraction.",
+      "Mars: Explore the native’s level of passion, assertiveness, and sexual compatibility, including the influence of Mars’ sign, house, and aspects.",
+      "Jupiter: Interpret how Jupiter signifies marriage prospects, spouse qualities, wisdom in relationships, and timing of significant partnerships.",
+      "Saturn: Assess karmic lessons, emotional maturity, possible delays, and endurance in long-term relationships brought by Saturn’s influence.",
+      "7th House: Provide a detailed reading of the 7th house sign, lordship, and planetary placements, revealing insights into marriage, partnerships, and spouse characteristics.",
+      "Planetary Aspects on 7th House: Analyze how different planets aspecting the 7th house influence relationship patterns, harmony, challenges, and spouse behavior.",
+      "Divisional Charts (D9 - Navamsa, D2 - Hora): Interpret the Navamsa (D9) for depth of marriage and spiritual connection, and the Hora (D2) for financial compatibility and shared prosperity.",
+      "Yogas & Doshas: Identify and explain relationship-related yogas and doshas like Mangal Dosha, Chandra–Mangal Yoga, Venus–Mars conjunctions, or Rahu–Ketu influences, including their significance, strength, and possible remedies.",
+      "Dashas Influencing Relationships: Analyze the Mahadasha and Antardasha periods that activate relationship events, emotional shifts, and marriage timing, providing a clear understanding of love life progression."
     ];
 
     async function fetchLoveSection(sectionPrompt: string) {
-      const fullPrompt = `
-You are a highly experienced Vedic astrologer specializing in Love & Marriage astrology.
+      const lowerPrompt = sectionPrompt.toLowerCase();
 
-Using the provided JSON data, generate a professional, detailed, multi-paragraph report for this section:
+      // Dynamically select JSON keys relevant to this section
+      let requiredKeys = [];
+
+      if (lowerPrompt.includes("moon sign") || lowerPrompt.includes("nakshatra")) {
+        requiredKeys = [
+          "find_moon_sign",
+          "find_sun_sign",
+          "find_ascendant",
+          "planet_details",
+          "personal_characteristics",
+        ];
+      } else if (lowerPrompt.includes("planetary positions")) {
+        requiredKeys = [
+          "planet_details",
+          "planetary_aspects_planets",
+          "planetary_aspects_houses",
+          "planets_in_houses",
+          "kp_planets",
+          "kp_houses",
+        ];
+      } else if (lowerPrompt.includes("venus")) {
+        requiredKeys = ["planet_report_venus", "planet_details", "planets_in_houses"];
+      } else if (lowerPrompt.includes("mars")) {
+        requiredKeys = ["planet_report_mars", "planet_details", "planets_in_houses"];
+      } else if (lowerPrompt.includes("jupiter")) {
+        requiredKeys = ["planet_report_jupiter", "planet_details", "planets_in_houses"];
+      } else if (lowerPrompt.includes("saturn")) {
+        requiredKeys = ["planet_report_saturn", "planet_details", "planets_in_houses"];
+      } else if (lowerPrompt.includes("7th house")) {
+        requiredKeys = ["planets_in_houses", "planetary_aspects_houses", "kp_houses", "find_ascendant"];
+      } else if (lowerPrompt.includes("divisional chart")) {
+        requiredKeys = ["divisional_chart_D9", "divisional_chart_D2", "find_moon_sign"];
+      } else if (lowerPrompt.includes("yoga") || lowerPrompt.includes("dosha")) {
+        requiredKeys = [
+          "yoga_list",
+          "mangal_dosh",
+          "manglik_dosh",
+          "kaalsarp_dosh",
+          "pitra_dosh",
+          "papasamaya",
+        ];
+      } else if (lowerPrompt.includes("dasha")) {
+        requiredKeys = [
+          "maha_dasha",
+          "maha_dasha_predictions",
+          "antar_dasha",
+          "char_dasha_main",
+          "char_dasha_sub",
+          "yogini_dasha_main",
+          "yogini_dasha_sub",
+        ];
+      } else {
+        // Default fallback keys
+        requiredKeys = [
+          "planet_details",
+          "find_moon_sign",
+          "find_ascendant",
+          "planets_in_houses",
+        ];
+      }
+
+      // Filter astroData to include only necessary keys
+      const filteredData = Object.fromEntries(
+        Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
+      );
+
+      // Compose a short, efficient prompt
+      const fullPrompt = `
+You are a Vedic astrologer specializing in Love and Marriage astrology.
+
+Generate a professional, unique, and section-specific report for this topic:
 "${sectionPrompt}"
 
-Strict Structural Instructions:
-1. Only the section titled **"Yogas & Doshas"** should include Yogas or Doshas. 
-   - Do NOT mention Yogas or Doshas (even by name) in any other section.
-   - Other sections must remain analytical, interpretive, or predictive.
-2. If the current section is NOT "Yogas & Doshas", ignore any data about yogas_list.
-3. For all sections:
-   - Use a balanced tone blending authenticity and readability.
-   - Avoid markdown or list syntax.
-   - Use smooth paragraph transitions with natural subheadings (e.g., “Influence of Venus in Love Life”, “Moon and Emotional Expression”).
-4. Write in 2–4 paragraphs minimum per section.
-5. If the section is "Planetary Periods", analyze both Mahadasha and Antardasha data provided.
-6. Never repeat any content across sections.
+Follow these rules:
+- If NOT the "Yogas & Doshas" section, ignore yoga_list or dosha data.
+- Focus only on this section’s topic (no overlap or repetition).
+- Use natural subheadings written in uppercase and wrapped in double asterisks.
+- Write 2–4 concise paragraphs (no markdown or list syntax).
+- Avoid heavy Sanskrit; keep explanations practical and clear.
+- Make it PDF-ready (no #, *, or special markdown symbols).
 
-Guidelines:
-- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
-- Use plain-text **capitalized subheadings**.
-- Present insights in 2–4 short paragraphs or up to 6 bullet points.
-- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
-- Do not reference or mention other sections.
-- Maintain a professional, flowing tone.
+User Language: ${userData.language}
 
-For the **"Yogas & Doshas"** section:
-- Use data from "yogas_list".
-- For each yoga, provide:
-  1. Name
-  2. Meaning (simple + deeper)
-  3. Strength in %
-  4. Planets involved
-  5. Houses involved
-  6. Effects on love/marriage
-  7. Remedies (brief)
-- Write 1 paragraph per yoga minimum.
-- Mention only love/marriage relevance — skip career or general references.
+`;
 
-JSON INPUT:{
-        "0": {
-            "name": "As",
-            "zodiac": "Aquarius",
-            "rasi_no": 11,
-            "house": 1,
-            "retro": false,
-            "full_name": "Ascendant",
-            "local_degree": 24.78031924639663
-        },
-        "1": {
-            "name": "Su",
-            "zodiac": "Aquarius",
-            "rasi_no": 11,
-            "house": 1,
-            "retro": false,
-            "full_name": "Sun",
-            "local_degree": 9.453409420062144
-        },
-        "2": {
-            "name": "Mo",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 7,
-            "retro": false,
-            "full_name": "Moon",
-            "local_degree": 10.419502073079684
-        },
-        "3": {
-            "name": "Ma",
-            "zodiac": "Aries",
-            "rasi_no": 1,
-            "house": 3,
-            "retro": false,
-            "full_name": "Mars",
-            "local_degree": 23.29247702011174
-        },
-        "4": {
-            "name": "Me",
-            "zodiac": "Capricorn",
-            "rasi_no": 10,
-            "house": 12,
-            "retro": true,
-            "full_name": "Mercury",
-            "local_degree": 14.364291740757835
-        },
-        "5": {
-            "name": "Ju",
-            "zodiac": "Aries",
-            "rasi_no": 1,
-            "house": 3,
-            "retro": false,
-            "full_name": "Jupiter",
-            "local_degree": 8.824024650148203
-        },
-        "6": {
-            "name": "Ve",
-            "zodiac": "Sagittarius",
-            "rasi_no": 9,
-            "house": 11,
-            "retro": false,
-            "full_name": "Venus",
-            "local_degree": 14.501868101614946
-        },
-        "7": {
-            "name": "Sa",
-            "zodiac": "Pisces",
-            "rasi_no": 12,
-            "house": 2,
-            "retro": false,
-            "full_name": "Saturn",
-            "local_degree": 19.70210560912119
-        },
-        "8": {
-            "name": "Ra",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 7,
-            "retro": true,
-            "full_name": "Rahu",
-            "local_degree": 12.882623301118656
-        },
-        "9": {
-            "name": "Ke",
-            "zodiac": "Aquarius",
-            "rasi_no": 11,
-            "house": 1,
-            "retro": true,
-            "full_name": "Ketu",
-            "local_degree": 12.88262330111911
-        },
-        "chart": "D9",
-        "chart_name": "Navamsa"
-    },
-    {
-        "0": {
-            "name": "As",
-            "zodiac": "Cancer",
-            "rasi_no": 4,
-            "house": 1,
-            "retro": false,
-            "full_name": "Ascendant",
-            "local_degree": 2.17340427697701
-        },
-        "1": {
-            "name": "Su",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 2,
-            "retro": false,
-            "full_name": "Sun",
-            "local_degree": 18.767424315569315
-        },
-        "2": {
-            "name": "Mo",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 2,
-            "retro": false,
-            "full_name": "Moon",
-            "local_degree": 28.982111571795485
-        },
-        "3": {
-            "name": "Ma",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 2,
-            "retro": false,
-            "full_name": "Mars",
-            "local_degree": 5.1761060044692755
-        },
-        "4": {
-            "name": "Me",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 2,
-            "retro": true,
-            "full_name": "Mercury",
-            "local_degree": 13.192064831279481
-        },
-        "5": {
-            "name": "Ju",
-            "zodiac": "Cancer",
-            "rasi_no": 4,
-            "house": 1,
-            "retro": false,
-            "full_name": "Jupiter",
-            "local_degree": 11.960894366699563
-        },
-        "6": {
-            "name": "Ve",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 2,
-            "retro": false,
-            "full_name": "Venus",
-            "local_degree": 16.555970689247715
-        },
-        "7": {
-            "name": "Sa",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 2,
-            "retro": false,
-            "full_name": "Saturn",
-            "local_degree": 27.71157902424909
-        },
-        "8": {
-            "name": "Ra",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 2,
-            "retro": true,
-            "full_name": "Rahu",
-            "local_degree": 29.529471844693035
-        },
-        "9": {
-            "name": "Ke",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 2,
-            "retro": true,
-            "full_name": "Ketu",
-            "local_degree": 29.529471844693035
-        },
-        "chart": "D2",
-        "chart_name": "Hora"
-    },
-  {
-    "1": {
-      "house": "1",
-      "rasi_no": 10,
-      "zodiac": "Capricorn",
-      "aspected_by_planet": [],
-      "aspected_by_planet_index": []
-    },
-    "2": {
-      "house": "2",
-      "rasi_no": 11,
-      "zodiac": "Aquarius",
-      "aspected_by_planet": [
-        "Moon",
-        "Rahu"
-      ],
-      "aspected_by_planet_index": [
-        2,
-        8
-      ]
-    },
-    "3": {
-      "house": "3",
-      "rasi_no": 12,
-      "zodiac": "Pisces",
-      "aspected_by_planet": [
-        "Mars"
-      ],
-      "aspected_by_planet_index": [
-        3
-      ]
-    },
-    "4": {
-      "house": "4",
-      "rasi_no": 1,
-      "zodiac": "Aries",
-      "aspected_by_planet": [
-        "Sun",
-        "Jupiter",
-        "Rahu"
-      ],
-      "aspected_by_planet_index": [
-        1,
-        5,
-        8
-      ]
-    },
-    "5": {
-      "house": "5",
-      "rasi_no": 2,
-      "zodiac": "Taurus",
-      "aspected_by_planet": [
-        "Mercury",
-        "Venus"
-      ],
-      "aspected_by_planet_index": [
-        4,
-        6
-      ]
-    },
-    "6": {
-      "house": "6",
-      "rasi_no": 3,
-      "zodiac": "Gemini",
-      "aspected_by_planet": [
-        "Saturn",
-        "Ketu"
-      ],
-      "aspected_by_planet_index": [
-        7,
-        9
-      ]
-    },
-    "7": {
-      "house": "7",
-      "rasi_no": 4,
-      "zodiac": "Cancer",
-      "aspected_by_planet": [],
-      "aspected_by_planet_index": []
-    },
-    "8": {
-      "house": "8",
-      "rasi_no": 5,
-      "zodiac": "Leo",
-      "aspected_by_planet": [
-        "Ketu"
-      ],
-      "aspected_by_planet_index": [
-        9
-      ]
-    },
-    "9": {
-      "house": "9",
-      "rasi_no": 6,
-      "zodiac": "Virgo",
-      "aspected_by_planet": [],
-      "aspected_by_planet_index": []
-    },
-    "10": {
-      "house": "10",
-      "rasi_no": 7,
-      "zodiac": "Libra",
-      "aspected_by_planet": [
-        "Ketu"
-      ],
-      "aspected_by_planet_index": [
-        9
-      ]
-    },
-    "11": {
-      "house": "11",
-      "rasi_no": 8,
-      "zodiac": "Scorpio",
-      "aspected_by_planet": [
-        "Mars",
-        "Saturn"
-      ],
-      "aspected_by_planet_index": [
-        3,
-        7
-      ]
-    },
-    "12": {
-      "house": "12",
-      "rasi_no": 9,
-      "zodiac": "Sagittarius",
-      "aspected_by_planet": [
-        "Jupiter",
-        "Rahu"
-      ],
-      "aspected_by_planet_index": [
-        5,
-        8
-      ]
-    }
-  }
-    {
-    "yogas_list": [
-      {
-        "yoga": "Vesi Yoga",
-        "meaning": "Vesi Yoga represents a balanced outlook, characterized by truthfulness and a tall yet somewhat sluggish nature. Those born under this yoga find contentment and happiness with modest wealth and resources.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Vosi Yoga",
-        "meaning": "Vosi Yoga indicates skillfulness, charity, fame, knowledge, and physical strength. Individuals born under this yoga tend to be recognized for their talents and are often celebrated for their generosity and wisdom.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Ubhayachara Yoga",
-        "meaning": "Ubhayachara Yoga suggests being born with all the comforts of life. Such individuals often rise to positions of authority, possibly becoming kings or holding prominent leadership roles due to their innate qualities.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Budha Aditya Yoga",
-        "meaning": "Budha Aditya Yoga signifies intelligence, skillfulness, and expertise in various endeavors. Those born under this yoga are widely recognized and respected for their abilities and enjoy a profound sense of contentment and happiness.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "mercury"
-        ],
-        "houses_involved": [
-          10
-        ]
-      },
-      {
-        "yoga": "Moon is kendra from Sun",
-        "meaning": "When the Moon is positioned in a kendra from the Sun, it typically results in moderate wealth, intelligence, and skills in one's life.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Hamsa Yoga",
-        "meaning": "Hamsa Yoga signifies a spacious nature akin to a swan, purity, spirituality, comfort, respect, passion, potential leadership roles, an enjoyment of life, and the ability to speak eloquently and clearly.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1
-        ]
-      },
-      {
-        "yoga": "Paasa Yoga",
-        "meaning": "Paasa Yoga may involve the risk of facing imprisonment but is associated with considerable capability in one's work. These individuals tend to be talkative, often having a team of servants at their disposal, although their character may be lacking in certain aspects.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Moon",
-          "Sun",
-          "Mercury",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          4,
-          9,
-          1,
-          11
-        ]
-      },
-      {
-        "yoga": "Gaja-Kesari Yoga",
-        "meaning": "Gaja-Kesari Yoga signifies fame, wealth, intelligence, and outstanding character. Individuals under this yoga are often well-liked by kings, bosses, and other leaders, and the presence of benefic aspects amplifies these qualities.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon"
-        ],
-        "houses_involved": [
-          4
-        ]
-      },
-      {
-        "yoga": "Kaahala Yoga",
-        "meaning": "Kaahala Yoga represents a strong and bold personality, often leading a large team or group. These individuals may accumulate properties over their lifetime and exhibit cunning traits.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Mercury",
-          "Saturn",
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Sankha Yoga",
-        "meaning": "Sankha Yoga indicates a life blessed with wealth, a loving spouse, and children. These individuals are known for their kindness, piety, intelligence, and long life expectancy.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon",
-          "Sun"
-        ],
-        "houses_involved": [
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Mridanga Yoga",
-        "meaning": "Mridanga Yoga signifies an individual who holds a kingly or equal leadership position. They lead a life marked by happiness, wealth, and elegance, embodying the traits of a successful and refined leader.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Kalpadruma Yoga",
-        "meaning": "Kalpadruma Yoga represents powerful leaders who actively embrace challenges, fight for justice, and fearlessly pursue prosperity. They are principled, strong-willed, and compassionate in their actions.",
-        "strength_in_percentage": 70,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1,
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Bhaarathi Yoga",
-        "meaning": "Bhaarathi Yoga represents great scholars who are marked by intelligence, religiosity, good looks, and fame. They often excel in various fields and are celebrated for their contributions to knowledge and society.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars",
-          "Moon",
-          "Saturn"
-        ],
-        "houses_involved": [
-          9,
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Raja Yoga",
-        "meaning": "13 raja Yogas present by house associations, Raja Yogas signify exceptional power and prosperity, with individuals often holding dominion over their peers.",
-        "strength_in_percentage": 16.48351648351649,
-        "planets_involved": [
-          "Mars",
-          "Saturn",
-          "Mercury",
-          "Venus",
-          "Jupiter",
-          "Moon"
-        ],
-        "houses_involved": [
-          7,
-          9,
-          10,
-          1,
-          5,
-          4
-        ]
-      },
-      {
-        "yoga": "Dharma-Karmadhipati Yoga",
-        "meaning": "Dharma-Karmadhipati Yoga signifies individuals who are sincere, devoted, and righteous. They are fortunate and highly praised for their moral and ethical virtues.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          9
-        ]
-      },
-      {
-        "yoga": "Raaja Yoga",
-        "meaning": "Raaja Yoga brings a life filled with enjoyment, harmonious relationships, and the blessing of children. Those with this Yoga experience an abundance of life's pleasures and strong family connections.",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Saturn",
-          "Jupiter"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Raja Sambandha Yoga",
-        "meaning": "Those with Raja Sambandha Yoga are exceptionally intelligent and often attain ministerial positions or equivalent roles within organizations. Their intellect and abilities are highly regarded.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Dhana Yoga",
-        "meaning": "Those undergoing the mahadasha experience richness and fame. They accumulate substantial wealth during this period, satisfying their desires.",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "meaning": "Individuals with Daridra Yoga may face financial challenges and live in poverty and misery.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Jupiter",
-          "Mercury",
-          "Rahu",
-          "Ketu"
-        ],
-        "houses_involved": [
-          1,
-          10
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "meaning": "Individuals with Daridra Yoga may face financial challenges and live in poverty and misery.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Sun",
-          "Venus",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          11,
-          10
-        ]
-      }
-    ],
-    "yogas_count": 20,
-    "raja_yoga_count": 4,
-    "dhana_yoga_count": 1,
-    "daridra_yoga_count": 2
-  },
-    {
-    "moon_sign": "Taurus",
-    "bot_response": "Your moon sign is Taurus",
-    "prediction": "Taurus natives are known for being dependable, practical, strong-willed, loyal, and sensual. You love beautiful things. You are good at finances, and hence, make capable financial managers. You are generous and dependable. You can be very stubborn, self-indulgent, frugal, and lazy. You have a possessive streak."
-  }
-    {
-    "lucky_color": "pale-red",
-    "lucky_color_code": "#FFB8BE",
-    "lucky_number": [
-      25,
-      4
-    ],
-    "bot_response": {
-      "physique": {
-        "score": 75,
-        "split_response": "A sublime aura will envelop you, making your presence enchanting and unforgettable wherever you go."
-      },
-      "status": {
-        "score": 98,
-        "split_response": "Kindness and consideration will mark your words in all interactions, shaping you into an influential figure admired for your character."
-      },
-      "finances": {
-        "score": 70,
-        "split_response": "Exercise utmost caution in money transactions to avoid falling victim to fraudulent schemes that could compromise your finances."
-      },
-      "relationship": {
-        "score": 82,
-        "split_response": "You'll fulfill promises made and make an enduring mark on your partner's heart. Your genuine commitment will leave a lasting impression, solidifying your special place in their life."
-      },
-      "career": {
-        "score": 64,
-        "split_response": "Given your business's consistent growth and increased stocks, consider adding new shareholders to bolster your stake and capitalize on expanding opportunities."
-      },
-      "travel": {
-        "score": 85,
-        "split_response": "You might have been feeling the need of moving from your old house to a new house. This day brings you the perfect opportunity for booking your a new apartment."
-      },
-      "family": {
-        "score": 83,
-        "split_response": "Travel and journeys will bring prosperity. Consider embarking on a family trip to strengthen bonds with your spouse and children, fostering cherished memories."
-      },
-      "friends": {
-        "score": 87,
-        "split_response": "Distinguishing between true friends and those who merely seek personal gain will enable you to prune your social circle."
-      },
-      "health": {
-        "score": 58,
-        "split_response": "Exercise vigilance concerning your father's health, particularly in the realm of respiratory health. Early consultation with a doctor will help avert potential issues."
-      },
-      "total_score": {
-        "score": 88,
-        "split_response": "Anticipate a day of discovery and enrichment. Engage in self-reflection and exploration, discovering new interests and hobbies that enrich your life with joy and satisfaction."
-      }
-    },
-    "nakshatra": "ashvini"
-  }
-    {
-    "mahadasha": [
-      "Moon",
-      "Mars",
-      "Rahu",
-      "Jupiter",
-      "Saturn",
-      "Mercury",
-      "Ketu",
-      "Venus",
-      "Sun"
-    ],
-    "mahadasha_order": [
-      "Fri Jun 28 1991",
-      "Sun Jun 28 1998",
-      "Tue Jun 28 2016",
-      "Mon Jun 28 2032",
-      "Wed Jun 28 2051",
-      "Thu Jun 28 2068",
-      "Fri Jun 28 2075",
-      "Tue Jun 28 2095",
-      "Tue Jun 28 2101"
-    ],
-    "start_year": 1981,
-    "dasha_start_date": "Sun Jun 28 1981",
-    "dasha_remaining_at_birth": "5 years 10 months 0 days"
-  }
-     {
-    "antardashas": [
-      [
-        "Saturn/Saturn",
-        "Saturn/Mercury",
-        "Saturn/Ketu",
-        "Saturn/Venus",
-        "Saturn/Sun",
-        "Saturn/Moon",
-        "Saturn/Mars",
-        "Saturn/Rahu",
-        "Saturn/Jupiter"
-      ],
-      [
-        "Mercury/Mercury",
-        "Mercury/Ketu",
-        "Mercury/Venus",
-        "Mercury/Sun",
-        "Mercury/Moon",
-        "Mercury/Mars",
-        "Mercury/Rahu",
-        "Mercury/Jupiter",
-        "Mercury/Saturn"
-      ],
-      [
-        "Ketu/Ketu",
-        "Ketu/Venus",
-        "Ketu/Sun",
-        "Ketu/Moon",
-        "Ketu/Mars",
-        "Ketu/Rahu",
-        "Ketu/Jupiter",
-        "Ketu/Saturn",
-        "Ketu/Mercury"
-      ],
-      [
-        "Venus/Venus",
-        "Venus/Sun",
-        "Venus/Moon",
-        "Venus/Mars",
-        "Venus/Rahu",
-        "Venus/Jupiter",
-        "Venus/Saturn",
-        "Venus/Mercury",
-        "Venus/Ketu"
-      ],
-      [
-        "Sun/Sun",
-        "Sun/Moon",
-        "Sun/Mars",
-        "Sun/Rahu",
-        "Sun/Jupiter",
-        "Sun/Saturn",
-        "Sun/Mercury",
-        "Sun/Ketu",
-        "Sun/Venus"
-      ],
-      [
-        "Moon/Moon",
-        "Moon/Mars",
-        "Moon/Rahu",
-        "Moon/Jupiter",
-        "Moon/Saturn",
-        "Moon/Mercury",
-        "Moon/Ketu",
-        "Moon/Venus",
-        "Moon/Sun"
-      ],
-      [
-        "Mars/Mars",
-        "Mars/Rahu",
-        "Mars/Jupiter",
-        "Mars/Saturn",
-        "Mars/Mercury",
-        "Mars/Ketu",
-        "Mars/Venus",
-        "Mars/Sun",
-        "Mars/Moon"
-      ],
-      [
-        "Rahu/Rahu",
-        "Rahu/Jupiter",
-        "Rahu/Saturn",
-        "Rahu/Mercury",
-        "Rahu/Ketu",
-        "Rahu/Venus",
-        "Rahu/Sun",
-        "Rahu/Moon",
-        "Rahu/Mars"
-      ],
-      [
-        "Jupiter/Jupiter",
-        "Jupiter/Saturn",
-        "Jupiter/Mercury",
-        "Jupiter/Ketu",
-        "Jupiter/Venus",
-        "Jupiter/Sun",
-        "Jupiter/Moon",
-        "Jupiter/Mars",
-        "Jupiter/Rahu"
-      ]
-    ],
-    "antardasha_order": [
-      [
-        "Mon Jul 18 1983",
-        "Thu Mar 27 1986",
-        "Wed May 06 1987",
-        "Fri Jul 06 1990",
-        "Tue Jun 18 1991",
-        "Sat Jan 16 1993",
-        "Fri Feb 25 1994",
-        "Wed Jan 01 1997",
-        "Thu Jul 15 1999"
-      ],
-      [
-        "Tue Dec 11 2001",
-        "Sun Dec 08 2002",
-        "Sat Oct 08 2005",
-        "Mon Aug 14 2006",
-        "Sun Jan 13 2008",
-        "Fri Jan 09 2009",
-        "Fri Jul 29 2011",
-        "Sun Nov 03 2013",
-        "Wed Jul 13 2016"
-      ],
-      [
-        "Fri Dec 09 2016",
-        "Thu Feb 08 2018",
-        "Sat Jun 16 2018",
-        "Tue Jan 15 2019",
-        "Thu Jun 13 2019",
-        "Wed Jul 01 2020",
-        "Mon Jun 07 2021",
-        "Sun Jul 17 2022",
-        "Fri Jul 14 2023"
-      ],
-      [
-        "Thu Nov 12 2026",
-        "Fri Nov 12 2027",
-        "Fri Jul 13 2029",
-        "Thu Sep 12 2030",
-        "Mon Sep 12 2033",
-        "Tue May 13 2036",
-        "Thu Jul 14 2039",
-        "Wed May 14 2042",
-        "Tue Jul 14 2043"
-      ],
-      [
-        "Sun Nov 01 2043",
-        "Mon May 02 2044",
-        "Wed Sep 07 2044",
-        "Wed Aug 02 2045",
-        "Mon May 21 2046",
-        "Fri May 03 2047",
-        "Sun Mar 08 2048",
-        "Tue Jul 14 2048",
-        "Wed Jul 14 2049"
-      ],
-      [
-        "Sat May 14 2050",
-        "Tue Dec 13 2050",
-        "Thu Jun 13 2052",
-        "Mon Oct 13 2053",
-        "Fri May 14 2055",
-        "Thu Oct 12 2056",
-        "Sun May 13 2057",
-        "Sun Jan 12 2059",
-        "Mon Jul 14 2059"
-      ],
-      [
-        "Wed Dec 10 2059",
-        "Tue Dec 28 2060",
-        "Sun Dec 04 2061",
-        "Sat Jan 13 2063",
-        "Thu Jan 10 2064",
-        "Sat Jun 07 2064",
-        "Fri Aug 07 2065",
-        "Sun Dec 13 2065",
-        "Wed Jul 14 2066"
-      ],
-      [
-        "Tue Mar 26 2069",
-        "Thu Aug 20 2071",
-        "Tue Jun 26 2074",
-        "Tue Jan 12 2077",
-        "Mon Jan 31 2078",
-        "Fri Jan 31 2081",
-        "Fri Dec 26 2081",
-        "Sun Jun 27 2083",
-        "Sat Jul 15 2084"
-      ],
-      [
-        "Mon Sep 02 2086",
-        "Tue Mar 15 2089",
-        "Thu Jun 21 2091",
-        "Tue May 27 2092",
-        "Wed Jan 26 2095",
-        "Mon Nov 14 2095",
-        "Fri Mar 15 2097",
-        "Wed Feb 19 2098",
-        "Fri Jul 16 2100"
-      ]
-    ]
-  }
-    {
-    "ascendant": {
-      "global_degree": 341,
-      "retro": false,
-      "zodiac": "Pisces",
-      "zodiac_no": 12,
-      "local_degree": 11,
-      "house": 1
-    },
-    "sun": {
-      "global_degree": 264.6323943231593,
-      "retro": false,
-      "zodiac": "Sagittarius",
-      "zodiac_no": 9,
-      "local_degree": 24.632394323159303,
-      "house": 10
-    },
-    "mercury": {
-      "global_degree": 243.62996058198289,
-      "retro": false,
-      "zodiac": "Sagittarius",
-      "zodiac_no": 9,
-      "local_degree": 3.6299605819828855,
-      "house": 10
-    },
-    "venus": {
-      "global_degree": 237.15298673966956,
-      "retro": false,
-      "zodiac": "Scorpio",
-      "zodiac_no": 8,
-      "local_degree": 27.152986739669558,
-      "house": 9
-    },
-    "moon": {
-      "global_degree": 29.801238681588835,
-      "retro": false,
-      "zodiac": "Aries",
-      "zodiac_no": 1,
-      "local_degree": 29.801238681588835,
-      "house": 2
-    },
-    "mars": {
-      "global_degree": 230.3971939482126,
-      "retro": false,
-      "zodiac": "Scorpio",
-      "zodiac_no": 8,
-      "local_degree": 20.39719394821259,
-      "house": 9
-    },
-    "jupiter": {
-      "global_degree": 284.25164477550845,
-      "retro": false,
-      "zodiac": "Capricorn",
-      "zodiac_no": 10,
-      "local_degree": 14.251644775508453,
-      "house": 11
-    },
-    "saturn": {
-      "global_degree": 76.49006447794464,
-      "retro": true,
-      "zodiac": "Gemini",
-      "zodiac_no": 3,
-      "local_degree": 16.490064477944642,
-      "house": 4
-    },
-    "uranus": {
-      "global_degree": 202.26450178754433,
-      "retro": false,
-      "zodiac": "Libra",
-      "zodiac_no": 7,
-      "local_degree": 22.264501787544333,
-      "house": 8
-    },
-    "neptune": {
-      "global_degree": 245.70077876323884,
-      "retro": false,
-      "zodiac": "Sagittarius",
-      "zodiac_no": 9,
-      "local_degree": 5.700778763238844,
-      "house": 10
-    },
-    "pluto": {
-      "global_degree": 184.30145025845133,
-      "retro": false,
-      "zodiac": "Libra",
-      "zodiac_no": 7,
-      "local_degree": 4.301450258451325,
-      "house": 8
-    },
-    "chiron": {
-      "global_degree": 13.283659415797633,
-      "retro": "N/A",
-      "zodiac": "Aries",
-      "zodiac_no": 1,
-      "local_degree": 13.283659415797633,
-      "house": 2
-    },
-    "sirius": {
-      "global_degree": 1.7627554440093802,
-      "retro": "N/A",
-      "zodiac": "Aries",
-      "zodiac_no": 1,
-      "local_degree": 1.7627554440093802,
-      "house": 2
-    },
-    "day": "Saturday",
-    "north_node": {
-      "global_degree": 287,
-      "retro": true,
-      "zodiac": "Capricorn",
-      "zodiac_no": 10,
-      "local_degree": 17,
-      "house": 11
-    },
-    "south_node": {
-      "global_degree": 107,
-      "retro": true,
-      "zodiac": "Cancer",
-      "zodiac_no": 4,
-      "local_degree": 17,
-      "house": 5
-    }
-  }
-  `;
-
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 4000 }
-        })
-      });
-
-      const data = await response.json();
-      const text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      return removeMarkdown(text);
+      let text = await callBedrock(fullPrompt, {filteredData});
+      text = sanitizeText(text);
+      return text;
     }
 
     // Add new page for this section
@@ -5457,8 +1461,8 @@ JSON INPUT:{
       doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
 
       // Render text with styled subheadings
-      const formatedtext = boldTextBeforeColonString(text);
-      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
+      //const formatedtext = boldTextBeforeColonString(text);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
       //drawHtmlLikeText(doc, text, 50, 100, 8, pageWidth - 100);
     }
     doc.addPage();
@@ -5518,828 +1522,71 @@ JSON INPUT:{
     doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
     doc.circle(pageWidth / 2, y, 2, "F");
     const careerSections = [
-      "Houses Related to Career: Analyze 10th, 6th, and 2nd houses for career insights.",
-      "Planetary Positions Affecting Career: Explain planetary influences on profession, leadership, and growth.",
-      "Yogas Influencing Career and Wealth: Discuss relevant yogas and their impact on career success.",
-      "Dashas for Career Timing: Provide timing predictions and career opportunities.",
-      "Practical Career Guidance: Give actionable advice for career advancement, entrepreneurship, and financial growth."
+      "Houses Related to Career (1st, 2nd, 6th, 10th): Provide an in-depth analysis of the key houses influencing profession, reputation, income, and work stability. Discuss how these houses and their lords define the individual’s natural talents, professional strengths, and career direction.",
+      "Planetary Traits & Amatyakaraka Insights: Examine how different planetary placements shape career aptitude, ambition, and leadership qualities. Include an interpretation of the Amatyakaraka planet to understand vocational purpose and career-driving motivations.",
+      "Nakshatra / Moon Sign Influence: Analyze how the native’s Nakshatra and Moon sign influence work style, emotional approach to profession, decision-making, and preferred work environments.",
+      "Dashas & Yogas: Evaluate the planetary periods (Mahadashas and Antardashas) that bring career growth, job changes, or recognition. Identify major yogas indicating professional success, government positions, entrepreneurship, or creative prominence.",
+      "Divisional Chart (D10 - Dasamsa) Insights: Offer a comprehensive reading of the Dasamsa chart, highlighting professional reputation, authority, leadership potential, and the soul’s deeper purpose in career matters."
     ];
 
     async function fetchCareerSection(sectionPrompt: string) {
+      const requiredKeys = [
+        // Key Houses, Planets, and Yogas
+        "planet_details",
+        "planets_in_houses",
+        "kp_houses",
+        "kp_planets",
+        "yoga_list",
+        "shad_bala",
+
+        // Career & Dashas
+        "maha_dasha",
+        "maha_dasha_predictions",
+        "antar_dasha",
+        "char_dasha_main",
+        "char_dasha_sub",
+        "yogini_dasha_main",
+        "yogini_dasha_sub",
+
+        // Divisional Chart (D10)
+        "divisional_chart_D10",
+
+        // Core Identity and Traits
+        "find_ascendant",
+        "find_moon_sign",
+        "find_sun_sign",
+        "jaimini_karakas",
+        "ascendant_report",
+        "personal_characteristics",
+      ];
+
+      // Filter only required parts from astroData
+      const filteredData = Object.fromEntries(
+        Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
+      );
+
+      // Construct compact but informative prompt
       const fullPrompt = `
-Generate a **unique and section-specific** report for this part:
+You are an expert Vedic astrologer specializing in professional and career astrology.
+
+Generate a **unique and section-specific** report for this topic:
 "${sectionPrompt}"
 
-Context:
-- This is part of a multi-section career report (Houses, Planets, Yogas, Dashas, Guidance, etc.).
-- **Do not repeat or rephrase** any explanation that might appear in other sections.
-- Focus only on what is directly related to this section title and its theme.
-- Avoid generic summaries about the person's career — be precise to the topic.
-- Each section should sound distinct and add new information to the overall report.
-
 Guidelines:
-- Make it suitable for PDF display (no markdown symbols like #, *, etc.).
-- Use plain-text **capitalized subheadings** (e.g., “Main Career Houses:”).
-- Present insights in 2–4 short paragraphs or up to 6 bullet points.
-- Keep explanations practical and easy to understand (avoid heavy Sanskrit terms).
-- If yogas are mentioned, briefly state their direct **impact on career and wealth** — do not redefine them.
-- Do not reference or mention other sections.
-- Maintain a professional, flowing tone.
+- Focus only on this section’s theme (no overlap or repetition with other sections).
+- Use plain, structured sentences or short bullet points.
+- Avoid long paragraphs and Sanskrit-heavy terms.
+- Suitable for PDF display (no markdown symbols).
+- Use clear **UPPERCASE SUBHEADINGS** wrapped in double asterisks.
+- Keep analysis insightful, practical, and concise.
 
-language:${userData.language}
-Make sure your response is **unique** to this section and does not overlap with others.
+User Language: ${userData.language}
 
-Below is the detailed astrological data for analysis:
-        JSON: {
-    "0": {
-      "name": "As",
-      "zodiac": "Gemini",
-      "rasi_no": 3,
-      "house": 1,
-      "retro": false,
-      "full_name": "Ascendant",
-      "local_degree": 15.866820172851817
-    },
-    "1": {
-      "name": "Su",
-      "zodiac": "Pisces",
-      "rasi_no": 12,
-      "house": 10,
-      "retro": false,
-      "full_name": "Sun",
-      "local_degree": 24.383712157784657
-    },
-    "2": {
-      "name": "Mo",
-      "zodiac": "Leo",
-      "rasi_no": 5,
-      "house": 3,
-      "retro": false,
-      "full_name": "Moon",
-      "local_degree": 14.491055785897743
-    },
-    "3": {
-      "name": "Ma",
-      "zodiac": "Aries",
-      "rasi_no": 1,
-      "house": 11,
-      "retro": false,
-      "full_name": "Mars",
-      "local_degree": 2.5880530022346377
-    },
-    "4": {
-      "name": "Me",
-      "zodiac": "Pisces",
-      "rasi_no": 12,
-      "house": 10,
-      "retro": true,
-      "full_name": "Mercury",
-      "local_degree": 21.59603241563974
-    },
-    "5": {
-      "name": "Ju",
-      "zodiac": "Aquarius",
-      "rasi_no": 11,
-      "house": 9,
-      "retro": false,
-      "full_name": "Jupiter",
-      "local_degree": 20.98044718334978
-    },
-    "6": {
-      "name": "Ve",
-      "zodiac": "Aquarius",
-      "rasi_no": 11,
-      "house": 9,
-      "retro": false,
-      "full_name": "Venus",
-      "local_degree": 8.277985344623858
-    },
-    "7": {
-      "name": "Sa",
-      "zodiac": "Pisces",
-      "rasi_no": 12,
-      "house": 10,
-      "retro": false,
-      "full_name": "Saturn",
-      "local_degree": 28.855789512124545
-    },
-    "8": {
-      "name": "Ra",
-      "zodiac": "Leo",
-      "rasi_no": 5,
-      "house": 3,
-      "retro": true,
-      "full_name": "Rahu",
-      "local_degree": 14.764735922346517
-    },
-    "9": {
-      "name": "Ke",
-      "zodiac": "Aquarius",
-      "rasi_no": 11,
-      "house": 9,
-      "retro": true,
-      "full_name": "Ketu",
-      "local_degree": 14.764735922346517
-    },
-    "chart": "D1",
-    "chart_name": "Lagna"
-  }
-    {
-    "ashtakvarga_order": [
-      "Sun",
-      "Moon",
-      "Mars",
-      "Mercury",
-      "Jupiter",
-      "Venus",
-      "Saturn",
-      "Ascendant"
-    ],
-    "ashtakvarga_points": [
-      [
-        5,
-        5,
-        4,
-        6,
-        4,
-        2,
-        4,
-        3,
-        5,
-        4,
-        2,
-        4
-      ],
-      [
-        4,
-        3,
-        2,
-        5,
-        6,
-        3,
-        3,
-        4,
-        6,
-        3,
-        6,
-        4
-      ],
-      [
-        5,
-        4,
-        2,
-        5,
-        3,
-        3,
-        3,
-        3,
-        5,
-        3,
-        0,
-        3
-      ],
-      [
-        4,
-        7,
-        5,
-        6,
-        5,
-        4,
-        5,
-        4,
-        4,
-        4,
-        1,
-        5
-      ],
-      [
-        6,
-        4,
-        3,
-        5,
-        7,
-        2,
-        6,
-        6,
-        3,
-        6,
-        4,
-        4
-      ],
-      [
-        4,
-        5,
-        8,
-        3,
-        4,
-        3,
-        4,
-        2,
-        5,
-        5,
-        6,
-        3
-      ],
-      [
-        4,
-        3,
-        1,
-        6,
-        4,
-        2,
-        2,
-        2,
-        3,
-        4,
-        4,
-        4
-      ],
-      [
-        3,
-        3,
-        5,
-        6,
-        5,
-        4,
-        4,
-        4,
-        5,
-        4,
-        3,
-        4
-      ]
-    ],
-    "ashtakvarga_total": [
-      32,
-      31,
-      25,
-      36,
-      33,
-      19,
-      27,
-      24,
-      31,
-      29,
-      23,
-      27
-    ]
-  }
-    {
-    "yogas_list": [
-      {
-        "yoga": "Vesi Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Vosi Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Ubhayachara Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Budha Aditya Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "mercury"
-        ],
-        "houses_involved": [
-          10
-        ]
-      },
-      {
-        "yoga": "Moon is kendra from Sun",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Hamsa Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1
-        ]
-      },
-      {
-        "yoga": "Paasa Yoga",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Moon",
-          "Sun",
-          "Mercury",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          4,
-          9,
-          1,
-          11
-        ]
-      },
-      {
-        "yoga": "Gaja-Kesari Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon"
-        ],
-        "houses_involved": [
-          4
-        ]
-      },
-      {
-        "yoga": "Kaahala Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Mercury",
-          "Saturn",
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Sankha Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon",
-          "Sun"
-        ],
-        "houses_involved": [
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Mridanga Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Kalpadruma Yoga",
-        "strength_in_percentage": 70,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1,
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Bhaarathi Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars",
-          "Moon",
-          "Saturn"
-        ],
-        "houses_involved": [
-          9,
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Raja Yoga",
-        "strength_in_percentage": 16.48351648351649,
-        "planets_involved": [
-          "Mars",
-          "Saturn",
-          "Mercury",
-          "Venus",
-          "Jupiter",
-          "Moon"
-        ],
-        "houses_involved": [
-          7,
-          9,
-          10,
-          1,
-          5,
-          4
-        ]
-      },
-      {
-        "yoga": "Dharma-Karmadhipati Yoga",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          9
-        ]
-      },
-      {
-        "yoga": "Raaja Yoga",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Saturn",
-          "Jupiter"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Raja Sambandha Yoga",
-     "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Dhana Yoga",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-       "strength_in_percentage": 100,
-        "planets_involved": [
-          "Jupiter",
-          "Mercury",
-          "Rahu",
-          "Ketu"
-        ],
-        "houses_involved": [
-          1,
-          10
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Sun",
-          "Venus",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          11,
-          10
-        ]
-      }
-    ],
-    "yogas_count": 20,
-    "raja_yoga_count": 4,
-    "dhana_yoga_count": 1,
-    "daridra_yoga_count": 2
-  }
-    {
-    "moon_sign": "Taurus",
-    "bot_response": "Your moon sign is Taurus",
-    "prediction": "Taurus natives are known for being dependable, practical, strong-willed, loyal, and sensual. You love beautiful things. You are good at finances, and hence, make capable financial managers. You are generous and dependable. You can be very stubborn, self-indulgent, frugal, and lazy. You have a possessive streak."
-  }
-    {
-    "lucky_color": "pale-red",
-    "lucky_color_code": "#FFB8BE",
-    "lucky_number": [
-      25,
-      4
-    ],
-    "bot_response": {
-      "physique": {
-        "score": 75,
-        },
-      "status": {
-        "score": 98,
-        },
-      "finances": {
-        "score": 70,
-       },
-      "relationship": {
-        "score": 82,
-        },
-      "career": {
-        "score": 64,
-        },
-      "travel": {
-        "score": 85,
-       },
-      "family": {
-        "score": 83,
-        },
-      "friends": {
-        "score": 87,
-       },
-      "health": {
-        "score": 58,
-       },
-      "total_score": {
-        "score": 88,
-        }
-    },
-    "nakshatra": "ashvini"
-  }
-    {
-    "mahadasha": [
-      "Moon",
-      "Mars",
-      "Rahu",
-      "Jupiter",
-      "Saturn",
-      "Mercury",
-      "Ketu",
-      "Venus",
-      "Sun"
-    ],
-    "mahadasha_order": [
-      "Fri Jun 28 1991",
-      "Sun Jun 28 1998",
-      "Tue Jun 28 2016",
-      "Mon Jun 28 2032",
-      "Wed Jun 28 2051",
-      "Thu Jun 28 2068",
-      "Fri Jun 28 2075",
-      "Tue Jun 28 2095",
-      "Tue Jun 28 2101"
-    ],
-    "start_year": 1981,
-    "dasha_start_date": "Sun Jun 28 1981",
-    "dasha_remaining_at_birth": "5 years 10 months 0 days"
-  }
-     {
-    "antardashas": [
-      [
-        "Saturn/Saturn",
-        "Saturn/Mercury",
-        "Saturn/Ketu",
-        "Saturn/Venus",
-        "Saturn/Sun",
-        "Saturn/Moon",
-        "Saturn/Mars",
-        "Saturn/Rahu",
-        "Saturn/Jupiter"
-      ],
-      [
-        "Mercury/Mercury",
-        "Mercury/Ketu",
-        "Mercury/Venus",
-        "Mercury/Sun",
-        "Mercury/Moon",
-        "Mercury/Mars",
-        "Mercury/Rahu",
-        "Mercury/Jupiter",
-        "Mercury/Saturn"
-      ],
-      [
-        "Ketu/Ketu",
-        "Ketu/Venus",
-        "Ketu/Sun",
-        "Ketu/Moon",
-        "Ketu/Mars",
-        "Ketu/Rahu",
-        "Ketu/Jupiter",
-        "Ketu/Saturn",
-        "Ketu/Mercury"
-      ],
-      [
-        "Venus/Venus",
-        "Venus/Sun",
-        "Venus/Moon",
-        "Venus/Mars",
-        "Venus/Rahu",
-        "Venus/Jupiter",
-        "Venus/Saturn",
-        "Venus/Mercury",
-        "Venus/Ketu"
-      ],
-      [
-        "Sun/Sun",
-        "Sun/Moon",
-        "Sun/Mars",
-        "Sun/Rahu",
-        "Sun/Jupiter",
-        "Sun/Saturn",
-        "Sun/Mercury",
-        "Sun/Ketu",
-        "Sun/Venus"
-      ],
-      [
-        "Moon/Moon",
-        "Moon/Mars",
-        "Moon/Rahu",
-        "Moon/Jupiter",
-        "Moon/Saturn",
-        "Moon/Mercury",
-        "Moon/Ketu",
-        "Moon/Venus",
-        "Moon/Sun"
-      ],
-      [
-        "Mars/Mars",
-        "Mars/Rahu",
-        "Mars/Jupiter",
-        "Mars/Saturn",
-        "Mars/Mercury",
-        "Mars/Ketu",
-        "Mars/Venus",
-        "Mars/Sun",
-        "Mars/Moon"
-      ],
-      [
-        "Rahu/Rahu",
-        "Rahu/Jupiter",
-        "Rahu/Saturn",
-        "Rahu/Mercury",
-        "Rahu/Ketu",
-        "Rahu/Venus",
-        "Rahu/Sun",
-        "Rahu/Moon",
-        "Rahu/Mars"
-      ],
-      [
-        "Jupiter/Jupiter",
-        "Jupiter/Saturn",
-        "Jupiter/Mercury",
-        "Jupiter/Ketu",
-        "Jupiter/Venus",
-        "Jupiter/Sun",
-        "Jupiter/Moon",
-        "Jupiter/Mars",
-        "Jupiter/Rahu"
-      ]
-    ],
-    "antardasha_order": [
-      [
-        "Mon Jul 18 1983",
-        "Thu Mar 27 1986",
-        "Wed May 06 1987",
-        "Fri Jul 06 1990",
-        "Tue Jun 18 1991",
-        "Sat Jan 16 1993",
-        "Fri Feb 25 1994",
-        "Wed Jan 01 1997",
-        "Thu Jul 15 1999"
-      ],
-      [
-        "Tue Dec 11 2001",
-        "Sun Dec 08 2002",
-        "Sat Oct 08 2005",
-        "Mon Aug 14 2006",
-        "Sun Jan 13 2008",
-        "Fri Jan 09 2009",
-        "Fri Jul 29 2011",
-        "Sun Nov 03 2013",
-        "Wed Jul 13 2016"
-      ],
-      [
-        "Fri Dec 09 2016",
-        "Thu Feb 08 2018",
-        "Sat Jun 16 2018",
-        "Tue Jan 15 2019",
-        "Thu Jun 13 2019",
-        "Wed Jul 01 2020",
-        "Mon Jun 07 2021",
-        "Sun Jul 17 2022",
-        "Fri Jul 14 2023"
-      ],
-      [
-        "Thu Nov 12 2026",
-        "Fri Nov 12 2027",
-        "Fri Jul 13 2029",
-        "Thu Sep 12 2030",
-        "Mon Sep 12 2033",
-        "Tue May 13 2036",
-        "Thu Jul 14 2039",
-        "Wed May 14 2042",
-        "Tue Jul 14 2043"
-      ],
-      [
-        "Sun Nov 01 2043",
-        "Mon May 02 2044",
-        "Wed Sep 07 2044",
-        "Wed Aug 02 2045",
-        "Mon May 21 2046",
-        "Fri May 03 2047",
-        "Sun Mar 08 2048",
-        "Tue Jul 14 2048",
-        "Wed Jul 14 2049"
-      ],
-      [
-        "Sat May 14 2050",
-        "Tue Dec 13 2050",
-        "Thu Jun 13 2052",
-        "Mon Oct 13 2053",
-        "Fri May 14 2055",
-        "Thu Oct 12 2056",
-        "Sun May 13 2057",
-        "Sun Jan 12 2059",
-        "Mon Jul 14 2059"
-      ],
-      [
-        "Wed Dec 10 2059",
-        "Tue Dec 28 2060",
-        "Sun Dec 04 2061",
-        "Sat Jan 13 2063",
-        "Thu Jan 10 2064",
-        "Sat Jun 07 2064",
-        "Fri Aug 07 2065",
-        "Sun Dec 13 2065",
-        "Wed Jul 14 2066"
-      ],
-      [
-        "Tue Mar 26 2069",
-        "Thu Aug 20 2071",
-        "Tue Jun 26 2074",
-        "Tue Jan 12 2077",
-        "Mon Jan 31 2078",
-        "Fri Jan 31 2081",
-        "Fri Dec 26 2081",
-        "Sun Jun 27 2083",
-        "Sat Jul 15 2084"
-      ],
-      [
-        "Mon Sep 02 2086",
-        "Tue Mar 15 2089",
-        "Thu Jun 21 2091",
-        "Tue May 27 2092",
-        "Wed Jan 26 2095",
-        "Mon Nov 14 2095",
-        "Fri Mar 15 2097",
-        "Wed Feb 19 2098",
-        "Fri Jul 16 2100"
-      ]
-    ]
-  }
-        Make it suitable for PDF display and do not use markdown.
-      `;
+`;
 
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
-        })
-      });
-
-      const data = await response.json();
-      const text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      return removeMarkdown(text);
+      let text= await callBedrock(fullPrompt, {filteredData});
+      text = sanitizeText(text);
+      return text;
     }
 
     // Run all API calls in parallel
@@ -6362,8 +1609,8 @@ Below is the detailed astrological data for analysis:
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext = boldTextBeforeColonString(text);
-      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
+      //const formatedtext = boldTextBeforeColonString(text);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
 
     doc.addPage();
@@ -6436,686 +1683,54 @@ Below is the detailed astrological data for analysis:
     //   pageWidth - margin - 20, pageHeight - margin - 60
     // );
     const healthSections = [
-      "Doshas in Vedic Astrology: Manglik, Pitra, and Kaal Sarp doshas, effects on health, and remedies.",
-      "Planetary Influence on Health: Sun, Moon, Mars, Saturn, Rahu/Ketu and their effects on vitality and wellbeing.",
-      "Houses Related to Health: 1st, 6th, 8th, 12th houses and associated health interpretations.",
-      "Nakshatra & Moon Sign Influence: Impact on emotional balance, mental health, and stress response.",
-      "Holistic Remedies & Practical Advice: Lifestyle, diet, yoga, gemstone, and color remedies."
+      "Doshas in Vedic Astrology (Manglik, Pitra, Kaalsarp, Papasamaya): Identify and interpret major health-related doshas, explaining their origins, planetary causes, and potential impact on physical, mental, and emotional wellbeing. Provide an overview of their intensity and possible remedies.",
+      "Planetary Influence on Health (Sun, Moon, Mars, Saturn, Rahu/Ketu): Analyze how these planets affect vitality, immunity, stress, and chronic conditions. Highlight benefic or malefic influences and how their positioning contributes to overall health and energy balance.",
+      "Houses Related to Health (1st, 6th, 8th, 12th): Provide an in-depth reading of these houses and their lords to understand physical constitution, disease tendencies, recovery capacity, and karmic health challenges.",
+      "Nakshatra & Moon Sign: Examine how the Nakshatra and Moon sign influence emotional resilience, mental balance, and psychosomatic patterns that can impact physical health.",
+      "Ayurvedic Correlation (Vata, Pitta, Kapha Imbalances): Correlate planetary and elemental influences with Ayurvedic principles, identifying dominant doshas and potential imbalances affecting health and lifestyle.",
+      "Remedies for Health-Related Doshas: Suggest appropriate Vedic, spiritual, and lifestyle remedies such as mantras, donations, fasting, yoga, or meditation to mitigate health doshas and strengthen overall wellbeing."
     ];
 
     async function fetchhealthsection(sectionPrompt: string) {
+      const requiredKeys = [
+        "mangal_dosh",
+        "kaalsarp_dosh",
+        "manglik_dosh",
+        "pitra_dosh",
+        "papasamaya",
+        "planet_details",
+        "find_moon_sign",
+        "find_ascendant",
+        "shad_bala",
+        "kp_houses",
+        "kp_planets",
+        "yoga_list",
+      ];
+
+      // Filter astroData to only include necessary keys
+      const filteredData = Object.fromEntries(
+        Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
+      );
+
       const fullPrompt = `
-       You are an expert Vedic astrologer specializing in health and wellbeing.
+You are an expert Vedic astrologer specializing in health and wellbeing.
 Using the provided JSON input, generate a professional, unique, and insightful health astrology report for this section:
 ${sectionPrompt}
 
- Guidelines:
-- Write in clear, human-like tone.
-- Avoid long paragraphs; use more bullet points or short structured lines.
-- Each section must have distinct insights — do not repeat content from other sections.
-- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
-- Keep practical remedies and observations easy to read.
-
+Guidelines:
+- Write clearly and concisely in short points or structured lines.
+- Avoid repetition across sections.
+- Make content suitable for clean PDF display (no markdown or special characters).
+- Emphasize practical insights and remedies.
+Formatting for Bold Text:
+- Use double asterisks (**) around important terms or headings.
 User Language: ${userData.language}
-        JSON: {
-          "manglik_by_mars": true,
-          "bot_response": "You are 6% manglik. ",
-          "manglik_by_saturn": false,
-          "manglik_by_rahuketu": false,
-          "score": 6
-        }
-          {Pitradosh: present}
-          {
-    "is_dosha_present": true,
-    "dosha_direction": "Descending",
-    "dosha_type": "Shankpal",
-    "rahu_ketu_axis": "4-10",
-  }
-    {
-    "0": {
-      "name": "As",
-      "full_name": "Ascendant",
-      "local_degree": 21.903422571573824,
-      "global_degree": 21.903422571573824,
-      "progress_in_percentage": 73.01140857191275,
-      "rasi_no": 1,
-      "zodiac": "Aries",
-      "house": 1,
-      "nakshatra": "Bharani",
-      "nakshatra_lord": "Venus",
-      "nakshatra_pada": 3,
-      "nakshatra_no": 2,
-      "zodiac_lord": "Mars",
-      "is_planet_set": false,
-      "lord_status": "-",
-      "basic_avastha": "-",
-      "is_combust": false
-    },
-    "1": {
-      "name": "Su",
-      "full_name": "Sun",
-      "local_degree": 27.83755839588116,
-      "global_degree": 297.83755839588116,
-      "progress_in_percentage": 92.79186131960387,
-      "rasi_no": 10,
-      "zodiac": "Capricorn",
-      "house": 10,
-      "speed_radians_per_day": 1.170910493827214e-8,
-      "retro": false,
-      "nakshatra": "Dhanista",
-      "nakshatra_lord": "Mars",
-      "nakshatra_pada": 2,
-      "nakshatra_no": 23,
-      "zodiac_lord": "Saturn",
-      "is_planet_set": false,
-      "basic_avastha": "Mritya",
-      "lord_status": "Benefic"
-    },
-    "2": {
-      "name": "Mo",
-      "full_name": "Moon",
-      "local_degree": 8.18777419124902,
-      "global_degree": 8.18777419124902,
-      "progress_in_percentage": 27.292580637496734,
-      "rasi_no": 1,
-      "zodiac": "Aries",
-      "house": 1,
-      "speed_radians_per_day": 1.6538708847736627e-7,
-      "retro": false,
-      "nakshatra": "Ashvini",
-      "nakshatra_lord": "Ketu",
-      "nakshatra_pada": 3,
-      "nakshatra_no": 1,
-      "zodiac_lord": "Mars",
-      "is_planet_set": false,
-      "basic_avastha": "Kumara",
-      "lord_status": "Neutral",
-      "is_combust": false
-    },
-    "3": {
-      "name": "Ma",
-      "full_name": "Mars",
-      "local_degree": 9.030010949047437,
-      "global_degree": 309.03001094904744,
-      "progress_in_percentage": 30.10003649682479,
-      "rasi_no": 11,
-      "zodiac": "Aquarius",
-      "house": 11,
-      "speed_radians_per_day": 9.149948559670794e-9,
-      "retro": false,
-      "nakshatra": "Shatabhisha",
-      "nakshatra_lord": "Rahu",
-      "nakshatra_pada": 1,
-      "nakshatra_no": 24,
-      "zodiac_lord": "Saturn",
-      "is_planet_set": false,
-      "basic_avastha": "Kumara",
-      "lord_status": "Benefic",
-      "is_combust": true
-    },
-    "4": {
-      "name": "Me",
-      "full_name": "Mercury",
-      "local_degree": 11.054228091085577,
-      "global_degree": 311.0542280910856,
-      "progress_in_percentage": 36.847426970285255,
-      "rasi_no": 11,
-      "zodiac": "Aquarius",
-      "house": 11,
-      "speed_radians_per_day": -4.112011316872197e-9,
-      "retro": true,
-      "nakshatra": "Shatabhisha",
-      "nakshatra_lord": "Rahu",
-      "nakshatra_pada": 2,
-      "nakshatra_no": 24,
-      "zodiac_lord": "Saturn",
-      "is_planet_set": false,
-      "basic_avastha": "Kumara",
-      "lord_status": "Malefic",
-      "is_combust": false
-    },
-    "5": {
-      "name": "Ju",
-      "full_name": "Jupiter",
-      "local_degree": 16.362201044564813,
-      "global_degree": 166.3622010445648,
-      "progress_in_percentage": 54.540670148549374,
-      "rasi_no": 6,
-      "zodiac": "Virgo",
-      "house": 6,
-      "speed_radians_per_day": -6.076388888886652e-10,
-      "retro": true,
-      "nakshatra": "Hasta",
-      "nakshatra_lord": "Moon",
-      "nakshatra_pada": 2,
-      "nakshatra_no": 13,
-      "zodiac_lord": "Mercury",
-      "is_planet_set": true,
-      "basic_avastha": "Yuva",
-      "lord_status": "Highly Benefic",
-      "is_combust": false
-    },
-    "6": {
-      "name": "Ve",
-      "full_name": "Venus",
-      "local_degree": 13.926196074415714,
-      "global_degree": 283.9261960744157,
-      "progress_in_percentage": 46.420653581385714,
-      "rasi_no": 10,
-      "zodiac": "Capricorn",
-      "house": 10,
-      "speed_radians_per_day": 1.4477237654320978e-8,
-      "retro": false,
-      "nakshatra": "Sravana",
-      "nakshatra_lord": "Moon",
-      "nakshatra_pada": 2,
-      "nakshatra_no": 22,
-      "zodiac_lord": "Saturn",
-      "is_planet_set": false,
-      "basic_avastha": "Yuva",
-      "lord_status": "Malefic",
-      "is_combust": false
-    },
-    "7": {
-      "name": "Sa",
-      "full_name": "Saturn",
-      "local_degree": 15.737591417352604,
-      "global_degree": 165.7375914173526,
-      "progress_in_percentage": 52.45863805784201,
-      "rasi_no": 6,
-      "zodiac": "Virgo",
-      "house": 6,
-      "speed_radians_per_day": -4.5331790123448455e-10,
-      "retro": true,
-      "nakshatra": "Hasta",
-      "nakshatra_lord": "Moon",
-      "nakshatra_pada": 2,
-      "nakshatra_no": 13,
-      "zodiac_lord": "Mercury",
-      "is_planet_set": true,
-      "basic_avastha": "Yuva",
-      "lord_status": "Malefic",
-      "is_combust": false
-    },
-    "8": {
-      "name": "Ra",
-      "full_name": "Rahu",
-      "local_degree": 16.811770410094866,
-      "global_degree": 106.81177041009487,
-      "progress_in_percentage": 56.03923470031622,
-      "rasi_no": 4,
-      "zodiac": "Cancer",
-      "house": 4,
-      "retro": true,
-      "nakshatra": "Ashlesha",
-      "nakshatra_lord": "Mercury",
-      "nakshatra_pada": 1,
-      "nakshatra_no": 9,
-      "zodiac_lord": "Moon",
-      "is_planet_set": true,
-      "basic_avastha": "Yuva",
-      "lord_status": "Neutral",
-      "is_combust": false
-    },
-    "9": {
-      "name": "Ke",
-      "full_name": "Ketu",
-      "local_degree": 16.81177041009488,
-      "global_degree": 286.8117704100949,
-      "progress_in_percentage": 56.039234700316264,
-      "rasi_no": 10,
-      "zodiac": "Capricorn",
-      "house": 10,
-      "retro": true,
-      "nakshatra": "Sravana",
-      "nakshatra_lord": "Moon",
-      "nakshatra_pada": 3,
-      "nakshatra_no": 22,
-      "zodiac_lord": "Saturn",
-      "is_planet_set": false,
-      "basic_avastha": "Yuva",
-      "lord_status": "Malefic",
-      "is_combust": false
-    },
-    "birth_dasa": "Ketu>Ju>Me",
-    "current_dasa": "Ma>Ve>Ju",
-    "birth_dasa_time": "07/01/1977",
-    "current_dasa_time": " 01/06/2025",
-    "lucky_gem": [
-      "cat's eye"
-    ],
-    "lucky_num": [
-      7,
-      9
-    ],
-    "lucky_colors": [
-      "black"
-    ],
-    "lucky_letters": [
-      "C",
-      "L"
-    ],
-    "lucky_name_start": [
-      "chu",
-      "chae",
-      "cho",
-      "ia"
-    ],
-    "rasi": "Aries",
-    "nakshatra": "Ashvini",
-    "nakshatra_pada": 3,
-    "panchang": {
-      "ayanamsa": 23.599288692335666,
-      "ayanamsa_name": "Lahiri",
-      "day_of_birth": "Tuesday",
-      "day_lord": "Mars",
-      "hora_lord": "Saturn",
-      "sunrise_at_birth": "06:47:59",
-      "sunset_at_birth": "18:22:59",
-      "karana": "Taitula",
-      "yoga": "Subha",
-      "tithi": "Shasti"
-    },
-    "ghatka_chakra": {
-      "rasi": "Aries",
-      "tithi": [
-        "1 (প্রতিপদ)",
-        "6 (ষষ্ঠী)",
-        "11 (একাদশী)"
-      ],
-      "day": "Sunday",
-      "nakshatra": "Magha",
-      "tatva": "Jal (Water)",
-      "lord": "Venus",
-      "same_sex_lagna": "Aries",
-      "opposite_sex_lagna": "Libra"
-    }
-  }
-    [
-    {
-      "start_rasi": "Libra",
-      "end_rasi": "Scorpio",
-      "end_rasi_lord": "Mars",
-      "local_start_degree": 8.491066124885606,
-      "local_end_degree": 9.285066124885589,
-      "length": 30.793999999999983,
-      "house": 1,
-      "bhavmadhya": 23.888066124885597,
-      "global_start_degree": 203.478,
-      "global_end_degree": 234.272,
-      "start_nakshatra": "Vishakha",
-      "end_nakshatra": "Jyeshtha",
-      "start_nakshatra_lord": "Jupiter",
-      "end_nakshatra_lord": "Mercury",
-      "planets": [
-        {
-          "planetId": "0",
-          "full_name": "Ascendant",
-          "name": "As",
-          "nakshatra": "Vishakha",
-          "nakshatra_no": 16,
-          "nakshatra_pada": 2,
-          "retro": false
-        },
-        {
-          "planetId": "7",
-          "full_name": "Saturn",
-          "name": "Sa",
-          "nakshatra": "Jyeshtha",
-          "nakshatra_no": 18,
-          "nakshatra_pada": 2,
-          "retro": false
-        }
-      ],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Scorpio",
-      "end_rasi": "Sagittarius",
-      "end_rasi_lord": "Jupiter",
-      "local_start_degree": 10.105166124885585,
-      "local_end_degree": 9.258966124885575,
-      "length": 29.15379999999999,
-      "house": 2,
-      "bhavmadhya": 24.68206612488558,
-      "global_start_degree": 234.272,
-      "global_end_degree": 263.4258,
-      "start_nakshatra": "Jyeshtha",
-      "end_nakshatra": "PurvaShadha",
-      "start_nakshatra_lord": "Mercury",
-      "end_nakshatra_lord": "Venus",
-      "planets": [],
-      "cusp_sub_lord": "Rahu",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Sagittarius",
-      "end_rasi": "Capricorn",
-      "end_rasi_lord": "Saturn",
-      "local_start_degree": 9.55891612488557,
-      "local_end_degree": 8.112816124885569,
-      "length": 28.5539,
-      "house": 3,
-      "bhavmadhya": 23.83586612488557,
-      "global_start_degree": 263.4258,
-      "global_end_degree": 291.9797,
-      "start_nakshatra": "PurvaShadha",
-      "end_nakshatra": "Sravana",
-      "start_nakshatra_lord": "Venus",
-      "end_nakshatra_lord": "Moon",
-      "planets": [],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Capricorn",
-      "end_rasi": "Aquarius",
-      "end_rasi_lord": "Saturn",
-      "local_start_degree": 6.873466124885567,
-      "local_end_degree": 7.9060661248855695,
-      "length": 31.032600000000002,
-      "house": 4,
-      "bhavmadhya": 22.38976612488557,
-      "global_start_degree": 291.9797,
-      "global_end_degree": 323.0123,
-      "start_nakshatra": "Sravana",
-      "end_nakshatra": "PurvaBhadra",
-      "start_nakshatra_lord": "Moon",
-      "end_nakshatra_lord": "Jupiter",
-      "planets": [],
-      "cusp_sub_lord": "Venus",
-      "cusp_sub_sub_lord": "Saturn"
-    },
-    {
-      "start_rasi": "Aquarius",
-      "end_rasi": "Pisces",
-      "end_rasi_lord": "Jupiter",
-      "local_start_degree": 7.797316124885555,
-      "local_end_degree": 9.047416124885586,
-      "length": 31.25010000000003,
-      "house": 5,
-      "bhavmadhya": 23.42236612488557,
-      "global_start_degree": 323.0123,
-      "global_end_degree": 354.2624,
-      "start_nakshatra": "PurvaBhadra",
-      "end_nakshatra": "Revati",
-      "start_nakshatra_lord": "Jupiter",
-      "end_nakshatra_lord": "Mercury",
-      "planets": [
-        {
-          "planetId": "8",
-          "full_name": "Rahu",
-          "name": "Ra",
-          "nakshatra": "UttaraBhadra",
-          "nakshatra_no": 26,
-          "nakshatra_pada": 3,
-          "retro": true
-        }
-      ],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Moon"
-    },
-    {
-      "start_rasi": "Pisces",
-      "end_rasi": "Aries",
-      "end_rasi_lord": "Mars",
-      "local_start_degree": 10.064666124885605,
-      "local_end_degree": 9.2802661248856,
-      "length": 29.215599999999995,
-      "house": 6,
-      "bhavmadhya": 24.672466124885602,
-      "global_start_degree": 354.2624,
-      "global_end_degree": 23.478,
-      "start_nakshatra": "Revati",
-      "end_nakshatra": "Bharani",
-      "start_nakshatra_lord": "Mercury",
-      "end_nakshatra_lord": "Venus",
-      "planets": [
-        {
-          "planetId": "5",
-          "full_name": "Jupiter",
-          "name": "Ju",
-          "nakshatra": "Ashvini",
-          "nakshatra_no": 1,
-          "nakshatra_pada": 2,
-          "retro": true
-        }
-      ],
-      "cusp_sub_lord": "Rahu",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Aries",
-      "end_rasi": "Taurus",
-      "end_rasi_lord": "Venus",
-      "local_start_degree": 8.491066124885599,
-      "local_end_degree": 9.285066124885596,
-      "length": 30.793999999999997,
-      "house": 7,
-      "bhavmadhya": 23.888066124885597,
-      "global_start_degree": 23.478,
-      "global_end_degree": 54.272,
-      "start_nakshatra": "Bharani",
-      "end_nakshatra": "Mrigashira",
-      "start_nakshatra_lord": "Venus",
-      "end_nakshatra_lord": "Mars",
-      "planets": [],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Taurus",
-      "end_rasi": "Gemini",
-      "end_rasi_lord": "Mercury",
-      "local_start_degree": 10.105166124885596,
-      "local_end_degree": 9.258966124885589,
-      "length": 29.153799999999997,
-      "house": 8,
-      "bhavmadhya": 24.682066124885594,
-      "global_start_degree": 54.272,
-      "global_end_degree": 83.4258,
-      "start_nakshatra": "Mrigashira",
-      "end_nakshatra": "Punarvasu",
-      "start_nakshatra_lord": "Mars",
-      "end_nakshatra_lord": "Jupiter",
-      "planets": [],
-      "cusp_sub_lord": "Rahu",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Gemini",
-      "end_rasi": "Cancer",
-      "end_rasi_lord": "Moon",
-      "local_start_degree": 9.558916124885592,
-      "local_end_degree": 8.11281612488559,
-      "length": 28.5539,
-      "house": 9,
-      "bhavmadhya": 23.83586612488559,
-      "global_start_degree": 83.4258,
-      "global_end_degree": 111.9797,
-      "start_nakshatra": "Punarvasu",
-      "end_nakshatra": "Ashlesha",
-      "start_nakshatra_lord": "Jupiter",
-      "end_nakshatra_lord": "Mercury",
-      "planets": [
-        {
-          "planetId": "2",
-          "full_name": "Moon",
-          "name": "Mo",
-          "nakshatra": "Punarvasu",
-          "nakshatra_no": 7,
-          "nakshatra_pada": 3,
-          "retro": false
-        }
-      ],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Cancer",
-      "end_rasi": "Leo",
-      "end_rasi_lord": "Sun",
-      "local_start_degree": 6.8734661248855815,
-      "local_end_degree": 7.906066124885598,
-      "length": 31.032600000000016,
-      "house": 10,
-      "bhavmadhya": 22.38976612488559,
-      "global_start_degree": 111.9797,
-      "global_end_degree": 143.0123,
-      "start_nakshatra": "Ashlesha",
-      "end_nakshatra": "PurvaPhalguni",
-      "start_nakshatra_lord": "Mercury",
-      "end_nakshatra_lord": "Venus",
-      "planets": [
-        {
-          "planetId": "1",
-          "full_name": "Sun",
-          "name": "Su",
-          "nakshatra": "Magha",
-          "nakshatra_no": 10,
-          "nakshatra_pada": 2,
-          "retro": false
-        },
-        {
-          "planetId": "3",
-          "full_name": "Mars",
-          "name": "Ma",
-          "nakshatra": "Magha",
-          "nakshatra_no": 10,
-          "nakshatra_pada": 2,
-          "retro": false
-        },
-        {
-          "planetId": "4",
-          "full_name": "Mercury",
-          "name": "Me",
-          "nakshatra": "Magha",
-          "nakshatra_no": 10,
-          "nakshatra_pada": 2,
-          "retro": false
-        },
-        {
-          "planetId": "6",
-          "full_name": "Venus",
-          "name": "Ve",
-          "nakshatra": "Magha",
-          "nakshatra_no": 10,
-          "nakshatra_pada": 2,
-          "retro": false
-        }
-      ],
-      "cusp_sub_lord": "Sun",
-      "cusp_sub_sub_lord": "Mercury"
-    },
-    {
-      "start_rasi": "Leo",
-      "end_rasi": "Virgo",
-      "end_rasi_lord": "Mercury",
-      "local_start_degree": 7.797316124885604,
-      "local_end_degree": 9.047416124885608,
-      "length": 31.250100000000003,
-      "house": 11,
-      "bhavmadhya": 23.422366124885606,
-      "global_start_degree": 143.0123,
-      "global_end_degree": 174.2624,
-      "start_nakshatra": "PurvaPhalguni",
-      "end_nakshatra": "Chitra",
-      "start_nakshatra_lord": "Venus",
-      "end_nakshatra_lord": "Mars",
-      "planets": [
-        {
-          "planetId": "9",
-          "full_name": "Ketu",
-          "name": "Ke",
-          "nakshatra": "Hasta",
-          "nakshatra_no": 13,
-          "nakshatra_pada": 1,
-          "retro": true
-        }
-      ],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Sun"
-    },
-    {
-      "start_rasi": "Virgo",
-      "end_rasi": "Libra",
-      "end_rasi_lord": "Venus",
-      "local_start_degree": 10.064666124885612,
-      "local_end_degree": 9.280266124885607,
-      "length": 29.215599999999995,
-      "house": 12,
-      "bhavmadhya": 24.67246612488561,
-      "global_start_degree": 174.2624,
-      "global_end_degree": 203.478,
-      "start_nakshatra": "Chitra",
-      "end_nakshatra": "Vishakha",
-      "start_nakshatra_lord": "Mars",
-      "end_nakshatra_lord": "Jupiter",
-      "planets": [],
-      "cusp_sub_lord": "Rahu",
-      "cusp_sub_sub_lord": "Rahu"
-    }
-  ]
-{"moon_sign": "Taurus",}
-{
-    "lucky_color": "pale-red",
-    "lucky_color_code": "#FFB8BE",
-    "lucky_number": [
-      25,
-      4
-    ],
-    "bot_response": {
-      "physique": {
-        "score": 75,
-      },
-      "status": {
-        "score": 98,
-      },
-      "finances": {
-        "score": 70,
-      },
-      "relationship": {
-        "score": 82,
-      },
-      "career": {
-        "score": 64,
-      },
-      "travel": {
-        "score": 85,
-      },
-      "family": {
-        "score": 83,
-      },
-      "friends": {
-        "score": 87,
-      },
-      "health": {
-        "score": 58,
-      },
-      "total_score": {
-        "score": 88,
-    },
-    "nakshatra": "ashvini"
-  },
-}
-        Ensure it is thorough, clear, practical, and suitable for PDF display without markdown.
-      `;
 
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
-        })
-      });
+`;
 
-      const data = await response.json();
-      const text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      return removeMarkdown(text);
+     let text = await callBedrock(fullPrompt, {filteredData});
+     text = sanitizeText(text);
+      return text;
     }
 
     // Run all API calls in parallel
@@ -7133,13 +1748,30 @@ User Language: ${userData.language}
       doc.setFont("NotoSans", "bold");
       doc.setFontSize(26);
       doc.setTextColor("#000");
-      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
+      const sectionTitle = sectionPrompt.split(":")[0].trim(); // ✅ only use text before "—"
+      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      let titleY = 60;
+
+      // Choose smaller font size if title is long
+      const titleFontSize = titleLines.length > 1 ? 20 : 22;
+      const titleLineHeight = 24;
+
+      doc.setFont("NotoSans", "bold");
+      doc.setFontSize(titleFontSize);
+      doc.setTextColor("#000");
+
+      // Center the title lines properly
+      titleLines.forEach((line: string, i: number) => {
+        doc.text(line, pageWidth / 2, titleY + i * titleLineHeight, { align: "center" });
+      });
+
+      titleY += titleLines.length * titleLineHeight + 10;
 
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext = boldTextBeforeColonString(text);
-      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
+      //const formatedtext = boldTextBeforeColonString(text);
+      addParagraphs(doc, text, 50, titleY + 30, pageWidth - 100);
     }
     doc.addPage();
 
@@ -7199,1704 +1831,51 @@ User Language: ${userData.language}
     doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
     doc.circle(pageWidth / 2, y, 2, "F");
     const karmicSections = [
-      "Chara Karakas: Soul Purpose & Life Goals",
-      "Planetary Influence on Karmic Path: Sun, Moon, Mars, Saturn, Rahu/Ketu effects",
-      "Houses Related to Karmic Lessons: 1st, 5th, 9th, 12th houses and interpretations",
-      "Nakshatra & Moon Sign Influence: Emotional tendencies, mental patterns, and destiny guidance",
-      "Practical Advice & Remedies: Lifestyle, rituals, meditation, gemstones, and colors for karmic balance"
+      "Chara Karakas: Soul Purpose & Life Goals — Analyze the Chara Karakas (Atmakaraka, Amatyakaraka, etc.) to reveal the soul’s deeper purpose, key life missions, and the spiritual themes guiding the individual’s journey through destiny and growth.",
+      "Sade Sati Journey: Phases, Challenges & Remedies — Provide a detailed explanation of the three phases of Sade Sati, its transformative challenges, emotional tests, and karmic maturity lessons, along with effective spiritual and practical remedies.",
+      "Karmic Yogas & Mangalik Combinations — Identify yogas and planetary combinations indicating past-life influences, karmic debts, and intense emotional or relational lessons, including the role of Mangal Dosha and its higher transformative purpose.",
+      "Astrological Doshas: Karmic Blocks & Lessons — Examine doshas such as Kaalsarp, Pitra, and Graha Shrapa as reflections of unresolved karmic patterns. Explain their impact on different life areas and provide insights into transcending them through awareness and discipline.",
+      "Retrograde Planets: Past-Life Influences — Interpret the karmic significance of retrograde planets, showing how they reveal unfinished lessons, repetitive experiences, and opportunities for healing and evolution in this lifetime."
     ];
 
     async function fetchKarmicSection(sectionPrompt: string) {
+      const minimalData = {
+        chara_karakas: astroData?.jaimini_karakas,
+        sade_sati: astroData?.current_sade_sati,
+        sade_sati_table: astroData?.sade_sati_table,
+        yogas: astroData?.yoga_list,
+        mangal_dosh: astroData?.mangal_dosh,
+        kaalsarp_dosh: astroData?.kaalsarp_dosh,
+        pitra_dosh: astroData?.pitra_dosh,
+        retrogrades: Object.fromEntries(
+          PLANETS.map((p: string) => [p, astroData[`retrogrades_${p.toLowerCase()}`]])
+        ),
+        planet_details: astroData?.planet_details,
+        ascendant: astroData?.find_ascendant
+      };
+
       const fullPrompt = `
-    You are an expert Vedic astrologer specializing in karmic insights and life purpose.
-    Using the provided JSON input, generate a professional, detailed report for this section:
-    ${sectionPrompt}
-    Guidelines:
-- Write in clear, human-like tone.
-- Avoid long paragraphs; use more bullet points or short structured lines.
-- Each section must have distinct insights — do not repeat content from other sections.
-- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
-- Keep practical remedies and observations easy to read.
+You are an expert Vedic astrologer specializing in karmic evolution and life purpose.
 
-    language: ${userData.language}
-    JSON: "response": { Sun:{
-        "bot_response": "The Sun and Moon are always direct ",
-        "status": true},
-        Moon:{"bot_response": "The Sun and Moon are always direct ",
-        "status": true},},
-        Mercury:{"dates": [
-            [
-                "31 January 1994",
-                "27 September 1994"
-            ],
-            [
-                "24 December 1994",
-                "14 January 1995"
-            ],
-            [
-                " 9 January 1994",
-                " 9 May 1994"
-            ],
-            [
-                " 2 June 1994",
-                " 6 September 1994"
-            ]},
-           Venus:{ "dates": [
-            [
-                "13 October 1994",
-                "23 November 1994"
-            ]
-        ],},
-        Mars:{"bot_response": "mars is not retrograde in 1994",
-        "status": true
-        },
-        Jupiter:{"dates": [
-      [
-        "19 December 2021",
-        "29 January 2022"
-      ]
-]
-        },
-        Saturn: {"dates": [
-            [
-                "23 June 1994",
-                " 9 November 1994"
-            ]
-        ],
-        },
-Rahu:{
-"bot_response": "The Rahu and Ketu are always retrograde ",
-        "status": true
-        },
-        Ketu:{
-        "bot_response": "The Rahu and Ketu are always retrograde ",
-        "status": true
-        },
-    },
-    {
-    "yogas_list": [
-      {
-        "yoga": "Vesi Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Vosi Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Ubhayachara Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Budha Aditya Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "mercury"
-        ],
-        "houses_involved": [
-          10
-        ]
-      },
-      {
-        "yoga": "Moon is kendra from Sun",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Hamsa Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1
-        ]
-      },
-      {
-        "yoga": "Paasa Yoga",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Moon",
-          "Sun",
-          "Mercury",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          4,
-          9,
-          1,
-          11
-        ]
-      },
-      {
-        "yoga": "Gaja-Kesari Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon"
-        ],
-        "houses_involved": [
-          4
-        ]
-      },
-      {
-        "yoga": "Kaahala Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Mercury",
-          "Saturn",
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Sankha Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon",
-          "Sun"
-        ],
-        "houses_involved": [
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Mridanga Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Kalpadruma Yoga",
-        "strength_in_percentage": 70,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1,
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Bhaarathi Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars",
-          "Moon",
-          "Saturn"
-        ],
-        "houses_involved": [
-          9,
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Raja Yoga",
-        "strength_in_percentage": 16.48351648351649,
-        "planets_involved": [
-          "Mars",
-          "Saturn",
-          "Mercury",
-          "Venus",
-          "Jupiter",
-          "Moon"
-        ],
-        "houses_involved": [
-          7,
-          9,
-          10,
-          1,
-          5,
-          4
-        ]
-      },
-      {
-        "yoga": "Dharma-Karmadhipati Yoga",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          9
-        ]
-      },
-      {
-        "yoga": "Raaja Yoga",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Saturn",
-          "Jupiter"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Raja Sambandha Yoga",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Dhana Yoga",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Jupiter",
-          "Mercury",
-          "Rahu",
-          "Ketu"
-        ],
-        "houses_involved": [
-          1,
-          10
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Sun",
-          "Venus",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          11,
-          10
-        ]
-      }
-    ],
-    "yogas_count": 20,
-    "raja_yoga_count": 4,
-    "dhana_yoga_count": 1,
-    "daridra_yoga_count": 2
-  },
-{
-    "0": {
-      "rasi_no": 6,
-      "zodiac": "Virgo",
-      "retro": false,
-      "name": "As",
-      "house": 1,
-      "global_degree": 164.25228902890402,
-      "local_degree": 14.25228902890403,
-      "pseudo_rasi_no": 6,
-      "pseudo_rasi": "Virgo",
-      "pseudo_rasi_lord": "Mercury",
-      "pseudo_nakshatra": "Hasta",
-      "pseudo_nakshatra_no": 13,
-      "pseudo_nakshatra_pada": 2,
-      "pseudo_nakshatra_lord": "Moon",
-      "sub_lord": "Jupiter",
-      "sub_sub_lord": "Saturn",
-      "full_name": "Ascendant"
-    },
-    "1": {
-      "rasi_no": 3,
-      "zodiac": "Gemini",
-      "retro": false,
-      "name": "Su",
-      "house": 10,
-      "global_degree": 84.54132661902112,
-      "local_degree": 24.54132661902112,
-      "pseudo_rasi_no": 3,
-      "pseudo_rasi": "Gemini",
-      "pseudo_rasi_lord": "Mercury",
-      "pseudo_nakshatra": "Punarvasu",
-      "pseudo_nakshatra_no": 7,
-      "pseudo_nakshatra_pada": 2,
-      "pseudo_nakshatra_lord": "Jupiter",
-      "sub_lord": "Mercury",
-      "sub_sub_lord": "Venus",
-      "full_name": "Sun"
-    },
-    "2": {
-      "rasi_no": 7,
-      "zodiac": "Libra",
-      "retro": false,
-      "name": "Mo",
-      "house": 2,
-      "global_degree": 194.80455307897404,
-      "local_degree": 14.804553078974052,
-      "pseudo_rasi_no": 7,
-      "pseudo_rasi": "Libra",
-      "pseudo_rasi_lord": "Venus",
-      "pseudo_nakshatra": "Svati",
-      "pseudo_nakshatra_no": 15,
-      "pseudo_nakshatra_pada": 3,
-      "pseudo_nakshatra_lord": "Rahu",
-      "sub_lord": "Ketu",
-      "sub_sub_lord": "Moon",
-      "full_name": "Moon"
-    },
-    "3": {
-      "rasi_no": 3,
-      "zodiac": "Gemini",
-      "retro": false,
-      "name": "Ma",
-      "house": 10,
-      "global_degree": 82.02421456654068,
-      "local_degree": 22.024214566540678,
-      "pseudo_rasi_no": 3,
-      "pseudo_rasi": "Gemini",
-      "pseudo_rasi_lord": "Mercury",
-      "pseudo_nakshatra": "Punarvasu",
-      "pseudo_nakshatra_no": 7,
-      "pseudo_nakshatra_pada": 1,
-      "pseudo_nakshatra_lord": "Jupiter",
-      "sub_lord": "Saturn",
-      "sub_sub_lord": "Saturn",
-      "full_name": "Mars"
-    },
-    "4": {
-      "rasi_no": 3,
-      "zodiac": "Gemini",
-      "retro": true,
-      "name": "Me",
-      "house": 10,
-      "global_degree": 78.73340067285021,
-      "local_degree": 18.73340067285021,
-      "pseudo_rasi_no": 3,
-      "pseudo_rasi": "Gemini",
-      "pseudo_rasi_lord": "Mercury",
-      "pseudo_nakshatra": "Ardra",
-      "pseudo_nakshatra_no": 6,
-      "pseudo_nakshatra_pada": 4,
-      "pseudo_nakshatra_lord": "Rahu",
-      "sub_lord": "Moon",
-      "sub_sub_lord": "Saturn",
-      "full_name": "Mercury"
-    },
-    "5": {
-      "rasi_no": 2,
-      "zodiac": "Taurus",
-      "retro": false,
-      "name": "Ju",
-      "house": 8,
-      "global_degree": 38.26702130424208,
-      "local_degree": 8.267021304242078,
-      "pseudo_rasi_no": 2,
-      "pseudo_rasi": "Taurus",
-      "pseudo_rasi_lord": "Venus",
-      "pseudo_nakshatra": "Krittika",
-      "pseudo_nakshatra_no": 3,
-      "pseudo_nakshatra_pada": 4,
-      "pseudo_nakshatra_lord": "Sun",
-      "sub_lord": "Venus",
-      "sub_sub_lord": "Sun",
-      "full_name": "Jupiter"
-    },
-    "6": {
-      "rasi_no": 4,
-      "zodiac": "Cancer",
-      "retro": false,
-      "name": "Ve",
-      "house": 10,
-      "global_degree": 92.46912068521222,
-      "local_degree": 2.469120685212218,
-      "pseudo_rasi_no": 4,
-      "pseudo_rasi": "Cancer",
-      "pseudo_rasi_lord": "Moon",
-      "pseudo_nakshatra": "Punarvasu",
-      "pseudo_nakshatra_no": 7,
-      "pseudo_nakshatra_pada": 4,
-      "pseudo_nakshatra_lord": "Jupiter",
-      "sub_lord": "Rahu",
-      "sub_sub_lord": "Mercury",
-      "full_name": "Venus"
-    },
-    "7": {
-      "rasi_no": 2,
-      "zodiac": "Taurus",
-      "retro": false,
-      "name": "Sa",
-      "house": 8,
-      "global_degree": 33.83072095449175,
-      "local_degree": 3.8307209544917527,
-      "pseudo_rasi_no": 2,
-      "pseudo_rasi": "Taurus",
-      "pseudo_rasi_lord": "Venus",
-      "pseudo_nakshatra": "Krittika",
-      "pseudo_nakshatra_no": 3,
-      "pseudo_nakshatra_pada": 3,
-      "pseudo_nakshatra_lord": "Sun",
-      "sub_lord": "Saturn",
-      "sub_sub_lord": "Ketu",
-      "full_name": "Saturn"
-    },
-    "8": {
-      "rasi_no": 4,
-      "zodiac": "Cancer",
-      "retro": true,
-      "name": "Ra",
-      "house": 10,
-      "global_degree": 91.20596196774932,
-      "local_degree": 1.2059619677493174,
-      "pseudo_rasi_no": 4,
-      "pseudo_rasi": "Cancer",
-      "pseudo_rasi_lord": "Moon",
-      "pseudo_nakshatra": "Punarvasu",
-      "pseudo_nakshatra_no": 7,
-      "pseudo_nakshatra_pada": 4,
-      "pseudo_nakshatra_lord": "Jupiter",
-      "sub_lord": "Mars",
-      "sub_sub_lord": "Ketu",
-      "full_name": "Rahu"
-    },
-    "9": {
-      "rasi_no": 10,
-      "zodiac": "Capricorn",
-      "retro": true,
-      "name": "Ke",
-      "house": 4,
-      "global_degree": 271.2059619677493,
-      "local_degree": 1.2059619677493032,
-      "pseudo_rasi_no": 10,
-      "pseudo_rasi": "Capricorn",
-      "pseudo_rasi_lord": "Saturn",
-      "pseudo_nakshatra": "UttraShadha",
-      "pseudo_nakshatra_no": 21,
-      "pseudo_nakshatra_pada": 2,
-      "pseudo_nakshatra_lord": "Sun",
-      "sub_lord": "Rahu",
-      "sub_sub_lord": "Moon",
-      "full_name": "Ketu"
-    },
-    "midheaven": 13.45981620353271,
-    "ascendant": 14.145816203532718
-  },
-  [
-    {
-      "start_rasi": "Libra",
-      "end_rasi": "Scorpio",
-      "end_rasi_lord": "Mars",
-      "local_start_degree": 8.491066124885606,
-      "local_end_degree": 9.285066124885589,
-      "length": 30.793999999999983,
-      "house": 1,
-      "bhavmadhya": 23.888066124885597,
-      "global_start_degree": 203.478,
-      "global_end_degree": 234.272,
-      "start_nakshatra": "Vishakha",
-      "end_nakshatra": "Jyeshtha",
-      "start_nakshatra_lord": "Jupiter",
-      "end_nakshatra_lord": "Mercury",
-      "planets": [
-        {
-          "planetId": "0",
-          "full_name": "Ascendant",
-          "name": "As",
-          "nakshatra": "Vishakha",
-          "nakshatra_no": 16,
-          "nakshatra_pada": 2,
-          "retro": false
-        },
-        {
-          "planetId": "7",
-          "full_name": "Saturn",
-          "name": "Sa",
-          "nakshatra": "Jyeshtha",
-          "nakshatra_no": 18,
-          "nakshatra_pada": 2,
-          "retro": false
-        }
-      ],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Scorpio",
-      "end_rasi": "Sagittarius",
-      "end_rasi_lord": "Jupiter",
-      "local_start_degree": 10.105166124885585,
-      "local_end_degree": 9.258966124885575,
-      "length": 29.15379999999999,
-      "house": 2,
-      "bhavmadhya": 24.68206612488558,
-      "global_start_degree": 234.272,
-      "global_end_degree": 263.4258,
-      "start_nakshatra": "Jyeshtha",
-      "end_nakshatra": "PurvaShadha",
-      "start_nakshatra_lord": "Mercury",
-      "end_nakshatra_lord": "Venus",
-      "planets": [],
-      "cusp_sub_lord": "Rahu",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Sagittarius",
-      "end_rasi": "Capricorn",
-      "end_rasi_lord": "Saturn",
-      "local_start_degree": 9.55891612488557,
-      "local_end_degree": 8.112816124885569,
-      "length": 28.5539,
-      "house": 3,
-      "bhavmadhya": 23.83586612488557,
-      "global_start_degree": 263.4258,
-      "global_end_degree": 291.9797,
-      "start_nakshatra": "PurvaShadha",
-      "end_nakshatra": "Sravana",
-      "start_nakshatra_lord": "Venus",
-      "end_nakshatra_lord": "Moon",
-      "planets": [],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Capricorn",
-      "end_rasi": "Aquarius",
-      "end_rasi_lord": "Saturn",
-      "local_start_degree": 6.873466124885567,
-      "local_end_degree": 7.9060661248855695,
-      "length": 31.032600000000002,
-      "house": 4,
-      "bhavmadhya": 22.38976612488557,
-      "global_start_degree": 291.9797,
-      "global_end_degree": 323.0123,
-      "start_nakshatra": "Sravana",
-      "end_nakshatra": "PurvaBhadra",
-      "start_nakshatra_lord": "Moon",
-      "end_nakshatra_lord": "Jupiter",
-      "planets": [],
-      "cusp_sub_lord": "Venus",
-      "cusp_sub_sub_lord": "Saturn"
-    },
-    {
-      "start_rasi": "Aquarius",
-      "end_rasi": "Pisces",
-      "end_rasi_lord": "Jupiter",
-      "local_start_degree": 7.797316124885555,
-      "local_end_degree": 9.047416124885586,
-      "length": 31.25010000000003,
-      "house": 5,
-      "bhavmadhya": 23.42236612488557,
-      "global_start_degree": 323.0123,
-      "global_end_degree": 354.2624,
-      "start_nakshatra": "PurvaBhadra",
-      "end_nakshatra": "Revati",
-      "start_nakshatra_lord": "Jupiter",
-      "end_nakshatra_lord": "Mercury",
-      "planets": [
-        {
-          "planetId": "8",
-          "full_name": "Rahu",
-          "name": "Ra",
-          "nakshatra": "UttaraBhadra",
-          "nakshatra_no": 26,
-          "nakshatra_pada": 3,
-          "retro": true
-        }
-      ],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Moon"
-    },
-    {
-      "start_rasi": "Pisces",
-      "end_rasi": "Aries",
-      "end_rasi_lord": "Mars",
-      "local_start_degree": 10.064666124885605,
-      "local_end_degree": 9.2802661248856,
-      "length": 29.215599999999995,
-      "house": 6,
-      "bhavmadhya": 24.672466124885602,
-      "global_start_degree": 354.2624,
-      "global_end_degree": 23.478,
-      "start_nakshatra": "Revati",
-      "end_nakshatra": "Bharani",
-      "start_nakshatra_lord": "Mercury",
-      "end_nakshatra_lord": "Venus",
-      "planets": [
-        {
-          "planetId": "5",
-          "full_name": "Jupiter",
-          "name": "Ju",
-          "nakshatra": "Ashvini",
-          "nakshatra_no": 1,
-          "nakshatra_pada": 2,
-          "retro": true
-        }
-      ],
-      "cusp_sub_lord": "Rahu",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Aries",
-      "end_rasi": "Taurus",
-      "end_rasi_lord": "Venus",
-      "local_start_degree": 8.491066124885599,
-      "local_end_degree": 9.285066124885596,
-      "length": 30.793999999999997,
-      "house": 7,
-      "bhavmadhya": 23.888066124885597,
-      "global_start_degree": 23.478,
-      "global_end_degree": 54.272,
-      "start_nakshatra": "Bharani",
-      "end_nakshatra": "Mrigashira",
-      "start_nakshatra_lord": "Venus",
-      "end_nakshatra_lord": "Mars",
-      "planets": [],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Taurus",
-      "end_rasi": "Gemini",
-      "end_rasi_lord": "Mercury",
-      "local_start_degree": 10.105166124885596,
-      "local_end_degree": 9.258966124885589,
-      "length": 29.153799999999997,
-      "house": 8,
-      "bhavmadhya": 24.682066124885594,
-      "global_start_degree": 54.272,
-      "global_end_degree": 83.4258,
-      "start_nakshatra": "Mrigashira",
-      "end_nakshatra": "Punarvasu",
-      "start_nakshatra_lord": "Mars",
-      "end_nakshatra_lord": "Jupiter",
-      "planets": [],
-      "cusp_sub_lord": "Rahu",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Gemini",
-      "end_rasi": "Cancer",
-      "end_rasi_lord": "Moon",
-      "local_start_degree": 9.558916124885592,
-      "local_end_degree": 8.11281612488559,
-      "length": 28.5539,
-      "house": 9,
-      "bhavmadhya": 23.83586612488559,
-      "global_start_degree": 83.4258,
-      "global_end_degree": 111.9797,
-      "start_nakshatra": "Punarvasu",
-      "end_nakshatra": "Ashlesha",
-      "start_nakshatra_lord": "Jupiter",
-      "end_nakshatra_lord": "Mercury",
-      "planets": [
-        {
-          "planetId": "2",
-          "full_name": "Moon",
-          "name": "Mo",
-          "nakshatra": "Punarvasu",
-          "nakshatra_no": 7,
-          "nakshatra_pada": 3,
-          "retro": false
-        }
-      ],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Rahu"
-    },
-    {
-      "start_rasi": "Cancer",
-      "end_rasi": "Leo",
-      "end_rasi_lord": "Sun",
-      "local_start_degree": 6.8734661248855815,
-      "local_end_degree": 7.906066124885598,
-      "length": 31.032600000000016,
-      "house": 10,
-      "bhavmadhya": 22.38976612488559,
-      "global_start_degree": 111.9797,
-      "global_end_degree": 143.0123,
-      "start_nakshatra": "Ashlesha",
-      "end_nakshatra": "PurvaPhalguni",
-      "start_nakshatra_lord": "Mercury",
-      "end_nakshatra_lord": "Venus",
-      "planets": [
-        {
-          "planetId": "1",
-          "full_name": "Sun",
-          "name": "Su",
-          "nakshatra": "Magha",
-          "nakshatra_no": 10,
-          "nakshatra_pada": 2,
-          "retro": false
-        },
-        {
-          "planetId": "3",
-          "full_name": "Mars",
-          "name": "Ma",
-          "nakshatra": "Magha",
-          "nakshatra_no": 10,
-          "nakshatra_pada": 2,
-          "retro": false
-        },
-        {
-          "planetId": "4",
-          "full_name": "Mercury",
-          "name": "Me",
-          "nakshatra": "Magha",
-          "nakshatra_no": 10,
-          "nakshatra_pada": 2,
-          "retro": false
-        },
-        {
-          "planetId": "6",
-          "full_name": "Venus",
-          "name": "Ve",
-          "nakshatra": "Magha",
-          "nakshatra_no": 10,
-          "nakshatra_pada": 2,
-          "retro": false
-        }
-      ],
-      "cusp_sub_lord": "Sun",
-      "cusp_sub_sub_lord": "Mercury"
-    },
-    {
-      "start_rasi": "Leo",
-      "end_rasi": "Virgo",
-      "end_rasi_lord": "Mercury",
-      "local_start_degree": 7.797316124885604,
-      "local_end_degree": 9.047416124885608,
-      "length": 31.250100000000003,
-      "house": 11,
-      "bhavmadhya": 23.422366124885606,
-      "global_start_degree": 143.0123,
-      "global_end_degree": 174.2624,
-      "start_nakshatra": "PurvaPhalguni",
-      "end_nakshatra": "Chitra",
-      "start_nakshatra_lord": "Venus",
-      "end_nakshatra_lord": "Mars",
-      "planets": [
-        {
-          "planetId": "9",
-          "full_name": "Ketu",
-          "name": "Ke",
-          "nakshatra": "Hasta",
-          "nakshatra_no": 13,
-          "nakshatra_pada": 1,
-          "retro": true
-        }
-      ],
-      "cusp_sub_lord": "Saturn",
-      "cusp_sub_sub_lord": "Sun"
-    },
-    {
-      "start_rasi": "Virgo",
-      "end_rasi": "Libra",
-      "end_rasi_lord": "Venus",
-      "local_start_degree": 10.064666124885612,
-      "local_end_degree": 9.280266124885607,
-      "length": 29.215599999999995,
-      "house": 12,
-      "bhavmadhya": 24.67246612488561,
-      "global_start_degree": 174.2624,
-      "global_end_degree": 203.478,
-      "start_nakshatra": "Chitra",
-      "end_nakshatra": "Vishakha",
-      "start_nakshatra_lord": "Mars",
-      "end_nakshatra_lord": "Jupiter",
-      "planets": [],
-      "cusp_sub_lord": "Rahu",
-      "cusp_sub_sub_lord": "Rahu"
-    }
-  ],
-  {
-    "mahadasha": [
-      "Moon",
-      "Mars",
-      "Rahu",
-      "Jupiter",
-      "Saturn",
-      "Mercury",
-      "Ketu",
-      "Venus",
-      "Sun"
-    ],
-    "mahadasha_order": [
-      "Fri Jun 28 1991",
-      "Sun Jun 28 1998",
-      "Tue Jun 28 2016",
-      "Mon Jun 28 2032",
-      "Wed Jun 28 2051",
-      "Thu Jun 28 2068",
-      "Fri Jun 28 2075",
-      "Tue Jun 28 2095",
-      "Tue Jun 28 2101"
-    ],
-    "start_year": 1981,
-    "dasha_start_date": "Sun Jun 28 1981",
-    "dasha_remaining_at_birth": "5 years 10 months 0 days"
-  },
-  {
-    "antardashas": [
-      [
-        "Saturn/Saturn",
-        "Saturn/Mercury",
-        "Saturn/Ketu",
-        "Saturn/Venus",
-        "Saturn/Sun",
-        "Saturn/Moon",
-        "Saturn/Mars",
-        "Saturn/Rahu",
-        "Saturn/Jupiter"
-      ],
-      [
-        "Mercury/Mercury",
-        "Mercury/Ketu",
-        "Mercury/Venus",
-        "Mercury/Sun",
-        "Mercury/Moon",
-        "Mercury/Mars",
-        "Mercury/Rahu",
-        "Mercury/Jupiter",
-        "Mercury/Saturn"
-      ],
-      [
-        "Ketu/Ketu",
-        "Ketu/Venus",
-        "Ketu/Sun",
-        "Ketu/Moon",
-        "Ketu/Mars",
-        "Ketu/Rahu",
-        "Ketu/Jupiter",
-        "Ketu/Saturn",
-        "Ketu/Mercury"
-      ],
-      [
-        "Venus/Venus",
-        "Venus/Sun",
-        "Venus/Moon",
-        "Venus/Mars",
-        "Venus/Rahu",
-        "Venus/Jupiter",
-        "Venus/Saturn",
-        "Venus/Mercury",
-        "Venus/Ketu"
-      ],
-      [
-        "Sun/Sun",
-        "Sun/Moon",
-        "Sun/Mars",
-        "Sun/Rahu",
-        "Sun/Jupiter",
-        "Sun/Saturn",
-        "Sun/Mercury",
-        "Sun/Ketu",
-        "Sun/Venus"
-      ],
-      [
-        "Moon/Moon",
-        "Moon/Mars",
-        "Moon/Rahu",
-        "Moon/Jupiter",
-        "Moon/Saturn",
-        "Moon/Mercury",
-        "Moon/Ketu",
-        "Moon/Venus",
-        "Moon/Sun"
-      ],
-      [
-        "Mars/Mars",
-        "Mars/Rahu",
-        "Mars/Jupiter",
-        "Mars/Saturn",
-        "Mars/Mercury",
-        "Mars/Ketu",
-        "Mars/Venus",
-        "Mars/Sun",
-        "Mars/Moon"
-      ],
-      [
-        "Rahu/Rahu",
-        "Rahu/Jupiter",
-        "Rahu/Saturn",
-        "Rahu/Mercury",
-        "Rahu/Ketu",
-        "Rahu/Venus",
-        "Rahu/Sun",
-        "Rahu/Moon",
-        "Rahu/Mars"
-      ],
-      [
-        "Jupiter/Jupiter",
-        "Jupiter/Saturn",
-        "Jupiter/Mercury",
-        "Jupiter/Ketu",
-        "Jupiter/Venus",
-        "Jupiter/Sun",
-        "Jupiter/Moon",
-        "Jupiter/Mars",
-        "Jupiter/Rahu"
-      ]
-    ],
-    "antardasha_order": [
-      [
-        "Mon Jul 18 1983",
-        "Thu Mar 27 1986",
-        "Wed May 06 1987",
-        "Fri Jul 06 1990",
-        "Tue Jun 18 1991",
-        "Sat Jan 16 1993",
-        "Fri Feb 25 1994",
-        "Wed Jan 01 1997",
-        "Thu Jul 15 1999"
-      ],
-      [
-        "Tue Dec 11 2001",
-        "Sun Dec 08 2002",
-        "Sat Oct 08 2005",
-        "Mon Aug 14 2006",
-        "Sun Jan 13 2008",
-        "Fri Jan 09 2009",
-        "Fri Jul 29 2011",
-        "Sun Nov 03 2013",
-        "Wed Jul 13 2016"
-      ],
-      [
-        "Fri Dec 09 2016",
-        "Thu Feb 08 2018",
-        "Sat Jun 16 2018",
-        "Tue Jan 15 2019",
-        "Thu Jun 13 2019",
-        "Wed Jul 01 2020",
-        "Mon Jun 07 2021",
-        "Sun Jul 17 2022",
-        "Fri Jul 14 2023"
-      ],
-      [
-        "Thu Nov 12 2026",
-        "Fri Nov 12 2027",
-        "Fri Jul 13 2029",
-        "Thu Sep 12 2030",
-        "Mon Sep 12 2033",
-        "Tue May 13 2036",
-        "Thu Jul 14 2039",
-        "Wed May 14 2042",
-        "Tue Jul 14 2043"
-      ],
-      [
-        "Sun Nov 01 2043",
-        "Mon May 02 2044",
-        "Wed Sep 07 2044",
-        "Wed Aug 02 2045",
-        "Mon May 21 2046",
-        "Fri May 03 2047",
-        "Sun Mar 08 2048",
-        "Tue Jul 14 2048",
-        "Wed Jul 14 2049"
-      ],
-      [
-        "Sat May 14 2050",
-        "Tue Dec 13 2050",
-        "Thu Jun 13 2052",
-        "Mon Oct 13 2053",
-        "Fri May 14 2055",
-        "Thu Oct 12 2056",
-        "Sun May 13 2057",
-        "Sun Jan 12 2059",
-        "Mon Jul 14 2059"
-      ],
-      [
-        "Wed Dec 10 2059",
-        "Tue Dec 28 2060",
-        "Sun Dec 04 2061",
-        "Sat Jan 13 2063",
-        "Thu Jan 10 2064",
-        "Sat Jun 07 2064",
-        "Fri Aug 07 2065",
-        "Sun Dec 13 2065",
-        "Wed Jul 14 2066"
-      ],
-      [
-        "Tue Mar 26 2069",
-        "Thu Aug 20 2071",
-        "Tue Jun 26 2074",
-        "Tue Jan 12 2077",
-        "Mon Jan 31 2078",
-        "Fri Jan 31 2081",
-        "Fri Dec 26 2081",
-        "Sun Jun 27 2083",
-        "Sat Jul 15 2084"
-      ],
-      [
-        "Mon Sep 02 2086",
-        "Tue Mar 15 2089",
-        "Thu Jun 21 2091",
-        "Tue May 27 2092",
-        "Wed Jan 26 2095",
-        "Mon Nov 14 2095",
-        "Fri Mar 15 2097",
-        "Wed Feb 19 2098",
-        "Fri Jul 16 2100"
-      ]
-    ]
-  },
-  "moon_sign": "Taurus",
-  [
-    {
-      "retro": false,
-      "start_date": "Wed Dec 26 1984",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Sun May 26 1985"
-    },
-    {
-      "retro": false,
-      "start_date": "Mon Sep 23 1985",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Mon Dec 21 1987"
-    },
-    {
-      "retro": false,
-      "start_date": "Mon Dec 21 1987",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Tue Mar 27 1990"
-    },
-    {
-      "retro": true,
-      "start_date": "Fri Jun 15 1990",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Wed Dec 19 1990"
-    },
-    {
-      "retro": true,
-      "start_date": "Mon Apr 20 1998",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Fri Jun 09 2000"
-    },
-    {
-      "retro": false,
-      "start_date": "Fri Jun 09 2000",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Fri Jan 19 2001"
-    },
-    {
-      "retro": true,
-      "start_date": "Fri Jan 19 2001",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Thu Feb 01 2001"
-    },
-    {
-      "retro": false,
-      "start_date": "Thu Feb 01 2001",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Thu Jul 25 2002"
-    },
-    {
-      "retro": false,
-      "start_date": "Thu Jul 25 2002",
-      "zodiac": "Gemini",
-      "type": "Sade Sati",
-      "dhaiya": "3rd Dhaiya",
-      "direction": "Setting",
-      "end_date": "Mon Jan 06 2003"
-    },
-    {
-      "retro": true,
-      "start_date": "Mon Jan 06 2003",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Fri Apr 11 2003"
-    },
-    {
-      "retro": false,
-      "start_date": "Fri Apr 11 2003",
-      "zodiac": "Gemini",
-      "type": "Sade Sati",
-      "dhaiya": "3rd Dhaiya",
-      "direction": "Setting",
-      "end_date": "Wed Sep 08 2004"
-    },
-    {
-      "retro": true,
-      "start_date": "Wed Jan 12 2005",
-      "zodiac": "Gemini",
-      "type": "Sade Sati",
-      "dhaiya": "3rd Dhaiya",
-      "direction": "Setting",
-      "end_date": "Sat May 28 2005"
-    },
-    {
-      "retro": false,
-      "start_date": "Sat Nov 04 2006",
-      "zodiac": "Leo",
-      "type": "Ardhastama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Tue Jan 09 2007"
-    },
-    {
-      "retro": false,
-      "start_date": "Wed Jul 18 2007",
-      "zodiac": "Leo",
-      "type": "Ardhastama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Fri Sep 11 2009"
-    },
-    {
-      "retro": false,
-      "start_date": "Mon Nov 03 2014",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Fri Jan 27 2017"
-    },
-    {
-      "retro": false,
-      "start_date": "Fri Jan 27 2017",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Wed Jun 21 2017"
-    },
-    {
-      "retro": true,
-      "start_date": "Wed Jun 21 2017",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Fri Oct 27 2017"
-    },
-    {
-      "retro": false,
-      "start_date": "Fri Oct 27 2017",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Fri Jan 24 2020"
-    },
-    {
-      "retro": true,
-      "start_date": "Wed Jun 02 2027",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Fri Oct 22 2027"
-    },
-    {
-      "retro": true,
-      "start_date": "Tue Feb 22 2028",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Sun Aug 05 2029"
-    },
-    {
-      "retro": false,
-      "start_date": "Sun Aug 05 2029",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Tue Oct 09 2029"
-    },
-    {
-      "retro": true,
-      "start_date": "Tue Oct 09 2029",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Tue Apr 16 2030"
-    },
-    {
-      "retro": false,
-      "start_date": "Tue Apr 16 2030",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Sun May 30 2032"
-    },
-    {
-      "retro": false,
-      "start_date": "Sun May 30 2032",
-      "zodiac": "Gemini",
-      "type": "Sade Sati",
-      "dhaiya": "3rd Dhaiya",
-      "direction": "Setting",
-      "end_date": "Wed Jul 12 2034"
-    },
-    {
-      "retro": false,
-      "start_date": "Tue Aug 26 2036",
-      "zodiac": "Leo",
-      "type": "Ardhastama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Wed Oct 20 2038"
-    },
-    {
-      "retro": true,
-      "start_date": "Mon Apr 11 2039",
-      "zodiac": "Leo",
-      "type": "Ardhastama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Sat Jul 09 2039"
-    },
-    {
-      "retro": false,
-      "start_date": "Wed Dec 09 2043",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Sat Jul 02 2044"
-    },
-    {
-      "retro": false,
-      "start_date": "Mon Aug 22 2044",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Wed Dec 05 2046"
-    },
-    {
-      "retro": false,
-      "start_date": "Wed Dec 05 2046",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Tue Mar 02 2049"
-    },
-    {
-      "retro": true,
-      "start_date": "Fri Jul 16 2049",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Tue Nov 30 2049"
-    },
-    {
-      "retro": true,
-      "start_date": "Tue Apr 03 2057",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Sat May 24 2059"
-    },
-    {
-      "retro": false,
-      "start_date": "Sat May 24 2059",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Wed Jul 06 2061"
-    },
-    {
-      "retro": false,
-      "start_date": "Wed Jul 06 2061",
-      "zodiac": "Gemini",
-      "type": "Sade Sati",
-      "dhaiya": "3rd Dhaiya",
-      "direction": "Setting",
-      "end_date": "Sun Aug 19 2063"
-    },
-    {
-      "retro": true,
-      "start_date": "Sat Feb 16 2064",
-      "zodiac": "Gemini",
-      "type": "Sade Sati",
-      "dhaiya": "3rd Dhaiya",
-      "direction": "Setting",
-      "end_date": "Thu May 01 2064"
-    },
-    {
-      "retro": false,
-      "start_date": "Tue Oct 06 2065",
-      "zodiac": "Leo",
-      "type": "Ardhastama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Sat Feb 13 2066"
-    },
-    {
-      "retro": false,
-      "start_date": "Sun Jun 27 2066",
-      "zodiac": "Leo",
-      "type": "Ardhastama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Fri Dec 30 2067"
-    },
-    {
-      "retro": true,
-      "start_date": "Mon Jan 09 2068",
-      "zodiac": "Leo",
-      "type": "Ardhastama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Sat Aug 25 2068"
-    },
-    {
-      "retro": false,
-      "start_date": "Mon Jan 23 2073",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Sat Apr 15 2073"
-    },
-    {
-      "retro": false,
-      "start_date": "Tue Oct 17 2073",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Thu Jan 09 2076"
-    },
-    {
-      "retro": false,
-      "start_date": "Thu Jan 09 2076",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Sun Jul 26 2076"
-    },
-    {
-      "retro": true,
-      "start_date": "Sun Jul 26 2076",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Mon Sep 28 2076"
-    },
-    {
-      "retro": false,
-      "start_date": "Mon Sep 28 2076",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Sun Jan 08 2079"
-    },
-    {
-      "retro": true,
-      "start_date": "Tue May 14 2086",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Wed Nov 27 2086"
-    },
-    {
-      "retro": true,
-      "start_date": "Fri Jan 24 2087",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Wed Jul 07 2088"
-    },
-    {
-      "retro": false,
-      "start_date": "Wed Jul 07 2088",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Sat Nov 13 2088"
-    },
-    {
-      "retro": true,
-      "start_date": "Sat Nov 13 2088",
-      "zodiac": "Aries",
-      "type": "Sade Sati",
-      "dhaiya": "1st Dhaiya",
-      "direction": "Rising",
-      "end_date": "Mon Mar 28 2089"
-    },
-    {
-      "retro": false,
-      "start_date": "Mon Mar 28 2089",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Wed Aug 30 2090"
-    },
-    {
-      "retro": false,
-      "start_date": "Wed Aug 30 2090",
-      "zodiac": "Gemini",
-      "type": "Sade Sati",
-      "dhaiya": "3rd Dhaiya",
-      "direction": "Setting",
-      "end_date": "Wed Nov 15 2090"
-    },
-    {
-      "retro": true,
-      "start_date": "Wed Nov 15 2090",
-      "zodiac": "Taurus",
-      "type": "Sade Sati",
-      "dhaiya": "2nd Dhaiya",
-      "direction": "Peak",
-      "end_date": "Sun May 13 2091"
-    },
-    {
-      "retro": false,
-      "start_date": "Sun May 13 2091",
-      "zodiac": "Gemini",
-      "type": "Sade Sati",
-      "dhaiya": "3rd Dhaiya",
-      "direction": "Setting",
-      "end_date": "Thu Jun 25 2093"
-    },
-    {
-      "retro": false,
-      "start_date": "Wed Aug 10 2095",
-      "zodiac": "Leo",
-      "type": "Ardhastama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Thu Oct 03 2097"
-    },
-    {
-      "retro": false,
-      "start_date": "Thu Nov 23 2102",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Wed Feb 25 2105"
-    },
-    {
-      "retro": false,
-      "start_date": "Wed Feb 25 2105",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Thu May 14 2105"
-    },
-    {
-      "retro": true,
-      "start_date": "Thu May 14 2105",
-      "zodiac": "Scorpio",
-      "type": "Kantaka Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Thu Nov 19 2105"
-    },
-    {
-      "retro": false,
-      "start_date": "Thu Nov 19 2105",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Mon Feb 13 2108"
-    },
-    {
-      "retro": true,
-      "start_date": "Sat Aug 18 2108",
-      "zodiac": "Sagittarius",
-      "type": "Ashtama Shani",
-      "dhaiya": "Small Panoti",
-      "direction": "N/A",
-      "end_date": "Tue Nov 06 2108"
-    }
-  ],
-  {
-    "Atma": {
-      "name": "Atmakaraka",
-      "planet": "Saturn",
-      "siginfier": "Self",
-      "house": 1,
-      "zodiac": "Aquarius",
-      "rasi_no": 11,
-      "local_degree": 1.4817198445355757,
-      "global_degree": 301.4817198445356
-    },
-    "Amatya": {
-      "name": "Amatyakaraka",
-      "planet": "Jupiter",
-      "siginfier": "Wealth",
-      "house": 9,
-      "zodiac": "Libra",
-      "rasi_no": 7,
-      "local_degree": 12.440935516278472,
-      "global_degree": 192.44093551627847
-    },
-    "Bhratru": {
-      "name": "Bhratrukaraka",
-      "planet": "Mercury",
-      "siginfier": "Siblings",
-      "house": 10,
-      "zodiac": "Scorpio",
-      "rasi_no": 8,
-      "local_degree": 12.592829148427398,
-      "global_degree": 222.5928291484274
-    },
-    "Matri": {
-      "name": "Matrikaraka",
-      "planet": "Venus",
-      "siginfier": "Mother",
-      "house": 10,
-      "zodiac": "Scorpio",
-      "rasi_no": 8,
-      "local_degree": 16.620029881475062,
-      "global_degree": 226.62002988147506
-    },
-    "Putra": {
-      "name": "Putrakaraka",
-      "planet": "Sun",
-      "siginfier": "Children",
-      "house": 10,
-      "zodiac": "Scorpio",
-      "rasi_no": 8,
-      "local_degree": 25.440556885061483,
-      "global_degree": 235.44055688506148
-    },
-    "Gnati": {
-      "name": "Gnatikaraka",
-      "planet": "Moon",
-      "siginfier": "Relatives",
-      "house": 9,
-      "zodiac": "Libra",
-      "rasi_no": 7,
-      "local_degree": 26.854166007635172,
-      "global_degree": 206.85416600763517
-    },
-    "Dara": {
-      "name": "Darakaraka",
-      "planet": "Mars",
-      "siginfier": "Spouse",
-      "house": 10,
-      "zodiac": "Scorpio",
-      "rasi_no": 8,
-      "local_degree": 29.657846381365317,
-      "global_degree": 239.65784638136532
-    }
-  },
-  {
-          "manglik_by_mars": true,
-          "factors": [
-            "Manglik dosha is created by Mars-Venus association."
-          ],
-          "bot_response": "You are 6% manglik. ",
-          "manglik_by_saturn": false,
-          "manglik_by_rahuketu": false,
-          "aspects": [
-            "Rahu in the 3rd is aspecting the 7th",
-            "Ketu in the 9th is aspecting the 1st",
-            "Saturn in the 4th is aspecting the 1st"
-          ],
-          "score": 6
-        }
-    Ensure it is thorough, clear, practical, and suitable for PDF display without markdown.
-  `;
+Section: "${sectionPrompt}"
 
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
-        })
-      });
+Write a detailed, client-ready report using the JSON data.
+Focus on karmic meanings, emotional patterns, soul lessons, remedies, and transformation.
+Avoid repetition across sections.
 
-      const data = await response.json();
-      const text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      return removeMarkdown(text);
+Tone & Format:
+- Warm, spiritual yet practical.
+- Use short paragraphs or bullet-style clarity.
+- No markdown.
+- Use **DOUBLE ASTERISKS** around subheadings or key terms for bold formatting.
+
+language: ${userData.language}
+
+`;
+
+      let text = await callBedrock(fullPrompt, {minimalData});
+      text = sanitizeText(text);
+      return text;
     }
 
     // Run all API calls in parallel
@@ -8911,16 +1890,31 @@ Rahu:{
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
+      const sectionTitle = sectionPrompt.split("—")[0].trim(); // ✅ only use text before "—"
+      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      let titleY = 60;
+
+      // Choose smaller font size if title is long
+      const titleFontSize = titleLines.length > 1 ? 18 : 20;
+      const titleLineHeight = 24;
+
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(26);
+      doc.setFontSize(titleFontSize);
       doc.setTextColor("#000");
-      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
+
+      // Center the title lines properly
+      titleLines.forEach((line: string, i: number) => {
+        doc.text(line, pageWidth / 2, titleY + i * titleLineHeight, { align: "center" });
+      });
+
+      titleY += titleLines.length * titleLineHeight + 10;
+
 
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext = boldTextBeforeColonString(text);
-      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
+      //const formatedtext = boldTextBeforeColonString(text);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
 
     // Generate "09 Timing & Predictive Insights" section
@@ -8977,852 +1971,94 @@ Rahu:{
     doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
     doc.circle(pageWidth / 2, y, 2, "F");
 
-    // === OPTIONAL: CLOCK/RADAR MOTIF ===
-    // doc.setDrawColor("#c0c0c0");
-    // doc.setLineWidth(0.7);
-    // const centerX = pageWidth / 2;
-    // const centerY = pageHeight / 2 - 80;
-    // const radius = 30;
-    // // Outer circle
-    // doc.circle(centerX, centerY, radius);
-    // // Inner concentric circle
-    // doc.circle(centerX, centerY, radius - 10);
-    // // Radial lines
-    // for (let i = 0; i < 360; i += 45) {
-    //   const rad = (i * Math.PI) / 180;
-    //   const x = centerX + radius * Math.cos(rad);
-    //   const y = centerY + radius * Math.sin(rad);
-    //   doc.line(centerX, centerY, x, y);
-    // }
-
     const timingSections = [
-      "Mahadashas & Antardashas: Life Phases & Opportunities",
-      "Planetary Periods & Impact: Short-term & Long-term Influences",
-      "Transits & Progressions: How Planetary Movements Affect Life Events",
-      "Favorable & Challenging Periods: Key Dates, Phases & Practical Guidance"
+      "Mahadasha Overview: Major Life Phases — Provide a detailed overview of the native’s current and upcoming Mahadashas, interpreting their planetary themes, major life transitions, and long-term influence on career, health, relationships, and spiritual growth.",
+      "Antardasha Details: Sub-Periods & Impact — Analyze the sub-periods (Antardashas) within each Mahadasha to identify specific timeframes of progress, challenges, and opportunities across key life areas.",
+      "Paryantar & Yogini Dashas: Micro Life Events — Examine Paryantar and Yogini Dashas for micro-level insights, highlighting subtle shifts, short-term developments, and emotional or karmic lessons influencing daily experiences.",
+      "Transit Dates of Planets (Predictions): Provide accurate planetary transit timelines for 2025, describing how each planet’s movement affects personal growth, career dynamics, financial stability, and relationship trends throughout the year.",
+      "AI-Based 12-Month Prediction: Generate a data-driven, AI-supported analysis of the next 12 months, categorizing months into favorable and challenging periods with corresponding planetary reasoning and actionable guidance."
     ];
 
     const PAGE_HEIGHT = 842;
-    const LINE_HEIGHT = 20;
+    //const LINE_HEIGHT = 20;
+    const essentialTimingData = {
+      // Dashas
+      maha_dasha: astroData.maha_dasha,
+      antar_dasha: astroData.antar_dasha,
+      paryantar_dasha: astroData.paryantar_dasha,
+      yogini_dasha_main: astroData.yogini_dasha_main,
+      yogini_dasha_sub: astroData.yogini_dasha_sub,
+
+      // Transits
+      transit_dates_sun: astroData.transit_dates_sun,
+      transit_dates_moon: astroData.transit_dates_moon,
+      transit_dates_mars: astroData.transit_dates_mars,
+      transit_dates_mercury: astroData.transit_dates_mercury,
+      transit_dates_jupiter: astroData.transit_dates_jupiter,
+      transit_dates_venus: astroData.transit_dates_venus,
+      transit_dates_saturn: astroData.transit_dates_saturn,
+      transit_dates_rahu: astroData.transit_dates_rahu,
+      transit_dates_ketu: astroData.transit_dates_ketu,
+
+      // Supporting context
+      yoga_list: astroData.yoga_list,
+      current_sade_sati: astroData.current_sade_sati,
+      varshapal_details: astroData.varshapal_details,
+      ai_12_month_prediction: astroData.ai_12_month_prediction,
+
+      // Personality / chart reference
+      find_ascendant: astroData.find_ascendant,
+      find_moon_sign: astroData.find_moon_sign,
+      find_sun_sign: astroData.find_sun_sign,
+    };
 
     for (const sectionPrompt of timingSections) {
       const fullPrompt = `
-You are an expert, narrative-focused Vedic astrologer. 
-Generate a lavishly detailed, highly personalized astrology report section titled:
+You are a Vedic astrologer. 
+Generate a concise, insightful astrology report section titled:
 "${sectionPrompt}"
 
 Guidelines:
-- Write in clear, human-like tone.
-- Avoid long paragraphs; use more bullet points or short structured lines.
-- Each section must have distinct insights — do not repeat content from other sections.
-- Make it suitable for clean PDF display (no markdown or symbols like ** or ###).
-- Keep practical remedies and observations easy to read.
-language: ${userData.language}
-based on the given JSON birth data.
+- Keep the tone warm, professional, and readable (no markdown or symbols).
+- Use short paragraphs or structured lines instead of bulky text.
+- Avoid repeating details across sections.
+- Highlight **major planetary timings**, **themes**, and **practical insights**.
+- Use double asterisks for bold text (**TERM**) to mark subheadings in PDF.
+Language: ${userData.language}
 
-Include practical timing insights drawn from Mahadashas, Antardashas, and yogas.
-For each section, explain how these timings influence the native’s real-life experiences,
-decision-making, opportunities, and inner growth.
-Write in a warm, insightful, client-ready style (no markdown).
-JSON: {
-    "mahadasha": [
-      "Moon",
-      "Mars",
-      "Rahu",
-      "Jupiter",
-      "Saturn",
-      "Mercury",
-      "Ketu",
-      "Venus",
-      "Sun"
-    ],
-    "mahadasha_order": [
-      "Fri Jun 28 1991",
-      "Sun Jun 28 1998",
-      "Tue Jun 28 2016",
-      "Mon Jun 28 2032",
-      "Wed Jun 28 2051",
-      "Thu Jun 28 2068",
-      "Fri Jun 28 2075",
-      "Tue Jun 28 2095",
-      "Tue Jun 28 2101"
-    ],
-    "start_year": 1981,
-    "dasha_start_date": "Sun Jun 28 1981",
-    "dasha_remaining_at_birth": "5 years 10 months 0 days"
-  },
-  {
-    "antardashas": [
-      [
-        "Saturn/Saturn",
-        "Saturn/Mercury",
-        "Saturn/Ketu",
-        "Saturn/Venus",
-        "Saturn/Sun",
-        "Saturn/Moon",
-        "Saturn/Mars",
-        "Saturn/Rahu",
-        "Saturn/Jupiter"
-      ],
-      [
-        "Mercury/Mercury",
-        "Mercury/Ketu",
-        "Mercury/Venus",
-        "Mercury/Sun",
-        "Mercury/Moon",
-        "Mercury/Mars",
-        "Mercury/Rahu",
-        "Mercury/Jupiter",
-        "Mercury/Saturn"
-      ],
-      [
-        "Ketu/Ketu",
-        "Ketu/Venus",
-        "Ketu/Sun",
-        "Ketu/Moon",
-        "Ketu/Mars",
-        "Ketu/Rahu",
-        "Ketu/Jupiter",
-        "Ketu/Saturn",
-        "Ketu/Mercury"
-      ],
-      [
-        "Venus/Venus",
-        "Venus/Sun",
-        "Venus/Moon",
-        "Venus/Mars",
-        "Venus/Rahu",
-        "Venus/Jupiter",
-        "Venus/Saturn",
-        "Venus/Mercury",
-        "Venus/Ketu"
-      ],
-      [
-        "Sun/Sun",
-        "Sun/Moon",
-        "Sun/Mars",
-        "Sun/Rahu",
-        "Sun/Jupiter",
-        "Sun/Saturn",
-        "Sun/Mercury",
-        "Sun/Ketu",
-        "Sun/Venus"
-      ],
-      [
-        "Moon/Moon",
-        "Moon/Mars",
-        "Moon/Rahu",
-        "Moon/Jupiter",
-        "Moon/Saturn",
-        "Moon/Mercury",
-        "Moon/Ketu",
-        "Moon/Venus",
-        "Moon/Sun"
-      ],
-      [
-        "Mars/Mars",
-        "Mars/Rahu",
-        "Mars/Jupiter",
-        "Mars/Saturn",
-        "Mars/Mercury",
-        "Mars/Ketu",
-        "Mars/Venus",
-        "Mars/Sun",
-        "Mars/Moon"
-      ],
-      [
-        "Rahu/Rahu",
-        "Rahu/Jupiter",
-        "Rahu/Saturn",
-        "Rahu/Mercury",
-        "Rahu/Ketu",
-        "Rahu/Venus",
-        "Rahu/Sun",
-        "Rahu/Moon",
-        "Rahu/Mars"
-      ],
-      [
-        "Jupiter/Jupiter",
-        "Jupiter/Saturn",
-        "Jupiter/Mercury",
-        "Jupiter/Ketu",
-        "Jupiter/Venus",
-        "Jupiter/Sun",
-        "Jupiter/Moon",
-        "Jupiter/Mars",
-        "Jupiter/Rahu"
-      ]
-    ],
-    "antardasha_order": [
-      [
-        "Mon Jul 18 1983",
-        "Thu Mar 27 1986",
-        "Wed May 06 1987",
-        "Fri Jul 06 1990",
-        "Tue Jun 18 1991",
-        "Sat Jan 16 1993",
-        "Fri Feb 25 1994",
-        "Wed Jan 01 1997",
-        "Thu Jul 15 1999"
-      ],
-      [
-        "Tue Dec 11 2001",
-        "Sun Dec 08 2002",
-        "Sat Oct 08 2005",
-        "Mon Aug 14 2006",
-        "Sun Jan 13 2008",
-        "Fri Jan 09 2009",
-        "Fri Jul 29 2011",
-        "Sun Nov 03 2013",
-        "Wed Jul 13 2016"
-      ],
-      [
-        "Fri Dec 09 2016",
-        "Thu Feb 08 2018",
-        "Sat Jun 16 2018",
-        "Tue Jan 15 2019",
-        "Thu Jun 13 2019",
-        "Wed Jul 01 2020",
-        "Mon Jun 07 2021",
-        "Sun Jul 17 2022",
-        "Fri Jul 14 2023"
-      ],
-      [
-        "Thu Nov 12 2026",
-        "Fri Nov 12 2027",
-        "Fri Jul 13 2029",
-        "Thu Sep 12 2030",
-        "Mon Sep 12 2033",
-        "Tue May 13 2036",
-        "Thu Jul 14 2039",
-        "Wed May 14 2042",
-        "Tue Jul 14 2043"
-      ],
-      [
-        "Sun Nov 01 2043",
-        "Mon May 02 2044",
-        "Wed Sep 07 2044",
-        "Wed Aug 02 2045",
-        "Mon May 21 2046",
-        "Fri May 03 2047",
-        "Sun Mar 08 2048",
-        "Tue Jul 14 2048",
-        "Wed Jul 14 2049"
-      ],
-      [
-        "Sat May 14 2050",
-        "Tue Dec 13 2050",
-        "Thu Jun 13 2052",
-        "Mon Oct 13 2053",
-        "Fri May 14 2055",
-        "Thu Oct 12 2056",
-        "Sun May 13 2057",
-        "Sun Jan 12 2059",
-        "Mon Jul 14 2059"
-      ],
-      [
-        "Wed Dec 10 2059",
-        "Tue Dec 28 2060",
-        "Sun Dec 04 2061",
-        "Sat Jan 13 2063",
-        "Thu Jan 10 2064",
-        "Sat Jun 07 2064",
-        "Fri Aug 07 2065",
-        "Sun Dec 13 2065",
-        "Wed Jul 14 2066"
-      ],
-      [
-        "Tue Mar 26 2069",
-        "Thu Aug 20 2071",
-        "Tue Jun 26 2074",
-        "Tue Jan 12 2077",
-        "Mon Jan 31 2078",
-        "Fri Jan 31 2081",
-        "Fri Dec 26 2081",
-        "Sun Jun 27 2083",
-        "Sat Jul 15 2084"
-      ],
-      [
-        "Mon Sep 02 2086",
-        "Tue Mar 15 2089",
-        "Thu Jun 21 2091",
-        "Tue May 27 2092",
-        "Wed Jan 26 2095",
-        "Mon Nov 14 2095",
-        "Fri Mar 15 2097",
-        "Wed Feb 19 2098",
-        "Fri Jul 16 2100"
-      ]
-    ]
-  },
-  {
-    "factors": {
-      "moon": "Mangal dosh from moon lagna, mars in house  1, aspecting the houses 4, 7 and 8 ",
-      "saturn": "Mangal dosh along with mars-saturn association/aspect, mars in house 10 and saturn in house 10 ",
-      "rahu": "Rahu transforming into mars in house 7 in the sign of Scorpio"
-    },
-    "is_dosha_present": true,
-    "bot_response": "You are 67% manglik, It is good to consult an astrologer",
-    "score": 67
-  },
-  {
-    "is_dosha_present": true,
-    "dosha_direction": "Descending",
-    "dosha_type": "Shankpal",
-    "rahu_ketu_axis": "4-10",
-  },
-  {
-          "manglik_by_mars": true,
-          "factors": [
-            "Manglik dosha is created by Mars-Venus association."
-          ],
-          "manglik_by_saturn": false,
-          "manglik_by_rahuketu": false,
-          "aspects": [
-            "Rahu in the 3rd is aspecting the 7th",
-            "Ketu in the 9th is aspecting the 1st",
-            "Saturn in the 4th is aspecting the 1st"
-          ],
-          "score": 6
-        },
-        {
-    "is_dosha_present": true,
-  },
-  {
-    "rahu_papa": 3.25,
-    "sun_papa": 5.625,
-    "saturn_papa": 0,
-    "mars_papa": 9
-  },
-{
-    "yogas_list": [
-      {
-        "yoga": "Vesi Yoga",
-        "meaning": "Vesi Yoga represents a balanced outlook, characterized by truthfulness and a tall yet somewhat sluggish nature. Those born under this yoga find contentment and happiness with modest wealth and resources.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Vosi Yoga",
-        "meaning": "Vosi Yoga indicates skillfulness, charity, fame, knowledge, and physical strength. Individuals born under this yoga tend to be recognized for their talents and are often celebrated for their generosity and wisdom.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Ubhayachara Yoga",
-        "meaning": "Ubhayachara Yoga suggests being born with all the comforts of life. Such individuals often rise to positions of authority, possibly becoming kings or holding prominent leadership roles due to their innate qualities.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Budha Aditya Yoga",
-        "meaning": "Budha Aditya Yoga signifies intelligence, skillfulness, and expertise in various endeavors. Those born under this yoga are widely recognized and respected for their abilities and enjoy a profound sense of contentment and happiness.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "mercury"
-        ],
-        "houses_involved": [
-          10
-        ]
-      },
-      {
-        "yoga": "Moon is kendra from Sun",
-        "meaning": "When the Moon is positioned in a kendra from the Sun, it typically results in moderate wealth, intelligence, and skills in one's life.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Hamsa Yoga",
-        "meaning": "Hamsa Yoga signifies a spacious nature akin to a swan, purity, spirituality, comfort, respect, passion, potential leadership roles, an enjoyment of life, and the ability to speak eloquently and clearly.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1
-        ]
-      },
-      {
-        "yoga": "Paasa Yoga",
-        "meaning": "Paasa Yoga may involve the risk of facing imprisonment but is associated with considerable capability in one's work. These individuals tend to be talkative, often having a team of servants at their disposal, although their character may be lacking in certain aspects.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Moon",
-          "Sun",
-          "Mercury",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          4,
-          9,
-          1,
-          11
-        ]
-      },
-      {
-        "yoga": "Gaja-Kesari Yoga",
-        "meaning": "Gaja-Kesari Yoga signifies fame, wealth, intelligence, and outstanding character. Individuals under this yoga are often well-liked by kings, bosses, and other leaders, and the presence of benefic aspects amplifies these qualities.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon"
-        ],
-        "houses_involved": [
-          4
-        ]
-      },
-      {
-        "yoga": "Kaahala Yoga",
-        "meaning": "Kaahala Yoga represents a strong and bold personality, often leading a large team or group. These individuals may accumulate properties over their lifetime and exhibit cunning traits.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Mercury",
-          "Saturn",
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Sankha Yoga",
-        "meaning": "Sankha Yoga indicates a life blessed with wealth, a loving spouse, and children. These individuals are known for their kindness, piety, intelligence, and long life expectancy.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon",
-          "Sun"
-        ],
-        "houses_involved": [
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Mridanga Yoga",
-        "meaning": "Mridanga Yoga signifies an individual who holds a kingly or equal leadership position. They lead a life marked by happiness, wealth, and elegance, embodying the traits of a successful and refined leader.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Kalpadruma Yoga",
-        "meaning": "Kalpadruma Yoga represents powerful leaders who actively embrace challenges, fight for justice, and fearlessly pursue prosperity. They are principled, strong-willed, and compassionate in their actions.",
-        "strength_in_percentage": 70,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1,
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Bhaarathi Yoga",
-        "meaning": "Bhaarathi Yoga represents great scholars who are marked by intelligence, religiosity, good looks, and fame. They often excel in various fields and are celebrated for their contributions to knowledge and society.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars",
-          "Moon",
-          "Saturn"
-        ],
-        "houses_involved": [
-          9,
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Raja Yoga",
-        "meaning": "13 raja Yogas present by house associations, Raja Yogas signify exceptional power and prosperity, with individuals often holding dominion over their peers.",
-        "strength_in_percentage": 16.48351648351649,
-        "planets_involved": [
-          "Mars",
-          "Saturn",
-          "Mercury",
-          "Venus",
-          "Jupiter",
-          "Moon"
-        ],
-        "houses_involved": [
-          7,
-          9,
-          10,
-          1,
-          5,
-          4
-        ]
-      },
-      {
-        "yoga": "Dharma-Karmadhipati Yoga",
-        "meaning": "Dharma-Karmadhipati Yoga signifies individuals who are sincere, devoted, and righteous. They are fortunate and highly praised for their moral and ethical virtues.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          9
-        ]
-      },
-      {
-        "yoga": "Raaja Yoga",
-        "meaning": "Raaja Yoga brings a life filled with enjoyment, harmonious relationships, and the blessing of children. Those with this Yoga experience an abundance of life's pleasures and strong family connections.",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Saturn",
-          "Jupiter"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Raja Sambandha Yoga",
-        "meaning": "Those with Raja Sambandha Yoga are exceptionally intelligent and often attain ministerial positions or equivalent roles within organizations. Their intellect and abilities are highly regarded.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Dhana Yoga",
-        "meaning": "Those undergoing the mahadasha experience richness and fame. They accumulate substantial wealth during this period, satisfying their desires.",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "meaning": "Individuals with Daridra Yoga may face financial challenges and live in poverty and misery.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Jupiter",
-          "Mercury",
-          "Rahu",
-          "Ketu"
-        ],
-        "houses_involved": [
-          1,
-          10
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "meaning": "Individuals with Daridra Yoga may face financial challenges and live in poverty and misery.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Sun",
-          "Venus",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          11,
-          10
-        ]
-      }
-    ],
-    "yogas_count": 20,
-    "raja_yoga_count": 4,
-    "dhana_yoga_count": 1,
-    "daridra_yoga_count": 2
-  },
-  [
-    {
-      "planet_considered": "Sun",
-      "planet_location": 10,
-      "planet_native_location": 11,
-      "planet_zodiac": "Cancer",
-      "zodiac_lord": "Moon",
-      "zodiac_lord_location": "Virgo",
-      "zodiac_lord_house_location": 12,
-      "character_keywords_positive": [
-        "principled",
-        "Attractive",
-        "Virtuous",
-        "Creative"
-      ],
-      "character_keywords_negative": [
-        "indecisive",
-        "Doubtful"
-      ]
-    }
-  ],
-  [
-        {
-            "planet_considered": "Moon",
-            "planet_location": 12,
-            "planet_native_location": 10,
-            "planet_zodiac": "Virgo",
-            "zodiac_lord": "Mercury",
-            "zodiac_lord_location": "Cancer",
-            "zodiac_lord_house_location": 10,
-            "character_keywords_positive": [
-                "Intellect",
-                "Attractive",
-                "Eloquent",
-                "Truthful"
-            ],
-            "character_keywords_negative": [
-                "Sensitive",
-                "Inferior"
-            ]
-        }
-    ],
-     [
-        {
-            "planet_considered": "Mercury",
-            "planet_location": 10,
-            "planet_native_location": 9,
-            "planet_zodiac": "Cancer",
-            "zodiac_lord": "Moon",
-            "zodiac_lord_location": "Virgo",
-            "zodiac_lord_house_location": 12,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Wise",
-                "Emotional",
-                "Sympathetic",
-                "Sentimental"
-            ],
-            "character_keywords_negative": [
-                "Moody",
-                "Directionless"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Venus",
-            "planet_location": 12,
-            "planet_native_location": 1,
-            "planet_zodiac": "Virgo",
-            "zodiac_lord": "Mercury",
-            "zodiac_lord_location": "Cancer",
-            "zodiac_lord_house_location": 10,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Debilitated",
-            "character_keywords_positive": [
-                "Cautious",
-                "Polite",
-                "Romantic",
-                "Creative"
-            ],
-            "character_keywords_negative": [
-                "Hypersexual",
-                "Materialistic"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Mars",
-            "planet_location": 3,
-            "planet_native_location": 2,
-            "planet_zodiac": "Sagittarius",
-            "zodiac_lord": "Jupiter",
-            "zodiac_lord_location": "Aquarius",
-            "zodiac_lord_house_location": 5,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Wise",
-                "Skillful",
-                "Adventurous",
-                "Spiritual"
-            ],
-            "character_keywords_negative": [
-                "Argumentative",
-                "Inconsiderate"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Saturn",
-            "planet_location": 2,
-            "planet_native_location": 4,
-            "planet_zodiac": "Scorpio",
-            "zodiac_lord": "Mars",
-            "zodiac_lord_location": "Sagittarius",
-            "zodiac_lord_house_location": 3,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Researcher",
-                "Strong-willed",
-                "Adventurous",
-                "Risk-taking"
-            ],
-            "character_keywords_negative": [
-                "Mysterious",
-                "Demanding"
-            ]
-        }
-    ],
-     [
-        {
-            "planet_considered": "Jupiter",
-            "planet_location": 5,
-            "planet_native_location": 3,
-            "planet_zodiac": "Aquarius",
-            "zodiac_lord": "Saturn",
-            "zodiac_lord_location": "Scorpio",
-            "zodiac_lord_house_location": 2,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Welcoming",
-                "Accommodative",
-                "Intellectual",
-                "Unbiased"
-            ],
-            "character_keywords_negative": [
-                "Undisciplined"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Rahu",
-            "planet_location": 7,
-            "planet_native_location": 5,
-            "planet_zodiac": "Aries",
-            "zodiac_lord": "Mars",
-            "zodiac_lord_location": "Sagittarius",
-            "zodiac_lord_house_location": 3,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Aggressive",
-                "Intelligent",
-                "Wealthy",
-                "Determine"
-            ],
-            "character_keywords_negative": [
-                "Short-tempered",
-                "Reckless"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Ketu",
-            "planet_location": 1,
-            "planet_native_location": 2,
-            "planet_zodiac": "Libra",
-            "zodiac_lord": "Venus",
-            "zodiac_lord_location": "Virgo",
-            "zodiac_lord_house_location": 12,
-            "zodiac_lord_strength": "Debilitated",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Adventurous",
-                "Talkative",
-                "Aggressive",
-                "Spiritual"
-            ],
-            "character_keywords_negative": [
-                "Dishonest",
-                "Short-tempered"
-            ]
-        }
-    ],
-    Include practical timing insights drawn from Mahadashas, Antardashas,  and yogas.
-    For each section, explain how these timings influence the native’s real-life experiences,
-    decision-making, opportunities, and inner growth.
-    Write in a warm, insightful, client-ready style (no markdown).
-  `;
+`;
 
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 5000 }
-        })
-      });
-
-      const data = await response.json();
-      let text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      text = removeMarkdown(text);
-
+      let text = await callBedrock(fullPrompt, {essentialTimingData});
+      text = sanitizeText(text);
+      // --- Clean title ---
       doc.addPage();
-
-      // Draw decorative border
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      // --- Section Title ---
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(26);
-      doc.setTextColor("#000");
-      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      let cursorY = 110;
 
-      // --- Section Subtitle ---
+      // --- Titles ---
+      let sectionTitle = sectionPrompt.split("—")[0].trim();
+      sectionTitle = sectionTitle.split(":")[0].trim();
+      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      const titleFontSize = titleLines.length > 1 ? 18 : 20;
+
+      doc.setFont("NotoSans", "bold");
+      doc.setFontSize(titleFontSize);
+      doc.setTextColor("#000");
+      titleLines.forEach((line: string, i: number) =>
+        doc.text(line, pageWidth / 2, 60 + i * 24, { align: "center" })
+      );
+
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      doc.text(sectionPrompt.split(":")[1] || "", pageWidth / 2, 80, { align: "center" });
+      //doc.text(sectionPrompt.split(":")[1] || "", pageWidth / 2, 80, { align: "center" });
 
-      // Start content after title/subtitle
-      let cursorY = 110;
-
-      // --- Mahadasha Table ---
-      if (sectionPrompt.includes("Mahadashas")) {
+      // --- TABLE SECTIONS ---
+      if (sectionPrompt.includes("Mahadasha")) {
         const mahaData =
           Default?.mahadasha_data?.mahadasha?.map((planet, i) => [
             planet,
@@ -9830,25 +2066,15 @@ JSON: {
           ]) || [];
 
         cursorY = addPaginatedTable(doc, ["Planet", "Start Date"], mahaData, cursorY, PAGE_HEIGHT);
-
-        doc.setFont("NotoSans", "italic");
-        doc.setFontSize(12);
-        doc.setTextColor("#444");
-
-        const pageWidth = doc.internal.pageSize.getWidth();
-        //const textWidth = doc.getTextWidth(explanation);
-        //doc.text(explanation, (pageWidth - textWidth) / 2, cursorY + LINE_HEIGHT);
-        cursorY += 2 * LINE_HEIGHT;
+        cursorY += 20; // spacing after table
       }
 
-      // --- Antardasha Tables ---
-      if (sectionPrompt.includes("Planetary Periods")) {
+      if (sectionPrompt.includes("Antardasha")) {
         (Default?.antardasha_data?.antardashas || []).forEach((antar, index) => {
           const antarData = antar.map((sub, i) => [
             sub,
             Default?.antardasha_data?.antardasha_order?.[index]?.[i] ?? "N/A"
           ]);
-
           const mahaName =
             Default?.mahadasha_data?.mahadasha?.[index] ?? `Mahadasha ${index + 1}`;
 
@@ -9859,25 +2085,62 @@ JSON: {
             cursorY,
             PAGE_HEIGHT
           );
-
-          doc.setFont("NotoSans", "italic");
-          doc.setFontSize(12);
-          doc.setTextColor("#444");
-          //const explanation = `The table above represents the sub-periods (Antardashas) of ${mahaName} Mahadasha. These finer periods influence day-to-day experiences, decisions, and personal growth.`;
-
-          const pageWidth = doc.internal.pageSize.getWidth();
-          // const textWidth = doc.getTextWidth(explanation);
-          // doc.text(explanation, (pageWidth - textWidth) / 2, cursorY + LINE_HEIGHT);
-          cursorY += 2 * LINE_HEIGHT;
+          cursorY += 20;
         });
       }
+      // --- Bold Mahadasha and Antardasha headings ---
+      function applyTimingBolds(text: string) {
+        let formatted = text;
 
-      // --- Regular content paragraphs ---
+        // 1️⃣ Bold Mahadasha / Antardasha headings (e.g., Mars Mahadasha, Rahu/Jupiter/Jupiter)
+        formatted = formatted.replace(
+          /\b([A-Za-z]+(?:\/[A-Za-z]+){0,2}\s+Mahadasha(?:\s+Insights)?|\b[A-Za-z]+\/[A-Za-z]+(?:\/[A-Za-z]+)?)\b/g,
+          '**$1**'
+        );
+
+        // 2️⃣ Bold all date ranges inside parentheses
+        formatted = formatted.replace(
+          /\((Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+[A-Za-z]{3,9}\s+\d{1,2}\s+\d{4}\s*-\s*(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+[A-Za-z]{3,9}\s+\d{1,2}\s+\d{4}\)/g,
+          '**$&**'
+        );
+
+        // 3️⃣ Bold month-year ranges (e.g., October 2025 - November 2025)
+        formatted = formatted.replace(
+          /\b([A-Za-z]+\s+\d{4}\s*-\s*[A-Za-z]+\s+\d{4})\b/g,
+          '**$1**'
+        );
+
+        // 4️⃣ Bold "Dasha:" and its immediate planetary combination
+        formatted = formatted.replace(/(Dasha:\s*[A-Za-z\s\/]+)/g, '**$1**');
+
+        // 5️⃣ Bold Transit headers (e.g., Sun Transits, Capricorn (Jan ...))
+        formatted = formatted.replace(/\b([A-Za-z]+\s+Transits?)\b/g, '**$1**');
+        formatted = formatted.replace(
+          /\b([A-Za-z]+\s*\([A-Za-z]+\s*\d{1,2},\s*\d{4}\s*-\s*[A-Za-z]+\s*\d{1,2},\s*\d{4}\))\b/g,
+          '**$1**'
+        );
+
+        // 6️⃣ Bold AI-based predictions section headers
+        formatted = formatted.replace(
+          /\b(AI[- ]?Based\s*12[- ]?Month\s*(Prediction|Forecast|Analysis)[^:]*)/gi,
+          '**$1**'
+        );
+
+        // 7️⃣ Bold “Remedy”, “Career”, “Finance”, “Health”, “Relationship”, “Family”, etc.
+        formatted = formatted.replace(
+          /\b(Remedy|Career|Finance|Health|Relationship|Family|Actionable Guidance)\s*:/g,
+          '**$1:**'
+        );
+
+        return formatted;
+      }
+
+      // --- CONTENT (ALWAYS SHOW AFTER TABLES) ---
       doc.setFont("NotoSans", "normal");
-      doc.setFontSize(16);
-      doc.setTextColor("#a16a21");
-      const formatedtext = boldTextBeforeColonString(text);
-      addParagraphs(doc, formatedtext, 50, cursorY, pageWidth - 50 - 50);
+      doc.setFontSize(14);
+      doc.setTextColor("#000");
+      const formattedText = boldTextBeforeColonString(applyTimingBolds(text));
+      addParagraphs(doc, formattedText, 50, cursorY, pageWidth - 100);
     }
 
     // --- Helper: addPaginatedTable ---
@@ -10047,1043 +2310,60 @@ JSON: {
     doc.circle(pageWidth / 2, y, 2, "F");
 
     const remediesSections = [
-      "General Remedies: Everyday Practices & Rituals",
-      "Planet-specific Remedies: Personalized Solutions",
-      "Dosha Remedies: Balancing Manglik, Shankpal, Rahu-Ketu Influences",
-      "Yoga Remedies: Enhancing Benefic Yogas & Mitigating Malefic Yogas"
+      "Rudraksha Guidance & Recommendations — Provide personalized Rudraksha recommendations based on planetary afflictions, Nakshatra, and emotional balance. Explain the significance of each Rudraksha bead and how it supports healing, protection, and spiritual growth.",
+      "Gemstone Remedies & Gem Details — Suggest auspicious gemstones aligned with the native’s planetary strengths and weaknesses. Include details such as gemstone type, weight, metal, wearing day, and purification process for optimal energy alignment.",
+      "Mantra Chanting & Yantra Suggestions — Recommend suitable mantras and yantras to strengthen benefic planets, reduce malefic influences, and promote inner peace. Describe correct chanting procedures, frequencies, and yantra placement guidelines.",
+      "Charitable Actions & Spiritual Practices — Outline meaningful donations, fasting rituals, or service acts associated with specific planets or doshas. Provide suggestions for meditation, pranayama, and other practices that enhance spiritual evolution and planetary harmony.",
+      "Sade Sati & Dosha Remedies — Offer targeted remedies to mitigate the effects of Sade Sati, Kaalsarp, Mangalik, or other doshas. Include gemstone, mantra, and lifestyle solutions aimed at restoring balance and reducing karmic obstacles."
     ];
+    const essentialRemediesData = {
+      // Core Horoscope
+      planet_details: astroData.planet_details,
+      find_moon_sign: astroData.find_moon_sign,
+      find_sun_sign: astroData.find_sun_sign,
+      find_ascendant: astroData.find_ascendant,
+      current_sade_sati: astroData.current_sade_sati,
+      yoga_list: astroData.yoga_list,
+
+      // Doshas
+      mangal_dosh: astroData.mangal_dosh,
+      kaalsarp_dosh: astroData.kaalsarp_dosh,
+      manglik_dosh: astroData.manglik_dosh,
+      pitra_dosh: astroData.pitra_dosh,
+      papasamaya: astroData.papasamaya,
+
+      // Dashas
+      maha_dasha: astroData.maha_dasha,
+      antar_dasha: astroData.antar_dasha,
+      paryantar_dasha: astroData.paryantar_dasha,
+
+      // Remedies & Extended
+      gem_suggestion: astroData.gem_suggestion,
+      rudraksh_suggestion: astroData.rudraksh_suggestion,
+      gem_details: astroData.gem_details,
+      varshapal_details: astroData.varshapal_details,
+    };
 
     // --- Loop through each remedies sub-section ---
     async function fetchRemediesSection(sectionPrompt: string) {
       const fullPrompt = `
-You are a compassionate, highly experienced Vedic astrologer and spiritual counselor.
-Generate a well-structured, narrative-style astrology remedies section titled:
+You are a compassionate and experienced Vedic astrologer.
+Write a short, natural-language remedies section titled:
 "${sectionPrompt}"
 
 Guidelines:
-- Write in clear, natural language — no markdown, bullets or symbols like ** or ###.
-- Use short, meaningful paragraphs for readability in a PDF.
-- Avoid repetition across different sections.
-- Each remedy should be specific, actionable, and explained briefly.
-- Mention *how and why* each remedy works for this chart.
-- Maintain a warm, reassuring tone suited for a professional astrology report.
+- 2–3 clear paragraphs, no markdown or lists.
+- Use **DOUBLE ASTERISKS** around important words for PDF bolding.
+- Keep a warm and hopeful tone.
+- Focus on *why* each remedy works, not only *what* it is.
+- Avoid repetition across sections.
 
 Language: ${userData.language}
+`;
 
-Base your analysis entirely on the following *JSON birth data*, including planetary positions, yogas, doshas, and dashas.
-
-Include:
-- **General lifestyle and spiritual practices**
-- **Planet-specific remedies** (mantras, gemstones, colors, fasting)
-- **Dosha remedies** (Manglik, Rahu–Ketu, Shankpal)
-- **Yoga strengthening or mitigation techniques**
-- **Charity, donation, or karmic advice**
-- **Yantras or meditation suggestions** when relevant
-
-Make sure:
-- “General Remedies” are broad daily practices.
-- “Planet-specific Remedies” focus only on 9 planets.
-- “Dosha Remedies” deal with Manglik, Shankpal, Rahu–Ketu balance.
-- “Yoga Remedies” enhance benefic yogas or reduce malefic yoga impact.
-
-    JSON: {
-    "mahadasha": [
-      "Moon",
-      "Mars",
-      "Rahu",
-      "Jupiter",
-      "Saturn",
-      "Mercury",
-      "Ketu",
-      "Venus",
-      "Sun"
-    ],
-    "mahadasha_order": [
-      "Fri Jun 28 1991",
-      "Sun Jun 28 1998",
-      "Tue Jun 28 2016",
-      "Mon Jun 28 2032",
-      "Wed Jun 28 2051",
-      "Thu Jun 28 2068",
-      "Fri Jun 28 2075",
-      "Tue Jun 28 2095",
-      "Tue Jun 28 2101"
-    ],
-    "start_year": 1981,
-    "dasha_start_date": "Sun Jun 28 1981",
-    "dasha_remaining_at_birth": "5 years 10 months 0 days"
-  },
-  {
-    "antardashas": [
-      [
-        "Saturn/Saturn",
-        "Saturn/Mercury",
-        "Saturn/Ketu",
-        "Saturn/Venus",
-        "Saturn/Sun",
-        "Saturn/Moon",
-        "Saturn/Mars",
-        "Saturn/Rahu",
-        "Saturn/Jupiter"
-      ],
-      [
-        "Mercury/Mercury",
-        "Mercury/Ketu",
-        "Mercury/Venus",
-        "Mercury/Sun",
-        "Mercury/Moon",
-        "Mercury/Mars",
-        "Mercury/Rahu",
-        "Mercury/Jupiter",
-        "Mercury/Saturn"
-      ],
-      [
-        "Ketu/Ketu",
-        "Ketu/Venus",
-        "Ketu/Sun",
-        "Ketu/Moon",
-        "Ketu/Mars",
-        "Ketu/Rahu",
-        "Ketu/Jupiter",
-        "Ketu/Saturn",
-        "Ketu/Mercury"
-      ],
-      [
-        "Venus/Venus",
-        "Venus/Sun",
-        "Venus/Moon",
-        "Venus/Mars",
-        "Venus/Rahu",
-        "Venus/Jupiter",
-        "Venus/Saturn",
-        "Venus/Mercury",
-        "Venus/Ketu"
-      ],
-      [
-        "Sun/Sun",
-        "Sun/Moon",
-        "Sun/Mars",
-        "Sun/Rahu",
-        "Sun/Jupiter",
-        "Sun/Saturn",
-        "Sun/Mercury",
-        "Sun/Ketu",
-        "Sun/Venus"
-      ],
-      [
-        "Moon/Moon",
-        "Moon/Mars",
-        "Moon/Rahu",
-        "Moon/Jupiter",
-        "Moon/Saturn",
-        "Moon/Mercury",
-        "Moon/Ketu",
-        "Moon/Venus",
-        "Moon/Sun"
-      ],
-      [
-        "Mars/Mars",
-        "Mars/Rahu",
-        "Mars/Jupiter",
-        "Mars/Saturn",
-        "Mars/Mercury",
-        "Mars/Ketu",
-        "Mars/Venus",
-        "Mars/Sun",
-        "Mars/Moon"
-      ],
-      [
-        "Rahu/Rahu",
-        "Rahu/Jupiter",
-        "Rahu/Saturn",
-        "Rahu/Mercury",
-        "Rahu/Ketu",
-        "Rahu/Venus",
-        "Rahu/Sun",
-        "Rahu/Moon",
-        "Rahu/Mars"
-      ],
-      [
-        "Jupiter/Jupiter",
-        "Jupiter/Saturn",
-        "Jupiter/Mercury",
-        "Jupiter/Ketu",
-        "Jupiter/Venus",
-        "Jupiter/Sun",
-        "Jupiter/Moon",
-        "Jupiter/Mars",
-        "Jupiter/Rahu"
-      ]
-    ],
-    "antardasha_order": [
-      [
-        "Mon Jul 18 1983",
-        "Thu Mar 27 1986",
-        "Wed May 06 1987",
-        "Fri Jul 06 1990",
-        "Tue Jun 18 1991",
-        "Sat Jan 16 1993",
-        "Fri Feb 25 1994",
-        "Wed Jan 01 1997",
-        "Thu Jul 15 1999"
-      ],
-      [
-        "Tue Dec 11 2001",
-        "Sun Dec 08 2002",
-        "Sat Oct 08 2005",
-        "Mon Aug 14 2006",
-        "Sun Jan 13 2008",
-        "Fri Jan 09 2009",
-        "Fri Jul 29 2011",
-        "Sun Nov 03 2013",
-        "Wed Jul 13 2016"
-      ],
-      [
-        "Fri Dec 09 2016",
-        "Thu Feb 08 2018",
-        "Sat Jun 16 2018",
-        "Tue Jan 15 2019",
-        "Thu Jun 13 2019",
-        "Wed Jul 01 2020",
-        "Mon Jun 07 2021",
-        "Sun Jul 17 2022",
-        "Fri Jul 14 2023"
-      ],
-      [
-        "Thu Nov 12 2026",
-        "Fri Nov 12 2027",
-        "Fri Jul 13 2029",
-        "Thu Sep 12 2030",
-        "Mon Sep 12 2033",
-        "Tue May 13 2036",
-        "Thu Jul 14 2039",
-        "Wed May 14 2042",
-        "Tue Jul 14 2043"
-      ],
-      [
-        "Sun Nov 01 2043",
-        "Mon May 02 2044",
-        "Wed Sep 07 2044",
-        "Wed Aug 02 2045",
-        "Mon May 21 2046",
-        "Fri May 03 2047",
-        "Sun Mar 08 2048",
-        "Tue Jul 14 2048",
-        "Wed Jul 14 2049"
-      ],
-      [
-        "Sat May 14 2050",
-        "Tue Dec 13 2050",
-        "Thu Jun 13 2052",
-        "Mon Oct 13 2053",
-        "Fri May 14 2055",
-        "Thu Oct 12 2056",
-        "Sun May 13 2057",
-        "Sun Jan 12 2059",
-        "Mon Jul 14 2059"
-      ],
-      [
-        "Wed Dec 10 2059",
-        "Tue Dec 28 2060",
-        "Sun Dec 04 2061",
-        "Sat Jan 13 2063",
-        "Thu Jan 10 2064",
-        "Sat Jun 07 2064",
-        "Fri Aug 07 2065",
-        "Sun Dec 13 2065",
-        "Wed Jul 14 2066"
-      ],
-      [
-        "Tue Mar 26 2069",
-        "Thu Aug 20 2071",
-        "Tue Jun 26 2074",
-        "Tue Jan 12 2077",
-        "Mon Jan 31 2078",
-        "Fri Jan 31 2081",
-        "Fri Dec 26 2081",
-        "Sun Jun 27 2083",
-        "Sat Jul 15 2084"
-      ],
-      [
-        "Mon Sep 02 2086",
-        "Tue Mar 15 2089",
-        "Thu Jun 21 2091",
-        "Tue May 27 2092",
-        "Wed Jan 26 2095",
-        "Mon Nov 14 2095",
-        "Fri Mar 15 2097",
-        "Wed Feb 19 2098",
-        "Fri Jul 16 2100"
-      ]
-    ]
-  },
-  {
-    "factors": {
-      "moon": "Mangal dosh from moon lagna, mars in house  1, aspecting the houses 4, 7 and 8 ",
-      "saturn": "Mangal dosh along with mars-saturn association/aspect, mars in house 10 and saturn in house 10 ",
-      "rahu": "Rahu transforming into mars in house 7 in the sign of Scorpio"
-    },
-    "is_dosha_present": true,
-    "bot_response": "You are 67% manglik, It is good to consult an astrologer",
-    "score": 67
-  },
-  {
-    "is_dosha_present": true,
-    "dosha_direction": "Descending",
-    "dosha_type": "Shankpal",
-    "rahu_ketu_axis": "4-10",
-  },
-  {
-          "manglik_by_mars": true,
-          "factors": [
-            "Manglik dosha is created by Mars-Venus association."
-          ],
-          "manglik_by_saturn": false,
-          "manglik_by_rahuketu": false,
-          "aspects": [
-            "Rahu in the 3rd is aspecting the 7th",
-            "Ketu in the 9th is aspecting the 1st",
-            "Saturn in the 4th is aspecting the 1st"
-          ],
-          "score": 6
-        },
-        {
-    "is_dosha_present": true,
-  },
-  {
-    "rahu_papa": 3.25,
-    "sun_papa": 5.625,
-    "saturn_papa": 0,
-    "mars_papa": 9
-  },
-{
-    "yogas_list": [
-      {
-        "yoga": "Vesi Yoga",
-        "meaning": "Vesi Yoga represents a balanced outlook, characterized by truthfulness and a tall yet somewhat sluggish nature. Those born under this yoga find contentment and happiness with modest wealth and resources.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Vosi Yoga",
-        "meaning": "Vosi Yoga indicates skillfulness, charity, fame, knowledge, and physical strength. Individuals born under this yoga tend to be recognized for their talents and are often celebrated for their generosity and wisdom.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Ubhayachara Yoga",
-        "meaning": "Ubhayachara Yoga suggests being born with all the comforts of life. Such individuals often rise to positions of authority, possibly becoming kings or holding prominent leadership roles due to their innate qualities.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Budha Aditya Yoga",
-        "meaning": "Budha Aditya Yoga signifies intelligence, skillfulness, and expertise in various endeavors. Those born under this yoga are widely recognized and respected for their abilities and enjoy a profound sense of contentment and happiness.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "mercury"
-        ],
-        "houses_involved": [
-          10
-        ]
-      },
-      {
-        "yoga": "Moon is kendra from Sun",
-        "meaning": "When the Moon is positioned in a kendra from the Sun, it typically results in moderate wealth, intelligence, and skills in one's life.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Hamsa Yoga",
-        "meaning": "Hamsa Yoga signifies a spacious nature akin to a swan, purity, spirituality, comfort, respect, passion, potential leadership roles, an enjoyment of life, and the ability to speak eloquently and clearly.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1
-        ]
-      },
-      {
-        "yoga": "Paasa Yoga",
-        "meaning": "Paasa Yoga may involve the risk of facing imprisonment but is associated with considerable capability in one's work. These individuals tend to be talkative, often having a team of servants at their disposal, although their character may be lacking in certain aspects.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Moon",
-          "Sun",
-          "Mercury",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          4,
-          9,
-          1,
-          11
-        ]
-      },
-      {
-        "yoga": "Gaja-Kesari Yoga",
-        "meaning": "Gaja-Kesari Yoga signifies fame, wealth, intelligence, and outstanding character. Individuals under this yoga are often well-liked by kings, bosses, and other leaders, and the presence of benefic aspects amplifies these qualities.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon"
-        ],
-        "houses_involved": [
-          4
-        ]
-      },
-      {
-        "yoga": "Kaahala Yoga",
-        "meaning": "Kaahala Yoga represents a strong and bold personality, often leading a large team or group. These individuals may accumulate properties over their lifetime and exhibit cunning traits.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Mercury",
-          "Saturn",
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Sankha Yoga",
-        "meaning": "Sankha Yoga indicates a life blessed with wealth, a loving spouse, and children. These individuals are known for their kindness, piety, intelligence, and long life expectancy.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon",
-          "Sun"
-        ],
-        "houses_involved": [
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Mridanga Yoga",
-        "meaning": "Mridanga Yoga signifies an individual who holds a kingly or equal leadership position. They lead a life marked by happiness, wealth, and elegance, embodying the traits of a successful and refined leader.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Kalpadruma Yoga",
-        "meaning": "Kalpadruma Yoga represents powerful leaders who actively embrace challenges, fight for justice, and fearlessly pursue prosperity. They are principled, strong-willed, and compassionate in their actions.",
-        "strength_in_percentage": 70,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1,
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Bhaarathi Yoga",
-        "meaning": "Bhaarathi Yoga represents great scholars who are marked by intelligence, religiosity, good looks, and fame. They often excel in various fields and are celebrated for their contributions to knowledge and society.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars",
-          "Moon",
-          "Saturn"
-        ],
-        "houses_involved": [
-          9,
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Raja Yoga",
-        "meaning": "13 raja Yogas present by house associations, Raja Yogas signify exceptional power and prosperity, with individuals often holding dominion over their peers.",
-        "strength_in_percentage": 16.48351648351649,
-        "planets_involved": [
-          "Mars",
-          "Saturn",
-          "Mercury",
-          "Venus",
-          "Jupiter",
-          "Moon"
-        ],
-        "houses_involved": [
-          7,
-          9,
-          10,
-          1,
-          5,
-          4
-        ]
-      },
-      {
-        "yoga": "Dharma-Karmadhipati Yoga",
-        "meaning": "Dharma-Karmadhipati Yoga signifies individuals who are sincere, devoted, and righteous. They are fortunate and highly praised for their moral and ethical virtues.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          9
-        ]
-      },
-      {
-        "yoga": "Raaja Yoga",
-        "meaning": "Raaja Yoga brings a life filled with enjoyment, harmonious relationships, and the blessing of children. Those with this Yoga experience an abundance of life's pleasures and strong family connections.",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Saturn",
-          "Jupiter"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Raja Sambandha Yoga",
-        "meaning": "Those with Raja Sambandha Yoga are exceptionally intelligent and often attain ministerial positions or equivalent roles within organizations. Their intellect and abilities are highly regarded.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Dhana Yoga",
-        "meaning": "Those undergoing the mahadasha experience richness and fame. They accumulate substantial wealth during this period, satisfying their desires.",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "meaning": "Individuals with Daridra Yoga may face financial challenges and live in poverty and misery.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Jupiter",
-          "Mercury",
-          "Rahu",
-          "Ketu"
-        ],
-        "houses_involved": [
-          1,
-          10
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "meaning": "Individuals with Daridra Yoga may face financial challenges and live in poverty and misery.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Sun",
-          "Venus",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          11,
-          10
-        ]
-      }
-    ],
-    "yogas_count": 20,
-    "raja_yoga_count": 4,
-    "dhana_yoga_count": 1,
-    "daridra_yoga_count": 2
-  },
-  [
-    {
-      "planet_considered": "Sun",
-      "planet_location": 10,
-      "planet_native_location": 11,
-      "planet_zodiac": "Cancer",
-      "zodiac_lord": "Moon",
-      "zodiac_lord_location": "Virgo",
-      "zodiac_lord_house_location": 12,
-      "character_keywords_positive": [
-        "principled",
-        "Attractive",
-        "Virtuous",
-        "Creative"
-      ],
-      "character_keywords_negative": [
-        "indecisive",
-        "Doubtful"
-      ]
-    }
-  ],
-  [
-        {
-            "planet_considered": "Moon",
-            "planet_location": 12,
-            "planet_native_location": 10,
-            "planet_zodiac": "Virgo",
-            "zodiac_lord": "Mercury",
-            "zodiac_lord_location": "Cancer",
-            "zodiac_lord_house_location": 10,
-            "character_keywords_positive": [
-                "Intellect",
-                "Attractive",
-                "Eloquent",
-                "Truthful"
-            ],
-            "character_keywords_negative": [
-                "Sensitive",
-                "Inferior"
-            ]
-        }
-    ],
-     [
-        {
-            "planet_considered": "Mercury",
-            "planet_location": 10,
-            "planet_native_location": 9,
-            "planet_zodiac": "Cancer",
-            "zodiac_lord": "Moon",
-            "zodiac_lord_location": "Virgo",
-            "zodiac_lord_house_location": 12,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Wise",
-                "Emotional",
-                "Sympathetic",
-                "Sentimental"
-            ],
-            "character_keywords_negative": [
-                "Moody",
-                "Directionless"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Venus",
-            "planet_location": 12,
-            "planet_native_location": 1,
-            "planet_zodiac": "Virgo",
-            "zodiac_lord": "Mercury",
-            "zodiac_lord_location": "Cancer",
-            "zodiac_lord_house_location": 10,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Debilitated",
-            "character_keywords_positive": [
-                "Cautious",
-                "Polite",
-                "Romantic",
-                "Creative"
-            ],
-            "character_keywords_negative": [
-                "Hypersexual",
-                "Materialistic"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Mars",
-            "planet_location": 3,
-            "planet_native_location": 2,
-            "planet_zodiac": "Sagittarius",
-            "zodiac_lord": "Jupiter",
-            "zodiac_lord_location": "Aquarius",
-            "zodiac_lord_house_location": 5,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Wise",
-                "Skillful",
-                "Adventurous",
-                "Spiritual"
-            ],
-            "character_keywords_negative": [
-                "Argumentative",
-                "Inconsiderate"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Saturn",
-            "planet_location": 2,
-            "planet_native_location": 4,
-            "planet_zodiac": "Scorpio",
-            "zodiac_lord": "Mars",
-            "zodiac_lord_location": "Sagittarius",
-            "zodiac_lord_house_location": 3,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Researcher",
-                "Strong-willed",
-                "Adventurous",
-                "Risk-taking"
-            ],
-            "character_keywords_negative": [
-                "Mysterious",
-                "Demanding"
-            ]
-        }
-    ],
-     [
-        {
-            "planet_considered": "Jupiter",
-            "planet_location": 5,
-            "planet_native_location": 3,
-            "planet_zodiac": "Aquarius",
-            "zodiac_lord": "Saturn",
-            "zodiac_lord_location": "Scorpio",
-            "zodiac_lord_house_location": 2,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Welcoming",
-                "Accommodative",
-                "Intellectual",
-                "Unbiased"
-            ],
-            "character_keywords_negative": [
-                "Undisciplined"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Rahu",
-            "planet_location": 7,
-            "planet_native_location": 5,
-            "planet_zodiac": "Aries",
-            "zodiac_lord": "Mars",
-            "zodiac_lord_location": "Sagittarius",
-            "zodiac_lord_house_location": 3,
-            "zodiac_lord_strength": "Neutral",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Aggressive",
-                "Intelligent",
-                "Wealthy",
-                "Determine"
-            ],
-            "character_keywords_negative": [
-                "Short-tempered",
-                "Reckless"
-            ]
-        }
-    ],
-    [
-        {
-            "planet_considered": "Ketu",
-            "planet_location": 1,
-            "planet_native_location": 2,
-            "planet_zodiac": "Libra",
-            "zodiac_lord": "Venus",
-            "zodiac_lord_location": "Virgo",
-            "zodiac_lord_house_location": 12,
-            "zodiac_lord_strength": "Debilitated",
-            "planet_strength": "Neutral",
-            "character_keywords_positive": [
-                "Adventurous",
-                "Talkative",
-                "Aggressive",
-                "Spiritual"
-            ],
-            "character_keywords_negative": [
-                "Dishonest",
-                "Short-tempered"
-            ]
-        }
-    ],
-   House JSON data (all 12 houses):
-interface Planet {
-  planetId: string;
-  full_name: string;
-  name: string;
-  nakshatra: string;
-  nakshatra_no: number;
-  nakshatra_pada: number;
-  retro: boolean;
-}
-
-interface House {
-  house: string;
-  rasi_no: number;
-  zodiac: string;
-  aspected_by_planet: string[];
-  aspected_by_planet_index: number[];
-  planets: Planet[];
-  cusp_sub_lord: string;
-  cusp_sub_sub_lord: string;
-  bhavmadhya: number;
-}
-
-
-const houses: House[] = [
-  {
-    house: "1",
-    rasi_no: 10,
-    zodiac: "Capricorn",
-    aspected_by_planet: [],
-    aspected_by_planet_index: [],
-    planets: [
-      { planetId: "0", full_name: "Ascendant", name: "As", nakshatra: "Vishakha", nakshatra_no: 16, nakshatra_pada: 2, retro: false },
-      { planetId: "7", full_name: "Saturn", name: "Sa", nakshatra: "Jyeshtha", nakshatra_no: 18, nakshatra_pada: 2, retro: false }
-    ],
-    cusp_sub_lord: "Saturn",
-    cusp_sub_sub_lord: "Rahu",
-    bhavmadhya: 23.888
-  },
-  {
-    house: "2",
-    rasi_no: 11,
-    zodiac: "Aquarius",
-    aspected_by_planet: ["Moon", "Rahu"],
-    aspected_by_planet_index: [2, 8],
-    planets: [],
-    cusp_sub_lord: "Rahu",
-    cusp_sub_sub_lord: "Rahu",
-    bhavmadhya: 24.682
-  },
-  {
-    house: "3",
-    rasi_no: 12,
-    zodiac: "Pisces",
-    aspected_by_planet: ["Mars"],
-    aspected_by_planet_index: [3],
-    planets: [],
-    cusp_sub_lord: "Saturn",
-    cusp_sub_sub_lord: "Rahu",
-    bhavmadhya: 23.836
-  },
-  {
-    house: "4",
-    rasi_no: 1,
-    zodiac: "Aries",
-    aspected_by_planet: ["Sun", "Jupiter", "Rahu"],
-    aspected_by_planet_index: [1, 5, 8],
-    planets: [],
-    cusp_sub_lord: "Venus",
-    cusp_sub_sub_lord: "Saturn",
-    bhavmadhya: 22.39
-  },
-  {
-    house: "5",
-    rasi_no: 2,
-    zodiac: "Taurus",
-    aspected_by_planet: ["Mercury", "Venus"],
-    aspected_by_planet_index: [4, 6],
-    planets: [
-      { planetId: "8", full_name: "Rahu", name: "Ra", nakshatra: "UttaraBhadra", nakshatra_no: 26, nakshatra_pada: 3, retro: true }
-    ],
-    cusp_sub_lord: "Saturn",
-    cusp_sub_sub_lord: "Moon",
-    bhavmadhya: 23.422
-  },
-  {
-    house: "6",
-    rasi_no: 3,
-    zodiac: "Gemini",
-    aspected_by_planet: ["Saturn", "Ketu"],
-    aspected_by_planet_index: [7, 9],
-    planets: [
-      { planetId: "5", full_name: "Jupiter", name: "Ju", nakshatra: "Ashvini", nakshatra_no: 1, nakshatra_pada: 2, retro: true }
-    ],
-    cusp_sub_lord: "Rahu",
-    cusp_sub_sub_lord: "Rahu",
-    bhavmadhya: 24.672
-  },
-  {
-    house: "7",
-    rasi_no: 4,
-    zodiac: "Cancer",
-    aspected_by_planet: [],
-    aspected_by_planet_index: [],
-    planets: [],
-    cusp_sub_lord: "Saturn",
-    cusp_sub_sub_lord: "Rahu",
-    bhavmadhya: 23.888
-  },
-  {
-    house: "8",
-    rasi_no: 5,
-    zodiac: "Leo",
-    aspected_by_planet: ["Ketu"],
-    aspected_by_planet_index: [9],
-    planets: [],
-    cusp_sub_lord: "Rahu",
-    cusp_sub_sub_lord: "Rahu",
-    bhavmadhya: 24.682
-  },
-  {
-    house: "9",
-    rasi_no: 6,
-    zodiac: "Virgo",
-    aspected_by_planet: [],
-    aspected_by_planet_index: [],
-    planets: [
-      { planetId: "2", full_name: "Moon", name: "Mo", nakshatra: "Punarvasu", nakshatra_no: 7, nakshatra_pada: 3, retro: false }
-    ],
-    cusp_sub_lord: "Saturn",
-    cusp_sub_sub_lord: "Rahu",
-    bhavmadhya: 23.836
-  },
-  {
-    house: "10",
-    rasi_no: 7,
-    zodiac: "Libra",
-    aspected_by_planet: ["Ketu"],
-    aspected_by_planet_index: [9],
-    planets: [
-      { planetId: "1", full_name: "Sun", name: "Su", nakshatra: "Magha", nakshatra_no: 10, nakshatra_pada: 2, retro: false },
-      { planetId: "3", full_name: "Mars", name: "Ma", nakshatra: "Magha", nakshatra_no: 10, nakshatra_pada: 2, retro: false },
-      { planetId: "4", full_name: "Mercury", name: "Me", nakshatra: "Magha", nakshatra_no: 10, nakshatra_pada: 2, retro: false },
-      { planetId: "6", full_name: "Venus", name: "Ve", nakshatra: "Magha", nakshatra_no: 10, nakshatra_pada: 2, retro: false }
-    ],
-    cusp_sub_lord: "Sun",
-    cusp_sub_sub_lord: "Mercury",
-    bhavmadhya: 22.39
-  },
-  {
-    house: "11",
-    rasi_no: 8,
-    zodiac: "Scorpio",
-    aspected_by_planet: ["Mars", "Saturn"],
-    aspected_by_planet_index: [3, 7],
-    planets: [
-      { planetId: "9", full_name: "Ketu", name: "Ke", nakshatra: "Hasta", nakshatra_no: 13, nakshatra_pada: 1, retro: true }
-    ],
-    cusp_sub_lord: "Saturn",
-    cusp_sub_sub_lord: "Sun",
-    bhavmadhya: 23.422
-  },
-  {
-    house: "12",
-    rasi_no: 9,
-    zodiac: "Sagittarius",
-    aspected_by_planet: ["Jupiter", "Rahu"],
-    aspected_by_planet_index: [5, 8],
-    planets: [],
-    cusp_sub_lord: "Rahu",
-    cusp_sub_sub_lord: "Rahu",
-    bhavmadhya: 24.672
-  }
-],
- "response": { Sun:{
-        "bot_response": "The Sun and Moon are always direct ",
-        "status": true},
-        Moon:{"bot_response": "The Sun and Moon are always direct ",
-        "status": true},},
-        Mercury:{"dates": [
-            [
-                "31 January 1994",
-                "27 September 1994"
-            ],
-            [
-                "24 December 1994",
-                "14 January 1995"
-            ],
-            [
-                " 9 January 1994",
-                " 9 May 1994"
-            ],
-            [
-                " 2 June 1994",
-                " 6 September 1994"
-            ]},
-           Venus:{ "dates": [
-            [
-                "13 October 1994",
-                "23 November 1994"
-            ]
-        ],},
-        Mars:{"bot_response": "mars is not retrograde in 1994",
-        "status": true
-        },
-        Jupiter:{"dates": [
-      [
-        "19 December 2021",
-        "29 January 2022"
-      ]
-]
-        },
-        Saturn: {"dates": [
-            [
-                "23 June 1994",
-                " 9 November 1994"
-            ]
-        ],
-        },
-Rahu:{
-"bot_response": "The Rahu and Ketu are always retrograde ",
-        "status": true
-        },
-        Ketu:{
-        "bot_response": "The Rahu and Ketu are always retrograde ",
-        "status": true
-        },
-    },
-  `;
-
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
-        })
-      });
-
-      const data = await response.json();
-      let text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      return removeMarkdown(text);
+      let text = await callBedrock(fullPrompt, {essentialRemediesData}); 
+      text= sanitizeText(text); 
+      return text;
     }
 
     // Run all API calls in parallel
@@ -11098,16 +2378,31 @@ Rahu:{
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
+      const sectionTitle = sectionPrompt.split("—")[0].trim(); // ✅ only use text before "—"
+      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      let titleY = 60;
+
+      // Choose smaller font size if title is long
+      const titleFontSize = titleLines.length > 1 ? 18 : 20;
+      const titleLineHeight = 24;
+
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(26);
+      doc.setFontSize(titleFontSize);
       doc.setTextColor("#000");
-      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
+
+      // Center the title lines properly
+      titleLines.forEach((line: string, i: number) => {
+        doc.text(line, pageWidth / 2, titleY + i * titleLineHeight, { align: "center" });
+      });
+
+      titleY += titleLines.length * titleLineHeight + 10;
+
 
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext = boldTextBeforeColonString(text);
-      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
+      //const formatedtext = boldTextBeforeColonString(text);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
 
     }
     doc.addPage();
@@ -11176,1252 +2471,51 @@ Rahu:{
     doc.circle(pageWidth / 2, y, 2, "F");
 
     const advancedSections = [
-      "Introduction to Advanced Calculations",
-      "Fundamentals of Ashtakvarga",
-      "Sarvashtakavarga Analysis",
-      "Shadbala-Based Life Predictions",
-      "Detailed Pratyantar Dasha Analysis",
-      "Dasha-Based Yearly Predictions",
-      "Advanced Divisional Chart Analysis",
-      "Special Yogas and Rare Combinations",
-      "Synthesis & Final Recommendations"
+      "Ashtakvarga: Strength & Fortune Analysis — Provide a detailed breakdown of planetary strength through the Ashtakvarga system. Interpret bindus for each planet and house to assess luck, vitality, and the overall flow of fortune in the native’s life path.",
+      "Shadbala: Sixfold Planetary Strength — Analyze the quantitative strength of each planet using the Shadbala system. Discuss how these strength levels influence success, decision-making, and performance in key life areas like career, health, and relationships.",
+      "Divisional Charts Summary (D1–D12 Overview) — Offer a summarized interpretation of divisional charts D1 to D12, focusing on their respective domains (e.g., D9 for marriage, D10 for career, D12 for parental karma). Highlight the interplay of planetary strengths across these charts.",
+      "Pratyantar Dasha: Sub-Periods for Predictive Analysis — Examine the Pratyantar Dasha layers within major and sub-periods to provide refined predictive insights into short-term developments, opportunities, and turning points.",
+      "Planetary Wars (Grah Yuddha) & Retrograde Impacts — Explain instances of planetary war and retrogression, interpreting their effects on confidence, clarity, delays, and karmic lessons. Provide guidance on managing such planetary tensions through awareness and timing."
     ];
+    const essentialAdvancedData = {
+      ashtakvarga: astroData.ashtakvarga,
+      shad_bala: astroData.shad_bala,
+      divisional_charts: Object.fromEntries(
+        Object.entries(astroData).filter(([key]) => key.startsWith("divisional_chart_"))
+      ),
+      paryantar_dasha: astroData.paryantar_dasha,
+      antar_dasha: astroData.antar_dasha,
+      maha_dasha: astroData.maha_dasha,
+      retrogrades: Object.fromEntries(
+        Object.entries(astroData).filter(([key]) => key.startsWith("retrogrades_"))
+      ),
+      transit_dates: Object.fromEntries(
+        Object.entries(astroData).filter(([key]) => key.startsWith("transit_dates_"))
+      ),
+      planet_details: astroData.planet_details,
+      planets_in_houses: astroData.planets_in_houses,
+      yoga_list: astroData.yoga_list,
+    };
 
     // --- Loop through each advanced calculation sub-section ---
     async function fetchAdvanceSection(sectionPrompt: string) {
       const fullPrompt = `
-You are an expert, narrative-focused Vedic astrologer.
-Generate a lavishly detailed, highly personalized astrology section titled:
+You are a skilled Vedic astrologer.
+Write a concise, insightful analysis titled:
 "${sectionPrompt}"
-🪔 **Guidelines:**
-- Write in clear, fluent, human-like prose.
-- Use short, crisp paragraphs or bullet-style insights (no Markdown symbols like ** or ##).
-- Avoid repetition; each section should give unique insights not found in others.
-- Use gentle headers or short topic transitions where relevant (e.g., “Strength Analysis:”, “Interpretation:”, “Impact:”).
-- Make it suitable for clean PDF layout — no extra formatting symbols.
-- Provide both *technical calculation notes* and *human interpretation*.
-- Keep tone insightful, client-friendly, and balanced between scientific and intuitive.
-- Use the provided data to calculate and interpret: planetary positions, yogas, dashas, shadbala, ashtakvarga, and doshas.
-- Avoid introducing fictional yogas or fabricating data.
-language:${userData.language}
-based on the given JSON birth data.
 
-Include precise calculations, interpretations, and insights from planetary positions, houses, yogas, dashas, and doshas.
-Explain how each factor impacts the native's life in detail.
-Write in a warm, insightful, client-ready style (no markdown).
-JSON: {
-    "yogas_list": [
-      {
-        "yoga": "Vesi Yoga",
-        "meaning": "Vesi Yoga represents a balanced outlook, characterized by truthfulness and a tall yet somewhat sluggish nature. Those born under this yoga find contentment and happiness with modest wealth and resources.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Vosi Yoga",
-        "meaning": "Vosi Yoga indicates skillfulness, charity, fame, knowledge, and physical strength. Individuals born under this yoga tend to be recognized for their talents and are often celebrated for their generosity and wisdom.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Ubhayachara Yoga",
-        "meaning": "Ubhayachara Yoga suggests being born with all the comforts of life. Such individuals often rise to positions of authority, possibly becoming kings or holding prominent leadership roles due to their innate qualities.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Budha Aditya Yoga",
-        "meaning": "Budha Aditya Yoga signifies intelligence, skillfulness, and expertise in various endeavors. Those born under this yoga are widely recognized and respected for their abilities and enjoy a profound sense of contentment and happiness.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "mercury"
-        ],
-        "houses_involved": [
-          10
-        ]
-      },
-      {
-        "yoga": "Moon is kendra from Sun",
-        "meaning": "When the Moon is positioned in a kendra from the Sun, it typically results in moderate wealth, intelligence, and skills in one's life.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Moon"
-        ],
-        "houses_involved": [
-          10,
-          4
-        ]
-      },
-      {
-        "yoga": "Hamsa Yoga",
-        "meaning": "Hamsa Yoga signifies a spacious nature akin to a swan, purity, spirituality, comfort, respect, passion, potential leadership roles, an enjoyment of life, and the ability to speak eloquently and clearly.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1
-        ]
-      },
-      {
-        "yoga": "Paasa Yoga",
-        "meaning": "Paasa Yoga may involve the risk of facing imprisonment but is associated with considerable capability in one's work. These individuals tend to be talkative, often having a team of servants at their disposal, although their character may be lacking in certain aspects.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Moon",
-          "Sun",
-          "Mercury",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          4,
-          9,
-          1,
-          11
-        ]
-      },
-      {
-        "yoga": "Gaja-Kesari Yoga",
-        "meaning": "Gaja-Kesari Yoga signifies fame, wealth, intelligence, and outstanding character. Individuals under this yoga are often well-liked by kings, bosses, and other leaders, and the presence of benefic aspects amplifies these qualities.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon"
-        ],
-        "houses_involved": [
-          4
-        ]
-      },
-      {
-        "yoga": "Kaahala Yoga",
-        "meaning": "Kaahala Yoga represents a strong and bold personality, often leading a large team or group. These individuals may accumulate properties over their lifetime and exhibit cunning traits.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Sun",
-          "Mercury",
-          "Saturn",
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Sankha Yoga",
-        "meaning": "Sankha Yoga indicates a life blessed with wealth, a loving spouse, and children. These individuals are known for their kindness, piety, intelligence, and long life expectancy.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Moon",
-          "Sun"
-        ],
-        "houses_involved": [
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Mridanga Yoga",
-        "meaning": "Mridanga Yoga signifies an individual who holds a kingly or equal leadership position. They lead a life marked by happiness, wealth, and elegance, embodying the traits of a successful and refined leader.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Ascendant",
-          "Jupiter",
-          "Rahu"
-        ],
-        "houses_involved": [
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Kalpadruma Yoga",
-        "meaning": "Kalpadruma Yoga represents powerful leaders who actively embrace challenges, fight for justice, and fearlessly pursue prosperity. They are principled, strong-willed, and compassionate in their actions.",
-        "strength_in_percentage": 70,
-        "planets_involved": [
-          "Jupiter"
-        ],
-        "houses_involved": [
-          1,
-          1,
-          1
-        ]
-      },
-      {
-        "yoga": "Bhaarathi Yoga",
-        "meaning": "Bhaarathi Yoga represents great scholars who are marked by intelligence, religiosity, good looks, and fame. They often excel in various fields and are celebrated for their contributions to knowledge and society.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars",
-          "Moon",
-          "Saturn"
-        ],
-        "houses_involved": [
-          9,
-          4,
-          10
-        ]
-      },
-      {
-        "yoga": "Raja Yoga",
-        "meaning": "13 raja Yogas present by house associations, Raja Yogas signify exceptional power and prosperity, with individuals often holding dominion over their peers.",
-        "strength_in_percentage": 16.48351648351649,
-        "planets_involved": [
-          "Mars",
-          "Saturn",
-          "Mercury",
-          "Venus",
-          "Jupiter",
-          "Moon"
-        ],
-        "houses_involved": [
-          7,
-          9,
-          10,
-          1,
-          5,
-          4
-        ]
-      },
-      {
-        "yoga": "Dharma-Karmadhipati Yoga",
-        "meaning": "Dharma-Karmadhipati Yoga signifies individuals who are sincere, devoted, and righteous. They are fortunate and highly praised for their moral and ethical virtues.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          9
-        ]
-      },
-      {
-        "yoga": "Raaja Yoga",
-        "meaning": "Raaja Yoga brings a life filled with enjoyment, harmonious relationships, and the blessing of children. Those with this Yoga experience an abundance of life's pleasures and strong family connections.",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Saturn",
-          "Jupiter"
-        ],
-        "houses_involved": [
-          10,
-          1
-        ]
-      },
-      {
-        "yoga": "Raja Sambandha Yoga",
-        "meaning": "Those with Raja Sambandha Yoga are exceptionally intelligent and often attain ministerial positions or equivalent roles within organizations. Their intellect and abilities are highly regarded.",
-        "strength_in_percentage": 90,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Dhana Yoga",
-        "meaning": "Those undergoing the mahadasha experience richness and fame. They accumulate substantial wealth during this period, satisfying their desires.",
-        "strength_in_percentage": 80,
-        "planets_involved": [
-          "Mars"
-        ],
-        "houses_involved": [
-          9
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "meaning": "Individuals with Daridra Yoga may face financial challenges and live in poverty and misery.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Jupiter",
-          "Mercury",
-          "Rahu",
-          "Ketu"
-        ],
-        "houses_involved": [
-          1,
-          10
-        ]
-      },
-      {
-        "yoga": "Daridra Yoga",
-        "meaning": "Individuals with Daridra Yoga may face financial challenges and live in poverty and misery.",
-        "strength_in_percentage": 100,
-        "planets_involved": [
-          "Sun",
-          "Venus",
-          "Saturn"
-        ],
-        "houses_involved": [
-          10,
-          11,
-          10
-        ]
-      }
-    ],
-    "yogas_count": 20,
-    "raja_yoga_count": 4,
-    "dhana_yoga_count": 1,
-    "daridra_yoga_count": 2
-  },
-  {
-    "mahadasha": [
-      "Moon",
-      "Mars",
-      "Rahu",
-      "Jupiter",
-      "Saturn",
-      "Mercury",
-      "Ketu",
-      "Venus",
-      "Sun"
-    ],
-    "mahadasha_order": [
-      "Fri Jun 28 1991",
-      "Sun Jun 28 1998",
-      "Tue Jun 28 2016",
-      "Mon Jun 28 2032",
-      "Wed Jun 28 2051",
-      "Thu Jun 28 2068",
-      "Fri Jun 28 2075",
-      "Tue Jun 28 2095",
-      "Tue Jun 28 2101"
-    ],
-    "start_year": 1981,
-    "dasha_start_date": "Sun Jun 28 1981",
-    "dasha_remaining_at_birth": "5 years 10 months 0 days"
-  },
-  {
-    "antardashas": [
-      [
-        "Saturn/Saturn",
-        "Saturn/Mercury",
-        "Saturn/Ketu",
-        "Saturn/Venus",
-        "Saturn/Sun",
-        "Saturn/Moon",
-        "Saturn/Mars",
-        "Saturn/Rahu",
-        "Saturn/Jupiter"
-      ],
-      [
-        "Mercury/Mercury",
-        "Mercury/Ketu",
-        "Mercury/Venus",
-        "Mercury/Sun",
-        "Mercury/Moon",
-        "Mercury/Mars",
-        "Mercury/Rahu",
-        "Mercury/Jupiter",
-        "Mercury/Saturn"
-      ],
-      [
-        "Ketu/Ketu",
-        "Ketu/Venus",
-        "Ketu/Sun",
-        "Ketu/Moon",
-        "Ketu/Mars",
-        "Ketu/Rahu",
-        "Ketu/Jupiter",
-        "Ketu/Saturn",
-        "Ketu/Mercury"
-      ],
-      [
-        "Venus/Venus",
-        "Venus/Sun",
-        "Venus/Moon",
-        "Venus/Mars",
-        "Venus/Rahu",
-        "Venus/Jupiter",
-        "Venus/Saturn",
-        "Venus/Mercury",
-        "Venus/Ketu"
-      ],
-      [
-        "Sun/Sun",
-        "Sun/Moon",
-        "Sun/Mars",
-        "Sun/Rahu",
-        "Sun/Jupiter",
-        "Sun/Saturn",
-        "Sun/Mercury",
-        "Sun/Ketu",
-        "Sun/Venus"
-      ],
-      [
-        "Moon/Moon",
-        "Moon/Mars",
-        "Moon/Rahu",
-        "Moon/Jupiter",
-        "Moon/Saturn",
-        "Moon/Mercury",
-        "Moon/Ketu",
-        "Moon/Venus",
-        "Moon/Sun"
-      ],
-      [
-        "Mars/Mars",
-        "Mars/Rahu",
-        "Mars/Jupiter",
-        "Mars/Saturn",
-        "Mars/Mercury",
-        "Mars/Ketu",
-        "Mars/Venus",
-        "Mars/Sun",
-        "Mars/Moon"
-      ],
-      [
-        "Rahu/Rahu",
-        "Rahu/Jupiter",
-        "Rahu/Saturn",
-        "Rahu/Mercury",
-        "Rahu/Ketu",
-        "Rahu/Venus",
-        "Rahu/Sun",
-        "Rahu/Moon",
-        "Rahu/Mars"
-      ],
-      [
-        "Jupiter/Jupiter",
-        "Jupiter/Saturn",
-        "Jupiter/Mercury",
-        "Jupiter/Ketu",
-        "Jupiter/Venus",
-        "Jupiter/Sun",
-        "Jupiter/Moon",
-        "Jupiter/Mars",
-        "Jupiter/Rahu"
-      ]
-    ],
-    "antardasha_order": [
-      [
-        "Mon Jul 18 1983",
-        "Thu Mar 27 1986",
-        "Wed May 06 1987",
-        "Fri Jul 06 1990",
-        "Tue Jun 18 1991",
-        "Sat Jan 16 1993",
-        "Fri Feb 25 1994",
-        "Wed Jan 01 1997",
-        "Thu Jul 15 1999"
-      ],
-      [
-        "Tue Dec 11 2001",
-        "Sun Dec 08 2002",
-        "Sat Oct 08 2005",
-        "Mon Aug 14 2006",
-        "Sun Jan 13 2008",
-        "Fri Jan 09 2009",
-        "Fri Jul 29 2011",
-        "Sun Nov 03 2013",
-        "Wed Jul 13 2016"
-      ],
-      [
-        "Fri Dec 09 2016",
-        "Thu Feb 08 2018",
-        "Sat Jun 16 2018",
-        "Tue Jan 15 2019",
-        "Thu Jun 13 2019",
-        "Wed Jul 01 2020",
-        "Mon Jun 07 2021",
-        "Sun Jul 17 2022",
-        "Fri Jul 14 2023"
-      ],
-      [
-        "Thu Nov 12 2026",
-        "Fri Nov 12 2027",
-        "Fri Jul 13 2029",
-        "Thu Sep 12 2030",
-        "Mon Sep 12 2033",
-        "Tue May 13 2036",
-        "Thu Jul 14 2039",
-        "Wed May 14 2042",
-        "Tue Jul 14 2043"
-      ],
-      [
-        "Sun Nov 01 2043",
-        "Mon May 02 2044",
-        "Wed Sep 07 2044",
-        "Wed Aug 02 2045",
-        "Mon May 21 2046",
-        "Fri May 03 2047",
-        "Sun Mar 08 2048",
-        "Tue Jul 14 2048",
-        "Wed Jul 14 2049"
-      ],
-      [
-        "Sat May 14 2050",
-        "Tue Dec 13 2050",
-        "Thu Jun 13 2052",
-        "Mon Oct 13 2053",
-        "Fri May 14 2055",
-        "Thu Oct 12 2056",
-        "Sun May 13 2057",
-        "Sun Jan 12 2059",
-        "Mon Jul 14 2059"
-      ],
-      [
-        "Wed Dec 10 2059",
-        "Tue Dec 28 2060",
-        "Sun Dec 04 2061",
-        "Sat Jan 13 2063",
-        "Thu Jan 10 2064",
-        "Sat Jun 07 2064",
-        "Fri Aug 07 2065",
-        "Sun Dec 13 2065",
-        "Wed Jul 14 2066"
-      ],
-      [
-        "Tue Mar 26 2069",
-        "Thu Aug 20 2071",
-        "Tue Jun 26 2074",
-        "Tue Jan 12 2077",
-        "Mon Jan 31 2078",
-        "Fri Jan 31 2081",
-        "Fri Dec 26 2081",
-        "Sun Jun 27 2083",
-        "Sat Jul 15 2084"
-      ],
-      [
-        "Mon Sep 02 2086",
-        "Tue Mar 15 2089",
-        "Thu Jun 21 2091",
-        "Tue May 27 2092",
-        "Wed Jan 26 2095",
-        "Mon Nov 14 2095",
-        "Fri Mar 15 2097",
-        "Wed Feb 19 2098",
-        "Fri Jul 16 2100"
-      ]
-    ]
-  },
-  {
-    "factors": {
-      "moon": "Mangal dosh from moon lagna, mars in house  1, aspecting the houses 4, 7 and 8 ",
-      "saturn": "Mangal dosh along with mars-saturn association/aspect, mars in house 10 and saturn in house 10 ",
-      "rahu": "Rahu transforming into mars in house 7 in the sign of Scorpio"
-    },
-    "is_dosha_present": true,
-    "bot_response": "You are 67% manglik, It is good to consult an astrologer",
-    "score": 67
-  },
-  {
-    "is_dosha_present": true,
-    "dosha_direction": "Descending",
-    "dosha_type": "Shankpal",
-    "rahu_ketu_axis": "4-10",
-  },
-  {
-          "manglik_by_mars": true,
-          "factors": [
-            "Manglik dosha is created by Mars-Venus association."
-          ],
-          "manglik_by_saturn": false,
-          "manglik_by_rahuketu": false,
-          "aspects": [
-            "Rahu in the 3rd is aspecting the 7th",
-            "Ketu in the 9th is aspecting the 1st",
-            "Saturn in the 4th is aspecting the 1st"
-          ],
-          "score": 6
-        },
-        {
-    "is_dosha_present": true,
-  },
-  {
-    "rahu_papa": 3.25,
-    "sun_papa": 5.625,
-    "saturn_papa": 0,
-    "mars_papa": 9
-  },
-  {
-    "ashtakvarga_order": [
-      "Sun",
-      "Moon",
-      "Mars",
-      "Mercury",
-      "Jupiter",
-      "Venus",
-      "Saturn",
-      "Ascendant"
-    ],
-    "ashtakvarga_points": [
-      [
-        5,
-        5,
-        4,
-        6,
-        4,
-        2,
-        4,
-        3,
-        5,
-        4,
-        2,
-        4
-      ],
-      [
-        4,
-        3,
-        2,
-        5,
-        6,
-        3,
-        3,
-        4,
-        6,
-        3,
-        6,
-        4
-      ],
-      [
-        5,
-        4,
-        2,
-        5,
-        3,
-        3,
-        3,
-        3,
-        5,
-        3,
-        0,
-        3
-      ],
-      [
-        4,
-        7,
-        5,
-        6,
-        5,
-        4,
-        5,
-        4,
-        4,
-        4,
-        1,
-        5
-      ],
-      [
-        6,
-        4,
-        3,
-        5,
-        7,
-        2,
-        6,
-        6,
-        3,
-        6,
-        4,
-        4
-      ],
-      [
-        4,
-        5,
-        8,
-        3,
-        4,
-        3,
-        4,
-        2,
-        5,
-        5,
-        6,
-        3
-      ],
-      [
-        4,
-        3,
-        1,
-        6,
-        4,
-        2,
-        2,
-        2,
-        3,
-        4,
-        4,
-        4
-      ],
-      [
-        3,
-        3,
-        5,
-        6,
-        5,
-        4,
-        4,
-        4,
-        5,
-        4,
-        3,
-        4
-      ]
-    ],
-    "ashtakvarga_total": [
-      32,
-      31,
-      25,
-      36,
-      33,
-      19,
-      27,
-      24,
-      31,
-      29,
-      23,
-      27
-    ]
-  },
-  {
-    "uccha_bala": {
-      "Sun": 59.32031043085757,
-      "Moon": 32.63126448629642,
-      "Mars": 43.260819163608744,
-      "Mercury": 1.4407654619833845,
-      "Jupiter": 59.473352668723095,
-      "Venus": 52.77976828625727,
-      "Saturn": 37.92127313003476,
-      "Rahu": 23.737887318967818,
-      "Ketu": 19.404553985634493
-    },
-    "saptavargaja_bala": {
-      "Sun": 105,
-      "Moon": 97.5,
-      "Mars": 78.75,
-      "Mercury": 52.5,
-      "Jupiter": 67.5,
-      "Venus": 52.5,
-      "Saturn": 50.625,
-      "Rahu": 26.25,
-      "Ketu": 56.25
-    },
-    "ojayugma_bala": {
-      "Sun": 30,
-      "Moon": 15,
-      "Mars": 15,
-      "Mercury": 15,
-      "Jupiter": 15,
-      "Venus": 15,
-      "Saturn": 30,
-      "Rahu": 0,
-      "Ketu": 0
-    },
-    "kendra_bala": {
-      "Sun": 30,
-      "Moon": 15,
-      "Mars": 60,
-      "Mercury": 60,
-      "Jupiter": 30,
-      "Venus": 60,
-      "Saturn": 15,
-      "Rahu": 15,
-      "Ketu": 15
-    },
-    "drekkna_bala": {
-      "Sun": 15,
-      "Moon": 0,
-      "Mars": 0,
-      "Mercury": 15,
-      "Jupiter": 15,
-      "Venus": 0,
-      "Saturn": 15,
-      "Rahu": 0,
-      "Ketu": 0
-    },
-    "total_sthana_bala": {
-      "Sun": 239.32031043085757,
-      "Moon": 160.13126448629643,
-      "Mars": 212.01081916360874,
-      "Mercury": 143.94076546198337,
-      "Jupiter": 186.9733526687231,
-      "Venus": 180.27976828625728,
-      "Saturn": 163.54627313003476,
-      "Rahu": 64.98788731896782,
-      "Ketu": 90.6545539856345
-    },
-    "nathonnatha_bala": {
-      "Sun": 58.333333333333336,
-      "Moon": 1.6666666666666667,
-      "Mars": 1.6666666666666667,
-      "Mercury": 60,
-      "Jupiter": 58.333333333333336,
-      "Venus": 58.333333333333336,
-      "Saturn": 1.6666666666666667,
-      "Rahu": 1.6666666666666667,
-      "Ketu": 1.6666666666666667
-    },
-    "dig_bala": {
-      "Sun": 52.346356235809104,
-      "Moon": 11.368735513703578,
-      "Mars": 58.92748583027541,
-      "Mercury": 18.559234538016614,
-      "Jupiter": 52.80668600205643,
-      "Venus": 3.2202317137427485,
-      "Saturn": 9.587939796701429,
-      "Rahu": 2.2621126810321734,
-      "Ketu": 22.262112681032175
-    },
-    "paksha_bala": {
-      "Sun": 39.59999999999999,
-      "Moon": 39.59999999999999,
-      "Mars": 39.59999999999999,
-      "Mercury": 20.399999999999995,
-      "Jupiter": 20.399999999999995,
-      "Venus": 20.399999999999995,
-      "Saturn": 39.59999999999999,
-      "Rahu": 39.59999999999999,
-      "Ketu": 39.59999999999999
-    },
-    "thribhaga_bala": {
-      "Sun": 60,
-      "Moon": 0,
-      "Mars": 0,
-      "Mercury": 0,
-      "Jupiter": 60,
-      "Venus": 0,
-      "Saturn": 0,
-      "Rahu": 0,
-      "Ketu": 0
-    },
-    "abda_bala": {
-      "Sun": 0,
-      "Moon": 0,
-      "Mars": 0,
-      "Mercury": 0,
-      "Jupiter": 0,
-      "Venus": 15,
-      "Saturn": 0,
-      "Rahu": 0,
-      "Ketu": 0
-    },
-    "masa_bala": {
-      "Sun": 0,
-      "Moon": 0,
-      "Mars": 0,
-      "Mercury": 0,
-      "Jupiter": 0,
-      "Venus": 0,
-      "Saturn": 0,
-      "Rahu": 30,
-      "Ketu": 0
-    },
-    "vara_bala": {
-      "Sun": 45,
-      "Moon": 0,
-      "Mars": 0,
-      "Mercury": 0,
-      "Jupiter": 0,
-      "Venus": 0,
-      "Saturn": 0,
-      "Rahu": 0,
-      "Ketu": 0
-    },
-    "hora_bala": {
-      "Sun": 0,
-      "Moon": 0,
-      "Mars": 0,
-      "Mercury": 0,
-      "Jupiter": 60,
-      "Venus": 0,
-      "Saturn": 0,
-      "Rahu": 0,
-      "Ketu": 0
-    },
-    "total_balas": {
-      "Sun": 701.1094398872788,
-      "Moon": 349.0853728090453,
-      "Mars": 362.8708491701956,
-      "Mercury": 325.6401016284879,
-      "Jupiter": 569.8167820348012,
-      "Venus": 362.3586476528693,
-      "Saturn": 291.32796576795687,
-      "Rahu": null,
-      "Ketu": null
-    },
-    "ayana_bala": {
-      "Sun": 91.32507715406281,
-      "Moon": 42.910274215404584,
-      "Mars": 36.10731575595325,
-      "Mercury": 32.20298453355509,
-      "Jupiter": 55.91155559151589,
-      "Venus": 29.411400512935888,
-      "Saturn": 18.42773158332416,
-      "Rahu": 0,
-      "Ketu": 0
-    },
-    "chesta_Bala": {
-      "Sun": 45.662538577031405,
-      "Moon": 39.59999999999999,
-      "Mars": 1.8759117859005034,
-      "Mercury": 28.803227196196474,
-      "Jupiter": 41.13185443917248,
-      "Venus": 16.546373985658857,
-      "Saturn": 49.919354591229904,
-      "Rahu": 0,
-      "Ketu": 0
-    },
-    "naisargeka_balas": {
-      "Sun": 60,
-      "Moon": 51.42,
-      "Mars": 17.16,
-      "Mercury": 25.74,
-      "Jupiter": 34.26,
-      "Venus": 42.84,
-      "Saturn": 8.58
-    },
-    "drik_bala": {
-      "Sun": 9.521824156184518,
-      "Moon": 2.3884319269740892,
-      "Mars": -4.477350032208941,
-      "Mercury": -4.006110101263696,
-      "Jupiter": 0,
-      "Venus": -3.672460179058815,
-      "Saturn": 0,
-      "Rahu": 0,
-      "Ketu": 3.7499999999999964
-    },
-    "ratio": {
-      "Sun": 1.797716512531484,
-      "Moon": 0.9696815911362369,
-      "Mars": 1.2095694972339852,
-      "Mercury": 0.7753335753059236,
-      "Jupiter": 1.4610686718841057,
-      "Venus": 1.098056508038998,
-      "Saturn": 0.9710932192265229,
-      "Rahu": null,
-      "Ketu": null
-    }
-  },
-  {
-        "0": {
-            "name": "As",
-            "zodiac": "Aquarius",
-            "rasi_no": 11,
-            "house": 1,
-            "retro": false,
-            "full_name": "Ascendant",
-            "local_degree": 24.78031924639663
-        },
-        "1": {
-            "name": "Su",
-            "zodiac": "Aquarius",
-            "rasi_no": 11,
-            "house": 1,
-            "retro": false,
-            "full_name": "Sun",
-            "local_degree": 9.453409420062144
-        },
-        "2": {
-            "name": "Mo",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 7,
-            "retro": false,
-            "full_name": "Moon",
-            "local_degree": 10.419502073079684
-        },
-        "3": {
-            "name": "Ma",
-            "zodiac": "Aries",
-            "rasi_no": 1,
-            "house": 3,
-            "retro": false,
-            "full_name": "Mars",
-            "local_degree": 23.29247702011174
-        },
-        "4": {
-            "name": "Me",
-            "zodiac": "Capricorn",
-            "rasi_no": 10,
-            "house": 12,
-            "retro": true,
-            "full_name": "Mercury",
-            "local_degree": 14.364291740757835
-        },
-        "5": {
-            "name": "Ju",
-            "zodiac": "Aries",
-            "rasi_no": 1,
-            "house": 3,
-            "retro": false,
-            "full_name": "Jupiter",
-            "local_degree": 8.824024650148203
-        },
-        "6": {
-            "name": "Ve",
-            "zodiac": "Sagittarius",
-            "rasi_no": 9,
-            "house": 11,
-            "retro": false,
-            "full_name": "Venus",
-            "local_degree": 14.501868101614946
-        },
-        "7": {
-            "name": "Sa",
-            "zodiac": "Pisces",
-            "rasi_no": 12,
-            "house": 2,
-            "retro": false,
-            "full_name": "Saturn",
-            "local_degree": 19.70210560912119
-        },
-        "8": {
-            "name": "Ra",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 7,
-            "retro": true,
-            "full_name": "Rahu",
-            "local_degree": 12.882623301118656
-        },
-        "9": {
-            "name": "Ke",
-            "zodiac": "Aquarius",
-            "rasi_no": 11,
-            "house": 1,
-            "retro": true,
-            "full_name": "Ketu",
-            "local_degree": 12.88262330111911
-        },
-        "chart": "D9",
-        "chart_name": "Navamsa"
-    },
-    {
-        "0": {
-            "name": "As",
-            "zodiac": "Scorpio",
-            "rasi_no": 8,
-            "house": 1,
-            "retro": false,
-            "full_name": "Ascendant",
-            "local_degree": 10.867021384885106
-        },
-        "1": {
-            "name": "Su",
-            "zodiac": "Cancer",
-            "rasi_no": 4,
-            "house": 9,
-            "retro": false,
-            "full_name": "Sun",
-            "local_degree": 3.837121577846574
-        },
-        "2": {
-            "name": "Mo",
-            "zodiac": "Sagittarius",
-            "rasi_no": 9,
-            "house": 2,
-            "retro": false,
-            "full_name": "Moon",
-            "local_degree": 24.910557858977427
-        },
-        "3": {
-            "name": "Ma",
-            "zodiac": "Aries",
-            "rasi_no": 1,
-            "house": 6,
-            "retro": false,
-            "full_name": "Mars",
-            "local_degree": 25.880530022346377
-        },
-        "4": {
-            "name": "Me",
-            "zodiac": "Gemini",
-            "rasi_no": 3,
-            "house": 8,
-            "retro": true,
-            "full_name": "Mercury",
-            "local_degree": 5.960324156397746
-        },
-        "5": {
-            "name": "Ju",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 10,
-            "retro": false,
-            "full_name": "Jupiter",
-            "local_degree": 29.8044718334977
-        },
-        "6": {
-            "name": "Ve",
-            "zodiac": "Aries",
-            "rasi_no": 1,
-            "house": 6,
-            "retro": false,
-            "full_name": "Venus",
-            "local_degree": 22.779853446238576
-        },
-        "7": {
-            "name": "Sa",
-            "zodiac": "Leo",
-            "rasi_no": 5,
-            "house": 10,
-            "retro": false,
-            "full_name": "Saturn",
-            "local_degree": 18.557895121245565
-        },
-        "8": {
-            "name": "Ra",
-            "zodiac": "Sagittarius",
-            "rasi_no": 9,
-            "house": 2,
-            "retro": true,
-            "full_name": "Rahu",
-            "local_degree": 27.647359223465173
-        },
-        "9": {
-            "name": "Ke",
-            "zodiac": "Gemini",
-            "rasi_no": 3,
-            "house": 8,
-            "retro": true,
-            "full_name": "Ketu",
-            "local_degree": 27.647359223465173
-        },
-        "chart": "D10",
-        "chart_name": "Dasamsa"
-    },
-    {
-        "0": {
-            "name": "As",
-            "zodiac": "Aquarius",
-            "rasi_no": 11,
-            "house": 1,
-            "retro": false,
-            "full_name": "Ascendant",
-            "local_degree": 5.2021283093099555
-        },
-        "1": {
-            "name": "Su",
-            "zodiac": "Pisces",
-            "rasi_no": 12,
-            "house": 2,
-            "retro": false,
-            "full_name": "Sun",
-            "local_degree": 23.022729467080353
-        },
-        "2": {
-            "name": "Mo",
-            "zodiac": "Sagittarius",
-            "rasi_no": 9,
-            "house": 11,
-            "retro": false,
-            "full_name": "Moon",
-            "local_degree": 29.46334715386456
-        },
-        "3": {
-            "name": "Ma",
-            "zodiac": "Virgo",
-            "rasi_no": 6,
-            "house": 8,
-            "retro": false,
-            "full_name": "Mars",
-            "local_degree": 5.283180134078265
-        },
-        "4": {
-            "name": "Me",
-            "zodiac": "Libra",
-            "rasi_no": 7,
-            "house": 9,
-            "retro": true,
-            "full_name": "Mercury",
-            "local_degree": 5.761944938385568
-        },
-        "5": {
-            "name": "Ju",
-            "zodiac": "Cancer",
-            "rasi_no": 4,
-            "house": 6,
-            "retro": false,
-            "full_name": "Jupiter",
-            "local_degree": 28.826831000988022
-        },
-        "6": {
-            "name": "Ve",
-            "zodiac": "Gemini",
-            "rasi_no": 3,
-            "house": 5,
-            "retro": false,
-            "full_name": "Venus",
-            "local_degree": 16.679120677432365
-        },
-        "7": {
-            "name": "Sa",
-            "zodiac": "Sagittarius",
-            "rasi_no": 9,
-            "house": 11,
-            "retro": false,
-            "full_name": "Saturn",
-            "local_degree": 21.34737072747157
-        },
-        "8": {
-            "name": "Ra",
-            "zodiac": "Capricorn",
-            "rasi_no": 10,
-            "house": 12,
-            "retro": true,
-            "full_name": "Rahu",
-            "local_degree": 15.88415534079104
-        },
-        "9": {
-            "name": "Ke",
-            "zodiac": "Cancer",
-            "rasi_no": 4,
-            "house": 6,
-            "retro": true,
-            "full_name": "Ketu",
-            "local_degree": 15.88415534079104
-        },
-        "chart": "D60",
-        "chart_name": "Shastiamsha"
-    },
+Focus on clarity, accuracy, and a warm tone.
+Use 2–3 short paragraphs, optionally grouped by subtopics like "Strength:", "Impact:", or "Guidance:".
+No markdown or symbols — only plain text.
+Use **DOUBLE ASTERISKS** for bold words (converted later to PDF bold text).
+Avoid repetition and fictional data.
 
-Now write the section titled "${sectionPrompt}" accordingly.
-  `;
-
+Language: ${userData.language}
+`;
       // --- API Call ---
-      const response = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 3000 }
-        })
-      });
-
-      const data = await response.json();
-      let text =
-        data.candidates?.[0]?.content?.parts?.[0]?.text ||
-        `${sectionPrompt.split(":")[0]} section could not be generated.`;
-      return removeMarkdown(text);
+    let text = await callBedrock(fullPrompt, {essentialAdvancedData});
+    text= sanitizeText(text);
+      return text;
     }
 
     // Run all API calls in parallel
@@ -12436,196 +2530,250 @@ Now write the section titled "${sectionPrompt}" accordingly.
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
+      // --- Section Title (cleaner layout) ---
+      const sectionTitle = sectionPrompt.split("—")[0].trim(); // ✅ only use text before "—"
+      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      let titleY = 60;
+
+      // Choose smaller font size if title is long
+      const titleFontSize = titleLines.length > 1 ? 18 : 20;
+      const titleLineHeight = 24;
+
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(26);
+      doc.setFontSize(titleFontSize);
       doc.setTextColor("#000");
-      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
+
+      // Center the title lines properly
+      titleLines.forEach((line: string, i: number) => {
+        doc.text(line, pageWidth / 2, titleY + i * titleLineHeight, { align: "center" });
+      });
+
+      titleY += titleLines.length * titleLineHeight + 10; // add extra gap below title
+      // move Y down for next content
 
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      const formatedtext = boldTextBeforeColonString(text);
-      addParagraphs(doc, formatedtext, 50, 100, pageWidth - 100);
+      //const formatedtext = boldTextBeforeColonString(text);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
+    doc.addPage();
+    doc.setFillColor("#4b1f65"); // Deep violet
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+
+    // === INNER GOLDEN BORDER ===
+    doc.setDrawColor("#d4af37"); // Gold
+    doc.setLineWidth(2);
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+
+    // === INNER BACKGROUND FILL (Slightly lighter violet) ===
+    doc.setFillColor("#62379b");
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
+
+    // === DECORATIVE CORNERS ===
+    doc.setDrawColor("#f5d06f"); // Soft gold
+    doc.setLineWidth(1.5);
+
+    // Top-left
+    doc.line(margin, margin, margin + corner, margin);
+    doc.line(margin, margin, margin, margin + corner);
+
+    // Top-right
+    doc.line(pageWidth - margin, margin, pageWidth - margin - corner, margin);
+    doc.line(pageWidth - margin, margin, pageWidth - margin, margin + corner);
+
+    // Bottom-left
+    doc.line(margin, pageHeight - margin, margin + corner, pageHeight - margin);
+    doc.line(margin, pageHeight - margin, margin, pageHeight - margin - corner);
+
+    // Bottom-right
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin - corner, pageHeight - margin);
+    doc.line(pageWidth - margin, pageHeight - margin, pageWidth - margin, pageHeight - margin - corner);
+
+    // === CENTER TITLE ===
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(36);
+    doc.setTextColor("#f5d06f"); // Gold
+    doc.text("Panchang & Astronomical Insights", pageWidth / 2, pageHeight / 2 - 10, {
+      align: "center",
+      baseline: "middle",
+    });
+
+    // === SUBTITLE ===
+    doc.setFont("NotoSans", "normal");
+    doc.setFontSize(18);
+    doc.setTextColor("#ffffff");
+    doc.text("Pathways to Inner Peace and Transformation", pageWidth / 2, pageHeight / 2 + 25, {
+      align: "center",
+    });
+
+    // === DECORATIVE DIVIDER ===
+    doc.setLineWidth(1);
+    doc.setDrawColor("#f5d06f");
+    doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
+    doc.circle(pageWidth / 2, y, 2, "F");
+
+    const panchangSections = [
+  "Sunrise & Sunset Timings (Birth Day Reference) — Provide precise sunrise and sunset timings for the native’s birth date and location. Explain their significance in determining Lagna, planetary strength, and the energetic start and end of the day.",
+  "Moonrise & Moonset Timings — Offer accurate moonrise and moonset times for the birth day, describing their astrological relevance for emotional rhythms, mind stability, and lunar influences on the native’s temperament.",
+  "Choghadiya Muhurta: Daily Auspicious Hours — Present the Choghadiya segments for the day of birth, classifying them as auspicious, neutral, or inauspicious. Explain how these timings influence daily decisions, events, and beginnings.",
+  "Hora Muhurta: Planetary Hour Influences — Detail the planetary hours (Horas) governing the birth period, illustrating how each planetary hour impacts decision-making, productivity, and the native’s inherent timing for success."
+];
+
+const essentialPanchangData = {
+  sunrise: astroData.sunrise,
+  sunset: astroData.sunset,
+  moonrise: astroData.moonrise,
+  moonset: astroData.moonset,
+  choghadiya_muhurta: astroData.choghadiya_muhurta,
+  hora_muhurta: astroData.hora_muhurta,
+  find_moon_sign: astroData.find_moon_sign,
+  find_ascendant: astroData.find_ascendant,
+  current_sade_sati: astroData.current_sade_sati,
+};
+
+// --- Loop through each Panchang sub-section ---
+async function fetchpanchangSection(sectionPrompt: string) {
+  const fullPrompt = `
+You are a kind, skilled Vedic astrologer.
+Write a short, insightful narrative section titled:
+"${sectionPrompt}"
+
+Use warm, clear language and 2–3 compact paragraphs.
+No markdown, lists, or symbols. Use **DOUBLE ASTERISKS** around subheadings or key words for bold text.
+Avoid repeating info from other sections.
+
+Language: ${userData.language}
+`;
+
+  try {
+    let text = await callBedrock(fullPrompt, essentialPanchangData);
+    text = sanitizeText(text);
+
+    if (!text || typeof text !== "string" || text.trim() === "") {
+      text = "Astrological data for this section is currently unavailable.";
+    }
+    return text;
+  } catch (err) {
+    console.error("⚠️ Panchang Bedrock Error:", err);
+    return "Astrological data for this section is currently unavailable.";
+  }
+}
+
+// --- Run all API calls in parallel ---
+const resultpanchang = await Promise.all(panchangSections.map(fetchpanchangSection));
+
+// --- Render all sections ---
+for (let i = 0; i < panchangSections.length; i++) {
+  const sectionPrompt = panchangSections[i];
+  let text = resultpanchang[i];
+
+  let sectionTitle = sectionPrompt.split("—")[0].trim();
+  sectionTitle = sectionTitle.replace(/[-:]+$/, "").trim();
+
+  const firstLine = text.split("\n")[0].trim();
+  if (firstLine.toLowerCase().includes(sectionTitle.toLowerCase())) {
+    text = text.split("\n").slice(1).join("\n").trim();
+  }
+
+  doc.addPage();
+  doc.setDrawColor("#a16a21");
+  doc.setLineWidth(1.5);
+  doc.rect(25, 25, 545, 792, "S");
+
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(22);
+  doc.setTextColor("#000");
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 100);
+  let titleY = 70;
+
+  titleLines.forEach((line:string, index:number) => {
+    doc.text(line, pageWidth / 2, titleY + index * 24, { align: "center" });
+  });
+
+  const startY = titleY + titleLines.length * 30;
+  doc.setFont("NotoSans", "normal");
+  doc.setFontSize(16);
+  doc.setTextColor("#a16a21");
+
+  addParagraphs(doc, text, 50, startY, pageWidth - 100);
+}
+
 
     // Generate "12 Q&A & Personalized Advice" section
     const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
     // --- Generate 12–15 Personalized Questions (Categorized) ---
-    async function generateQuestions(fullData: AstrologyData) {
-      const questionPrompt = `
-You are an expert Vedic astrologer and holistic life consultant.
-Analyze the following client data — including divisional charts (D1, D9, D10, D60, D2, D3, D4) and personal info (birth date, time, place, gender).
-
-language: ${userData.language}
-
-Generate 12–15 *short, natural, and personalized questions* in a conversational tone — like how a real person would ask them.
-Each question should be meaningful, clear, and directly related to the client's planetary placements and life context.
-Avoid long or complex sentences.
-
-Categorize them under these headings:
-
-CAREER:
-- 2–3 short questions
-
-LOVE & RELATIONSHIPS:
-- 2–3 short questions
-
-HEALTH:
-- 2 questions
-
-WEALTH:
-- 2 questions
-
-FAME & SOCIAL RECOGNITION:
-- 1–2 short questions
-
-SPIRITUAL GROWTH:
-- 1–2 short questions
-
-✨ Style examples:
-- "Will I become famous?"
-- "When can I make more money and grow in my career?"
-- "Do I have any doshas and how can I reduce the negative effects?"
-- "Is there a chance of foreign travel for work?"
-- "How will my married life be?"
-
-Format strictly as:
-CAREER:
-1. <question>
-2. <question>
-
-LOVE & RELATIONSHIPS:
-1. <question>
-2. <question>
-
-(No markdown, no extra symbols.)
-
-JSON Input: ${JSON.stringify(fullData, null, 2)}
-`;
-
-      const res = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: questionPrompt }] }],
-          generationConfig: { temperature: 0.8, maxOutputTokens: 3000 }
-        })
-      });
-
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-      // Split by category headings
-      const sections: Record<string, string[]> = {};
-      let currentSection = "";
-      text.split(/\n+/).forEach((line: string) => {
-        line = line.trim();
-        if (!line) return;
-
-        const categoryMatch = line.match(/^(CAREER|LOVE & RELATIONSHIPS|HEALTH|WEALTH|FAME & SOCIAL RECOGNITION|SPIRITUAL GROWTH):$/i);
-        if (categoryMatch) {
-          currentSection = categoryMatch[1].toUpperCase();
-          sections[currentSection] = [];
-          return;
-        }
-
-        if (currentSection) {
-          line = line.replace(/^\d+\.\s*/, "");
-          if (line) sections[currentSection].push(line);
-        }
-      });
-
-      return sections;
+    async function generateSpecificQuestions(fullData: Record<string, any>, userLanguage: string) {
+      // 🔹 Always use fallback questions — no Gemini API call
+      return {
+        CAREER: [
+          "When will I achieve a major promotion or job change?",
+          "Is there a chance of working abroad or switching industries soon?"
+        ],
+        LOVE_AND_RELATIONSHIPS: [
+          "When will I get married?",
+          "Will I have a stable and happy married life?"
+        ],
+        HEALTH: [
+          "Are there any periods of health challenges coming up?",
+          "Will my energy and fitness improve in the near future?"
+        ],
+        WEALTH: [
+          "How much financial growth can I expect in the coming years?",
+          "Will I be able to buy my own house or property?"
+        ],
+        FAME_AND_SOCIAL_RECOGNITION: [
+          "Will I gain fame or public recognition for my work?",
+          "Is there a period when my influence will increase?"
+        ],
+        SPIRITUAL_GROWTH: [
+          "Do I have spiritual inclinations shown in my chart?",
+          "When is a favorable period for spiritual awakening or learning?"
+        ]
+      };
     }
 
-    // --- Generate Detailed Answers per Question ---
-    async function generateAnswer(question: string, fullData: Record<string, unknown>, retryCount = 0): Promise<string> {
-      const prompt = `
-You are a concise, insightful Vedic astrologer.
-Based on the client's full birth and divisional chart data (D1, D9, D10, D60, D2, D3, D4) and metadata,
-write a short, to-the-point answer (2–4 sentences) for the question below.
-language: ${userData.language}
+    // --- Main Function to Generate Predictive Q&A PDF ---
+    async function generateQAPDF(doc: jsPDF, userLanguage = "English") {
+      // ✅ Load locally stored astrology data
+      const astroData = await readAstroJSON("astro_data.json");
 
-Guidelines:
-- Keep it specific, crisp, and practical.
-- Mention only key planetary influences (main planets, houses, or yogas).
-- Avoid long paragraphs or redundant details.
-- If relevant, include one brief remedy or advice.
-- No markdown, symbols, or formatting.
-
-Question: "${question}"
-
-Full JSON Data: ${JSON.stringify(fullData, null, 2)}
-`;
-
-      try {
-        const response = await fetch("/api/gemini", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.85, maxOutputTokens: 1500 }
-          })
-        });
-
-        const data = await response.json();
-        const ans = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        return ans.replace(/[*_~`]/g, "");
-      } catch (err) {
-        if (retryCount < 2) {
-          await sleep(2000);
-          return generateAnswer(question, fullData, retryCount + 1);
-        }
-        return `Question: ${question}\nAnswer: Unable to generate answer.`;
-      }
-    }
-
-    // --- Main Function to Generate Q&A PDF ---
-    async function generateQAPDF(doc: jsPDF, fullData: AstrologyData) {
       const pageWidth = doc.internal.pageSize.getWidth();
 
-      // Step 1: Generate Questions by Category
-      const questionSections = await generateQuestions(fullData);
+      // Step 1: Generate predictive questions
+      const questionSections = await generateSpecificQuestions(astroData, userLanguage);
 
-      // Step 2: Generate Answers in Parallel using Promise.all
-      const qaTextSections: string[] = [];
-
+      // Step 2: Generate answers in parallel
       const allSectionPromises = Object.entries(questionSections).map(async ([section, questions]) => {
         const questionAnswerPairs = await Promise.all(
           questions.map(async (question, index) => {
-            // Optional throttling to prevent API rate errors
             await sleep(index * 200);
-            const answer = await generateAnswer(question, fullData);
-            return `Question: ${question}\nAnswer: ${answer}\n`;
+            const answer = await generateAnswer(question, astroData);
+            return `**Question:** ${question}\n**Answer:** ${answer}\n`;
           })
         );
-
         return `${section}:\n${questionAnswerPairs.join("\n")}`;
       });
 
       const resolvedSections = await Promise.all(allSectionPromises);
       const fullQA = resolvedSections.join("\n\n");
 
-      // Step 3: Add Page Styling & Title
+      // Step 3: Add Q&A Page
       doc.addPage();
-      doc.setDrawColor("#a16a21");
-      doc.setLineWidth(1.5);
-      doc.rect(25, 25, 545, 792, "S");
-
       doc.setFont("NotoSans", "bold");
       doc.setFontSize(26);
       doc.setTextColor("#000");
-      doc.text("Q&A & Personalized Guidance", pageWidth / 2, 60, { align: "center" });
+      doc.text("Personalized Predictive Q&A", pageWidth / 2, 60, { align: "center" });
 
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
-      doc.setTextColor("#a16a21");
-
-      // Step 4: Add all content
+      doc.setTextColor("#a16a21")
       addParagraphs(doc, fullQA, 50, 100, pageWidth - 100);
 
-      // Step 5: Footer
+      // Step 5: Footer for all pages
       const pageCount = doc.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
@@ -12636,26 +2784,121 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
       return doc;
     }
 
-    // ✅ Usage
-    await generateQAPDF(doc, {
-      d1: d1ChartJson,
-      d9: d9ChartJson,
-      d10: d10ChartJson,
-      d60: d60ChartJson,
-      d2: d2ChartJson,
-      d3: d3ChartJson,
-      d4: d4ChartJson,
-      d5: d5ChartJson,
-      d7: d7ChartJson,
-      d8: d8ChartJson,
-      d12: d12ChartJson,
-      d16: d16ChartJson,
-      d24: d24ChartJson,
-      d27: d27ChartJson,
-      d30: d30ChartJson,
-      Default: Default
-    });
+    async function generateAnswer(question: string, fullData: Record<string, any>, retryCount = 0): Promise<string> {
+      const prompt = `
+You are a Vedic astrologer. Answer briefly and clearly in 6–8 sentences.
 
+Question: "${question}"
+Language: English
+
+Guidelines:
+- Give a predictive answer based on the data.
+- Mention key planets or yogas influencing the outcome if visible.
+- Avoid long explanations or lists.
+- End with one short, practical suggestion if suitable.
+
+`;
+
+      try {
+        let ans = await callBedrock(prompt, {fullData});
+        ans = sanitizeText(ans);
+        return ans.replace(/[*_~`]/g, "");
+      } catch (err) {
+        if (retryCount < 2) {
+          await sleep(1500);
+          return generateAnswer(question, fullData, retryCount + 1);
+        }
+        return `Answer: Unable to generate due to network error.`;
+      }
+    }
+
+    // ✅ Usage
+    await generateQAPDF(doc, "English");
+    const essentialAstroData = {
+      mangal_dosh: astroData.mangal_dosh,
+      kaalsarp_dosh: astroData.kaalsarp_dosh,
+      maha_dasha: astroData.maha_dasha,
+      antar_dasha: astroData.antar_dasha,
+      current_sade_sati: astroData.current_sade_sati,
+      find_moon_sign: astroData.find_moon_sign,
+      find_sun_sign: astroData.find_sun_sign,
+      find_ascendant: astroData.find_ascendant,
+      shad_bala: astroData.shad_bala,
+      yoga_list: astroData.yoga_list,
+      gem_suggestion: astroData.gem_suggestion,
+      rudraksh_suggestion: astroData.rudraksh_suggestion,
+    };
+
+    const nextstepPrompt = `
+You are a Vedic astrologer, life coach, and psychologist.  
+Using the data below, write **"Next Steps: Using Insights & Remedies for Personal Growth"** in **3 short, warm, and inspiring paragraphs**.
+
+
+GUIDELINES:
+- Tone: **Empathetic, guiding, and practical.**
+- Focus on **personal growth, emotional healing, and self-awareness.**
+- Mention how to align with **strong planets** and improve weak ones.
+- Suggest 2–3 **simple remedies** (e.g., meditation, gratitude, rituals).
+- Avoid horoscope clichés. Make it **personal and actionable**.
+- Use **bold** for key traits or advice.
+`;
+
+    let nextstepText= await callBedrock(nextstepPrompt, {essentialAstroData});
+    nextstepText= sanitizeText(nextstepText);
+    doc.addPage();
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(25, 25, 545, 792, "S");
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor("#000");
+    doc.text(
+      "Next Steps: Using Insights & Remedies for Personal Growth",
+      pageWidth / 2,
+      60,
+      {
+        align: "center",
+        maxWidth: pageWidth - 50, // leave some margin (25px on each side)
+      }
+    );
+    doc.setTextColor("#a16a21");
+    addParagraphs(doc, nextstepText, 50, 140, pageWidth - 100);
+
+    const ConclusionPrompt = `
+You are an expert Vedic astrologer and spiritual psychologist.
+Generate **"Personalized Astro Guidance & Conclusion"** — a reflective summary of the native’s life path and inner journey.
+
+STYLE & CONTENT REQUIREMENTS:
+- Warm, wise, and encouraging tone.
+- 3–4 meaningful paragraphs.
+- Holistic interpretation: personality, karmic lessons, emotional evolution.
+- Gentle guidance for spiritual balance and growth.
+- Highlight clarity, acceptance, and empowerment.
+- End with an uplifting note or blessing.
+- Use **bold** for key insights.
+- Avoid repetition or generic text.
+`;
+
+   let conclusionText= await callBedrock(ConclusionPrompt, {astroData});
+   conclusionText= sanitizeText(conclusionText);
+    doc.addPage();
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(25, 25, 545, 792, "S");
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor("#000");
+    doc.text(
+      "Personalized Astro Guidance & Conclusion",
+      pageWidth / 2,
+      60,
+      {
+        align: "center",
+        maxWidth: pageWidth - 50, // leave some margin (25px on each side)
+      }
+    );
+    doc.setTextColor("#a16a21");
+    addParagraphs(doc, conclusionText, 50, 100, pageWidth - 100);
     // --- Save PDF ---
     const fileName = `Cosmic_Report_${name}_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
@@ -12674,109 +2917,3 @@ Full JSON Data: ${JSON.stringify(fullData, null, 2)}
     };
   }
 }
-
-// --- Function to generate table content for report ---
-export const generateTableContentForReport = async ({
-  name,
-  dob,
-  time,
-  place,
-  lat,
-  lon,
-  userData
-}: {
-  name: string;
-  dob: string;
-  time: string;
-  place: string;
-  lat: number;
-  lon: number;
-  userData?: UserData;
-}) => {
-  try {
-
-    // Fetch real API data
-
-    const kundliData = {
-      "gana": "rakshas",
-      "yoni": "cat",
-      "vasya": "Jalachara",
-      "nadi": "Antya",
-      "varna": "Brahmin",
-      "paya": "Iron",
-      "tatva": "Jal (Water)",
-      "life_stone": "coral",
-      "lucky_stone": "ruby",
-      "fortune_stone": "yellow sapphire",
-      "name_start": "Di",
-      "ascendant_sign": "Aries",
-      "ascendant_nakshatra": "Bharani",
-      "rasi": "Cancer",
-      "rasi_lord": "Moon",
-      "nakshatra": "Ashlesha",
-      "nakshatra_lord": "Mercury",
-      "nakshatra_pada": 4,
-      "sun_sign": "Capricorn",
-      "tithi": "K.Pratipada",
-      "karana": "Kaulava",
-      "yoga": "Saubhagya"
-    };
-    const sunriseData = {
-      "sun_rise": "6:32 AM",
-      "bot_response": "Sun rises at 6:32 AM"
-    };
-    const sunsetData = {
-      "sun_set": "6:33 PM",
-      "bot_response": "Sun sets at 6:33 PM"
-    };
-    const moonSignData = {
-      "moon_sign": "Taurus",
-      "bot_response": "Your moon sign is Taurus",
-      "prediction": "Taurus natives are known for being dependable, practical, strong-willed, loyal, and sensual. You love beautiful things. You are good at finances, and hence, make capable financial managers. You are generous and dependable. You can be very stubborn, self-indulgent, frugal, and lazy. You have a possessive streak."
-    };
-    const sunSignData = {
-      "sun_sign": "Pisces",
-      "prediction": "The last and 12th Sign of the zodiac, Pisces seems to take on the attributes of all the other 11 Signs. Dreamy and romantic Pisces has a creative flair. You can be compassionate and selfless towards others. Ruled by Neptune, Pisces natives live in your own world. You can be quite detached and have a spiritual bent. Peace and harmony are essential to them. Confrontation and conflict are not your cup of tea.",
-      "bot_response": "Your sun sign is Pisces"
-    };
-
-
-    // Save API data to JSON file
-
-    // Generate the table content prompt with real data
-    const tablePrompt = await generateTableContentPrompt({
-      name,
-      dob,
-      time,
-      place,
-      lat,
-      lon,
-      kundliData,
-      sunriseData,
-      sunsetData,
-      moonSignData,
-      sunSignData,
-      userData,
-      title: "AVAKAHADA CHAKRA",
-      showUserInfo: true
-    });
-
-    if (tablePrompt.success) {
-      return {
-        success: true,
-        data: tablePrompt.data
-      };
-    } else {
-      return {
-        success: false,
-        error: tablePrompt.error
-      };
-    }
-  } catch (error) {
-    console.error("Error generating table content for report:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
-    };
-  }
-};
