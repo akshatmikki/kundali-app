@@ -193,8 +193,6 @@ export default function AstroPDF() {
       dob,
       time,
       `${place}${state ? `, ${state}` : ""}, ${country}`,
-      Number(lat),
-      Number(lon),
       userData
     );
 

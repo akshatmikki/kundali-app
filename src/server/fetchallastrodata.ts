@@ -64,7 +64,10 @@ const PLANETS = [
 ];
 
 const DIVISIONAL_CHARTS = [
-  "D1", "D9", "D10", "D12", "D16", "D20", "D24", "D27", "D30", "D40", "D45", "D60"
+  "D1", "D2", "D3", "D3-s", "D4", "D5", "D7", "D8",
+  "D9", "D10", "D10-R", "D12", "D16", "D20", "D24", "D24-R",
+  "D27", "D30", "D40", "D45", "D60", "chalit", "sun", "moon",
+  "kp_chalit", "transit"
 ];
 
 // ---------------------------------------------------
@@ -234,8 +237,8 @@ export async function fetchAllAstroData(userData: UserData): Promise<AstroData> 
     failed,
   };
 
-  await writeFile("astro_data.json", JSON.stringify(finalData, null, 2), "utf8");
-  console.log(`✅ Saved astro_data.json (Success: ${success}, Failed: ${failed})`);
+  await writeFile("astro_data_Saurabh.json", JSON.stringify(finalData, null, 2), "utf8");
+  console.log(`✅ Saved astro_data_Saurabh.json (Success: ${success}, Failed: ${failed})`);
 
   return finalData;
 }
