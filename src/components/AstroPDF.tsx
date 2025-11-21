@@ -65,61 +65,58 @@ export default function AstroPDF() {
 
   // Fetch lat/lon automatically when place/state/country changes
   useEffect(() => {
-    // Only attempt geocoding if place and country are provided
-    if (!place || !country) return;
+  // Only attempt geocoding if place and country are provided
+  if (!place || !country) return;
 
-    // Clear previous timer to debounce rapid typing
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(async () => {
-      setFetchingCoords(true);
-      setError(null); // Clear previous errors
+  // Clear previous timer to debounce rapid typing
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(async () => {
+    setFetchingCoords(true);
+    setError(null); // Clear previous errors
 
-      const query = encodeURIComponent(`${place}, ${state ? state + "," : ""} ${country}`);
-      // Using Nominatim for geocoding
-      const url = `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=5&addressdetails=1`;
+    const query = encodeURIComponent(`${place}, ${state ? state + "," : ""} ${country}`);
+    const apiKey = "d313f7d1f54e4023a077260f8cf86d57"; // replace with your own Geoapify API key
+    const url = `https://api.geoapify.com/v1/geocode/search?text=${query}&apiKey=${apiKey}`;
 
-      try {
-        // NOTE: fetch requests for geocoding can fail due to CORS or network issues 
-        // in some environments.
-        const response = await fetch(url, { headers: { "User-Agent": "trustastrology-app" } });
-        const data = await response.json();
+    try {
+      const response = await fetch(url, { method: "GET" });
+      const data = await response.json();
 
-        interface LocationItem {
-          addresstype: string;
-          lat: string;
-          lon: string;
-          // add more fields if your API includes them
-        }
-
-        const result =
-          data.find((item: LocationItem) => item.addresstype === "city") ??
-          data.find((item: LocationItem) => item.addresstype === "administrative") ??
-          data[0];
-
-        if (result) {
-          setLat(result.lat);
-          setLon(result.lon);
-        } else {
-          setLat("");
-          setLon("");
-          setError(
-            "Location not found. Please try a different spelling or input coordinates manually (not implemented here)."
-          );
-        }
-      } catch (error) {
-        console.error("Geocoding failed:", error);
-        setError("Network error while fetching coordinates. Please check your connection.");
-        setLat("");
-        setLon("");
+      interface LocationItem {
+        properties: {
+          lat: number;
+          lon: number;
+          city?: string;
+          country?: string;
+        };
       }
 
-      setFetchingCoords(false);
-    }, 1000); // 1 second debounce delay
+      const results: LocationItem[] = data?.features || [];
+      const result = results[0]?.properties;
 
-    // Cleanup function: clears the timer when the component unmounts or dependencies change
-    return () => clearTimeout(debounceTimer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [place, state, country]); // Dependencies for useEffect
+      if (result) {
+        setLat(result.lat.toString());
+        setLon(result.lon.toString());
+      } else {
+        setLat("");
+        setLon("");
+        setError("Location not found. Please check the address or try again.");
+      }
+    } catch (error) {
+      console.error("Geocoding failed:", error);
+      setError("Network error while fetching coordinates. Please check your connection.");
+      setLat("");
+      setLon("");
+    }
+
+    setFetchingCoords(false);
+  }, 1000); // 1 second debounce delay
+
+  // Cleanup function
+  return () => clearTimeout(debounceTimer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [place, state, country]);
+ // Dependencies for useEffect
 
 
   const handleGenerateReport = async () => {

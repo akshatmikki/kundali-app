@@ -3,28 +3,15 @@ import { generateReusableTableContent } from "./ReusableTableContent";
 import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js";
 import { readAstroJSON } from "@/server/readastrofile";
 import removeMarkdown from "remove-markdown";
+import { start } from "repl";
 
-
+// ========================================
+// 🔥 FIXED TOC & OUTLINE SYSTEM
+// ========================================
 interface MahaDasha {
   dasha: string;
   dasha_start_year: string;
   dasha_end_year: string;
-}
-
-interface MahaDashaData {
-  mahadasha: string[];
-  mahadasha_order: string[];
-}
-
-interface AntardashaData {
-  antardashas: string[][];
-  antardasha_order: string[][];
-}
-
-interface AstroDatas {
-  mahadasha_data?: MahaDashaData;
-  maha_dasha_predictions?: { dashas: MahaDasha[] };
-  antardasha_data?: AntardashaData;
 }
 
 type PlanetName =
@@ -62,98 +49,106 @@ type AstroData = {
   [key: string]: any;
 };
 
-function sanitizeText(text: string): string {
-  return text
-    // Fix common PDF artifacts like t�h�e� => the
-    .replace(/([a-zA-Z])[\u0000-\u001F\u200B-\u206F\uFEFF\u00AD\uFFFD�]+([a-zA-Z])/g, "$1$2")
+// function sanitizeText(text: string): string {
+//   return text
+//     // Fix artifacts like t�h�e� => the
+//     .replace(/([a-zA-Z])[\u0000-\u001F\u200B-\u206F\uFEFF\u00AD\uFFFD�]+([a-zA-Z])/g, "$1$2")
 
-    // Remove & between letters (e.g., s&e&l&f => self)
-    .replace(/(?:&[a-zA-Z];?)+/g, match => match.replace(/&|;/g, ""))
+//     // ✅ Preserve real " & " (with spaces around it)
+//     .replace(/(\s)&(\s)/g, "$1__AMP_PLACEHOLDER__$2")
 
-    // Remove isolated or spaced ampersands
-    .replace(/(\s*&\s*)+/g, "")
+//     // ✅ Remove ampersands between letters (e.g., p&r&a&c&t&i&c&e => practice)
+//     .replace(/([a-zA-Z])&(?=[a-zA-Z])/g, "$1")
+//     .replace(/&(?=[a-zA-Z])/g, "")
+//     .replace(/([a-zA-Z])&/g, "$1")
 
-    // Remove known HTML entities (&amp;, &#160;, etc.)
-    .replace(/&[a-zA-Z#0-9]+;/g, "")
+//     // Remove any leftover isolated ampersands
+//     .replace(/&+/g, "")
 
-    // Convert smart quotes and dashes to ASCII
-    .replace(/[“”«»„]/g, '"') // Double quotes
-    .replace(/[‘’‚‛]/g, "'")  // Single quotes
-    .replace(/[–—―−]/g, "-")  // En dashes, em dashes
-    .replace(/[•∙·⋅]/g, "*")  // Bullet-like symbols
-    .replace(/[…]/g, "...")   // Ellipsis
-    .replace(/[°º˚]/g, "°")   // Degree symbols (keep readable)
-    .replace(/[×✕✖]/g, "x")  // Multiplication signs
-    .replace(/[‐-‒⁃]/g, "-")  // Hyphen variants
+//     // Restore preserved " & "
+//     .replace(/__AMP_PLACEHOLDER__/g, "&")
 
-    // Replace special spacing and invisible chars
-    .replace(/[\u200B-\u200F\uFEFF\u034F\u061C\u00AD]/g, "")
+//     // Remove known HTML entities (&amp;, &#160;, etc.)
+//     .replace(/&[a-zA-Z#0-9]+;/g, "")
 
-    // Normalize to composed form
-    .normalize("NFKC")
+//     // Convert smart quotes and dashes to ASCII
+//     .replace(/[“”«»„]/g, '"') // Double quotes
+//     .replace(/[‘’‚‛]/g, "'")  // Single quotes
+//     .replace(/[–—―−]/g, "-")  // Dashes
+//     .replace(/[•∙·⋅]/g, "*")  // Bullets
+//     .replace(/[…]/g, "...")   // Ellipsis
+//     .replace(/[°º˚]/g, "°")   // Degrees
+//     .replace(/[×✕✖]/g, "x")   // Multiplication signs
+//     .replace(/[‐-‒⁃]/g, "-")  // Hyphen variants
 
-    // Remove control chars except basic whitespace
-    .replace(/[^\x09\x0A\x0D\x20-\x7E\u0900-\u097F]/g, "")
+//     // Remove invisible or special spacing chars
+//     .replace(/[\u200B-\u200F\uFEFF\u034F\u061C\u00AD]/g, "")
 
-    // Collapse multiple spaces/newlines
-    .replace(/[ \t]+/g, " ")
-    .replace(/\s*\n\s*/g, "\n")
+//     // Normalize composed form
+//     .normalize("NFKC")
 
-    // Trim excess
-    .trim();
-}
+//     // Remove non-text control characters
+//     .replace(/[^\x09\x0A\x0D\x20-\x7E\u0900-\u097F]/g, "")
+
+//     // Collapse multiple spaces/newlines
+//     .replace(/[ \t]+/g, " ")
+//     .replace(/\s*\n\s*/g, "\n")
+
+//     // Trim final whitespace
+//     .trim();
+// }
+
+// const PLANETS = [
+//   "Sun",
+//   "Moon",
+//   "Mars",
+//   "Mercury",
+//   "Jupiter",
+//   "Venus",
+//   "Saturn",
+//   "Rahu",
+//   "Ketu",
+// ];
+
+// async function callBedrock(prompt: string, jsonData: any) {
+//   const res = await fetch("/api/bedrock", {
+//     method: "POST",
+//     headers: { "Content-Type": "application/json" },
+//     body: JSON.stringify({ prompt, jsonData }),
+//   });
+
+//   const text = await res.text();
+
+//   let data;
+//   try {
+//     data = JSON.parse(text);
+//   } catch (err) {
+//     console.error("❌ Non-JSON response from /api/bedrock:", text);
+//     throw new Error("Server did not return valid JSON.");
+//   }
+
+//   if (!res.ok) {
+//     throw new Error(data.error || "Bedrock API failed.");
+//   }
+
+//   // 🧩 Handle both string and object message formats
+//   let message =
+//     typeof data.message === "string"
+//       ? data.message
+//       : data.message?.text ||
+//       data.message?.outputText ||
+//       JSON.stringify(data.message, null, 2) || // fallback
+//       "";
+
+//   // 🧹 Clean reasoning tags if message is a string
+//   if (typeof message === "string") {
+//     message = message.replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "").trim();
+//   }
 
 
-const PLANETS = [
-  "Sun",
-  "Moon",
-  "Mars",
-  "Mercury",
-  "Jupiter",
-  "Venus",
-  "Saturn",
-  "Rahu",
-  "Ketu",
-];
-
-async function callBedrock(prompt: string, jsonData: any) {
-  const res = await fetch("/api/bedrock", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, jsonData }),
-  });
-
-  const text = await res.text();
-
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (err) {
-    console.error("❌ Non-JSON response from /api/bedrock:", text);
-    throw new Error("Server did not return valid JSON.");
-  }
-
-  if (!res.ok) {
-    throw new Error(data.error || "Bedrock API failed.");
-  }
-
-  // 🧩 Handle both string and object message formats
-  let message =
-    typeof data.message === "string"
-      ? data.message
-      : data.message?.text ||
-      data.message?.outputText ||
-      JSON.stringify(data.message, null, 2) || // fallback
-      "";
-
-  // 🧹 Clean reasoning tags if message is a string
-  if (typeof message === "string") {
-    message = message.replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "").trim();
-  }
-
-  console.log("✅ Cleaned Bedrock message:", message);
-  return message;
-}
+//   console.log("✅ Normalized Bedrock message:", message);
+//   return message;
+// }
 
 interface UserData {
   name: string;
@@ -167,217 +162,296 @@ interface UserData {
   longitude: number;
   language: string;
 }
+// function normalizeBedrockText(xmlText: string): string {
+//   return xmlText
+//     // Remove invisible characters & excess whitespace
+//     .replace(/[\u200B-\u200D\uFEFF]/g, "")
+//     .replace(/\r?\n\s*\r?\n/g, "\n") // collapse multiple newlines
+//     .replace(/\s{2,}/g, " ") // compress spaces
+//     .trim();
+// }
 
-function addParagraphs(
-  doc: jsPDF,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight = 20
-) {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 25;
-  const bottomLimit = pageHeight - margin;
-  let currentY = y;
+// function addParagraphs(
+//   doc: jsPDF,
+//   rawText: string,
+//   startX: number,
+//   startY: number,
+//   maxWidth: number
+// ) {
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const pageHeight = doc.internal.pageSize.getHeight();
+//   const margin = 25;
 
-  const drawPageBorder = () => {
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
-  };
+//   const lineHeight = 20;
+//   const bottomLimit = pageHeight - margin;
+//   const usableWidth = maxWidth;
 
-  const getPageStartY = () => margin + 20;
+//   let cursorY = startY;
 
-  // Safe Add New Page
-  const ensureSpace = (neededHeight: number) => {
-    if (currentY + neededHeight > bottomLimit) {
-      doc.addPage();
-      drawPageBorder();
-      if (typeof addHeaderFooter === "function") {
-        addHeaderFooter(doc, doc.getNumberOfPages());
-      }
-      currentY = getPageStartY();
-    }
-  };
+//   // -------------------------------
+//   // Draw border for new page
+//   // -------------------------------
+//   const drawBorder = () => {
+//     doc.setDrawColor("#a16a21");
+//     doc.setLineWidth(1.5);
+//     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+//   };
 
-  drawPageBorder();
+//   // -------------------------------
+//   // Page break helper
+//   // Returns the (possibly updated) cursorY so callers can assign it.
+//   // -------------------------------
+//   const addNewPageIfNeeded = (estimatedHeight = 40): number => {
+//     if (cursorY + estimatedHeight > bottomLimit - 10) {
+//       doc.addPage();
+//       if (typeof addHeaderFooter === "function") {
+//         addHeaderFooter(doc, doc.getNumberOfPages());
+//       }
+//       drawBorder();
+//       cursorY = margin + 40;
+//     }
+//     return cursorY;
+//   };
 
-  // 🧹 Clean text for invisible chars
-  const sanitizeText = (t: string) =>
-    t
-      .replace(/&[a-zA-Z]+;/g, "")
-      .replace(/&#\d+;/g, "")
-      .replace(/[\u200B-\u200D\uFEFF]/g, "")
-      .replace(/[^\S\r\n]+/g, " ")
-      .replace(/<<\/?subheading>>/gi, "") // remove tag markers, keep content
-      .replace(/<<<\/?heading>>>/gi, "")
-      .replace(/<<<heading>>>/gi, "")
-      .trim();
+//   // -------------------------------
+//   // Clean raw text but KEEP tags
+//   // -------------------------------
+//   const text = rawText
+//     .replace(/[\u200B-\u200D\uFEFF]/g, "")
+//     .trim();
 
-  // Split based on tags
-  const tagRegex = /(<<<heading>>>|<<subheading>>|<content>|<\/content>)/g;
-  const segments = text.split(tagRegex).filter(Boolean);
-  let currentTag: string | null = null;
+//   if (!text) return cursorY;
 
-  for (const segment of segments) {
-    const trimmed = sanitizeText(segment.trim());
-    if (!trimmed) continue;
+//   // Tag regex
+//   const tagRegex = /(<<<heading>>>|<<subheading>>|<content>|<\/content>)/g;
+//   const segments = text.split(tagRegex).filter(Boolean);
 
-    // Detect tags
-    if (trimmed === "<<<heading>>>") {
-      currentTag = "heading";
-      continue;
-    } else if (trimmed === "<<subheading>>") {
-      currentTag = "subheading";
-      continue;
-    } else if (trimmed === "<content>") {
-      currentTag = "content";
-      continue;
-    } else if (trimmed === "</content>") {
-      currentTag = null;
-      continue;
-    }
+//   let currentTag: string | null = null;
 
-    // Render according to tag
-    if (currentTag === "heading") {
-      ensureSpace(lineHeight * 2);
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(20);
-      doc.setTextColor("#000");
-      currentY += 10;
-      doc.text(trimmed, x, currentY);
-      currentY += lineHeight * 1.5;
-      currentTag = null;
-    } else if (currentTag === "subheading") {
-      ensureSpace(lineHeight * 1.5);
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(17);
-      doc.setTextColor("#a16a21");
-      currentY += 6;
-      doc.text(trimmed, x, currentY);
-      currentY += lineHeight * 1.2;
-      currentTag = null;
-    } else if (currentTag === "content") {
-      doc.setFont("NotoSans", "normal");
-      doc.setFontSize(16);
-      doc.setTextColor("#5a4632");
+//   for (const segment of segments) {
+//     const trimmed = segment.trim();
+//     if (!trimmed) continue;
 
-      const wrapped = doc.splitTextToSize(trimmed, maxWidth);
-      for (const line of wrapped) {
-        ensureSpace(lineHeight);
-        doc.text(line, x, currentY);
-        currentY += lineHeight;
-      }
-      currentY += 5;
-    }
-  }
+//     // -------------------------------
+//     // Detect tags
+//     // -------------------------------
+//     if (trimmed === "<<<heading>>>") { currentTag = "heading"; continue; }
+//     if (trimmed === "<<subheading>>") { currentTag = "subheading"; continue; }
+//     if (trimmed === "<content>") { currentTag = "content"; continue; }
+//     if (trimmed === "</content>") { currentTag = null; continue; }
 
-  return currentY;
-}
+//     // -------------------------------
+//     // HEADINGS
+//     // -------------------------------
+//     if (currentTag === "heading") {
+//       const cleanHeading = trimmed.replace(/<\/?[^>]+(>|$)/g, "");
 
-function addParagraphss(
-  doc: jsPDF,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight = 20
-) {
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 25;
-  const bottomLimit = pageHeight - margin;
-  let currentY = y;
+//       doc.setFont("NotoSans", "bold");
+//       doc.setFontSize(20);
+//       doc.setTextColor("#000");
 
-  const drawPageBorder = () => {
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
-  };
+//       addNewPageIfNeeded(lineHeight * 2);
 
-  const getPageStartY = () => margin + 20;
+//       const wrappedHeading = doc.splitTextToSize(cleanHeading, usableWidth);
+//       wrappedHeading.forEach((line:string) => {
+//         cursorY = addNewPageIfNeeded(lineHeight);
+//         doc.text(line, pageWidth / 2, cursorY, { align: "center" });
+//         cursorY += lineHeight * 1.1;
+//       });
 
-  // Draw first border
-  drawPageBorder();
+//       cursorY += lineHeight * 0.6;
+//       currentTag = null;
+//       continue;
+//     }
 
-  // Clean unwanted characters and markdown
-  const cleanMarkdown = (txt: string) =>
-    txt
-      .replace(/[*#_>|]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
+//     // -------------------------------
+//     // SUBHEADINGS
+//     // -------------------------------
+//     if (currentTag === "subheading") {
+//       const cleanSub = trimmed.replace(/<\/?[^>]+(>|$)/g, "");
 
-  // Split by paragraphs (2 or more newlines)
-  const paragraphs = text
-    .replace(/\r/g, "")
-    .split(/\n\s*\n+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+//       doc.setFont("NotoSans", "semibold");
+//       doc.setFontSize(17);
+//       doc.setTextColor("#a16a21");
 
-  for (const para of paragraphs) {
-    doc.setFont("NotoSans", "normal");
-    doc.setFontSize(16);
-    doc.setTextColor("#a16a21");
+//       addNewPageIfNeeded(lineHeight * 2);
 
-    // Wrap long text
-    const wrappedLines = doc.splitTextToSize(cleanMarkdown(para), maxWidth);
+//       const wrappedSub = doc.splitTextToSize(cleanSub, usableWidth);
+//       wrappedSub.forEach((line:string) => {
+//         cursorY = addNewPageIfNeeded(lineHeight);
+//         doc.text(line, pageWidth / 2, cursorY, { align: "center" });
+//         cursorY += lineHeight * 1.1;
+//       });
 
-    for (const wrappedLine of wrappedLines) {
-      if (currentY + lineHeight > bottomLimit) {
-        doc.addPage();
-        drawPageBorder();
-        if (typeof addHeaderFooter === "function") addHeaderFooter(doc, doc.getNumberOfPages());
-        currentY = getPageStartY();
-      }
+//       cursorY += lineHeight * 0.4;
+//       currentTag = null;
+//       continue;
+//     }
 
-      // Always print as normal text (no bold)
-      doc.setFont("NotoSans", "normal");
-      doc.setTextColor("#a16a21");
+//     // -------------------------------
+//     // CONTENT
+//     // -------------------------------
+//     if (currentTag === "content") {
+//       const listItems = trimmed.split(/<\/?li>/).filter((t) => t.trim() !== "");
 
-      doc.text(wrappedLine, x, currentY);
-      currentY += lineHeight;
-    }
+//       for (let item of listItems) {
+//         item = item.trim();
+//         if (!item) continue;
 
-    currentY += 10; // space between paragraphs
-  }
+//         // Extract bold segments
+//         const boldParts = item.split(/<\/?b>/);
+//         const lineParts: { text: string; bold: boolean }[] = [];
+//         let isBold = false;
 
-  return currentY;
-}
+//         for (const part of boldParts) {
+//           if (part.trim() === "") {
+//             isBold = !isBold;
+//             continue;
+//           }
+//           lineParts.push({ text: part.trim(), bold: isBold });
+//           isBold = !isBold;
+//         }
 
-// --- Utilities for header/footer ---
-const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
-  // Skip first page (no header/footer)
-  if (pageNum === 1) return;
+//         // --------------------
+//         // Bullet
+//         // --------------------
+//         const x = startX;
 
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
+//         addNewPageIfNeeded(lineHeight);
 
-  // Save the current font and style
-  const prevFont = doc.getFont().fontName;
-  const prevStyle = doc.getFont().fontStyle;
-  const prevColor = doc.getTextColor();
-  const prevSize = doc.getFontSize();
+//         doc.setFont("NotoSans", "normal");
+//         doc.setFontSize(15);
+//         doc.setTextColor("#a16a21");
+//         doc.text("•", x - 8, cursorY);
 
-  // Footer style
-  doc.setFont("Times", "normal");
-  doc.setTextColor("#a16a21");
-  doc.setFontSize(12);
+//         // --------------------
+//         // Text of item
+//         // --------------------
+//         for (const part of lineParts) {
+//           const wrappedLines = doc.splitTextToSize(
+//             part.text,
+//             usableWidth - 25
+//           );
 
-  // Footer text
-  doc.text(
-    "© 2025 TrustAstrology. All rights reserved.",
-    pageWidth / 2,
-    pageHeight - 30,
-    { align: "center" }
-  );
+//           for (const wLine of wrappedLines) {
+//             addNewPageIfNeeded(lineHeight);
 
-  // Restore previous font and style
-  doc.setFont(prevFont, prevStyle);
-  doc.setFontSize(prevSize);
-  doc.setTextColor(prevColor);
-};
+//             doc.setFont("NotoSans", part.bold ? "bold" : "normal");
+//             doc.setFontSize(15);
+//             doc.setTextColor("#000");
+
+//             doc.text(wLine, x, cursorY);
+//             cursorY += lineHeight * 0.9;
+//           }
+//         }
+
+//         cursorY += lineHeight * 0.4;
+//       }
+//     }
+//   }
+
+//   return cursorY;
+// }
+
+
+// function addParagraphss(
+//   doc: jsPDF,
+//   text: string,
+//   x: number,
+//   y: number,
+//   maxWidth: number,
+//   lineHeight = 14
+// ) {
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const pageHeight = doc.internal.pageSize.getHeight();
+//   const margin = 25;
+//   const bottomLimit = pageHeight - margin;
+//   let currentY = y;
+
+//   // --- Draw border on first page ---
+//   const drawPageBorder = () => {
+//     doc.setDrawColor("#a16a21");
+//     doc.setLineWidth(1.5);
+//     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+//   };
+
+//   drawPageBorder();
+
+//   // --- Split paragraphs by double line breaks ---
+//   const paragraphs = text
+//     .replace(/\r/g, "")
+//     .split(/\n\s*\n/) // preserve real paragraphs
+//     .map((p) => p.trim())
+//     .filter((p) => p.length > 0);
+
+//   for (const para of paragraphs) {
+//     // handle bold segments inside paragraph
+//     const segments = para.split(/(<b>.*?<\/b>)/g).filter(Boolean);
+
+//     for (const seg of segments) {
+//       const isBold = seg.startsWith("<b>") && seg.endsWith("</b>");
+//       const clean = seg.replace(/<\/?b>/g, "");
+
+//       doc.setFont("NotoSans", isBold ? "bold" : "normal");
+//       doc.setFontSize(16);
+//       doc.setTextColor("#a16a21");
+
+//       const lines = doc.splitTextToSize(clean, maxWidth);
+
+//       const adjustedLineHeight = lineHeight + 4;
+
+//       for (const line of lines) {
+//         if (currentY + adjustedLineHeight > bottomLimit) {
+//           doc.addPage();
+//           drawPageBorder();
+//           currentY = margin + 20;
+//         }
+
+//         doc.text(line, x, currentY);
+//         currentY += adjustedLineHeight;
+//       }
+//     }
+
+//     // paragraph spacing
+//     currentY += 10;
+//   }
+
+//   return currentY;
+// }
+
+
+// // --- Utilities for header/footer ---
+// const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
+//   // Skip first page (no header/footer)
+//   if (pageNum === 1) return;
+
+//   const pageWidth = doc.internal.pageSize.getWidth();
+//   const pageHeight = doc.internal.pageSize.getHeight();
+
+//   // Save the current font and style
+//   const prevFont = doc.getFont().fontName;
+//   const prevStyle = doc.getFont().fontStyle;
+//   const prevColor = doc.getTextColor();
+//   const prevSize = doc.getFontSize();
+
+//   // Footer style
+//   doc.setFont("Times", "normal");
+//   doc.setTextColor("#a16a21");
+//   doc.setFontSize(12);
+
+//   // Footer text
+//   doc.text(
+//     "© 2025 TrustAstrology. All rights reserved.",
+//     pageWidth / 2,
+//     pageHeight - 30,
+//     { align: "center" }
+//   );
+
+//   // Restore previous font and style
+//   doc.setFont(prevFont, prevStyle);
+//   doc.setFontSize(prevSize);
+//   doc.setTextColor(prevColor);
+// };
 
 export function svgToBase64PNG(svgText: string, width: number, height: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -432,18 +506,11 @@ const generatePlanetReportsWithImages = async (
   const bottomLimit = pageHeight - marginY;
 
   const PLANETS = [
-    "Sun",
-    "Moon",
-    "Mars",
-    "Mercury",
-    "Jupiter",
-    "Venus",
-    "Saturn",
-    "Rahu",
-    "Ketu",
+    "Sun", "Moon", "Mars", "Mercury", "Jupiter",
+    "Venus", "Saturn", "Rahu", "Ketu",
   ];
 
-  // === Helper to draw frame & header/footer ===
+  // === Helper: Draw Border & Header ===
   const drawBorder = () => {
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
@@ -460,78 +527,64 @@ const generatePlanetReportsWithImages = async (
     return cursorY;
   };
 
-  // === Sequential generation ===
+  // === SECTION 3.1–3.5: Sequential Planet Generation ===
   for (const planetName of PLANETS) {
     const nameKey = planetName.toLowerCase();
     const planetReport = AstroData[`planet_report_${nameKey}`];
-    const retroData = AstroData[`retrogrades_${nameKey}`];
-    const transitData = AstroData[`transit_dates_${nameKey}`];
-    const aspectData = AstroData[`planetary_aspects_planets`];
-    const planetdetails = AstroData[`planet_details`];
-
-    if (!planetReport) {
-      console.warn(`⚠️ No planet report found for ${planetName}`);
-      continue;
-    }
+    if (!planetReport) continue;
 
     const combinedData = {
       planetReport,
-      retroData: retroData || null,
-      transitData: transitData || null,
-      aspectData: aspectData || null,
-      planetdetails,
-      kp_planets: AstroData.kp_planets,
-      kp_houses: AstroData.kp_houses,
+      retroData: AstroData[`retrogrades_${nameKey}`],
+      transitData: AstroData[`transit_dates_${nameKey}`],
+      aspectData: AstroData[`planetary_aspects_planets`],
+      planetdetails: AstroData[`planet_details`],
       shad_bala: AstroData.shad_bala,
       maha_dasha: AstroData.maha_dasha,
       antar_dasha: AstroData.antar_dasha,
     };
 
-    // === New prompt with XML-style tags ===
     const prompt = `
 You are an expert Vedic astrologer and cosmic storyteller.
-Using the provided astro data, write a deeply insightful, 800–1000 word report on ${planetName} in the native's birth chart.
 
-The report must strictly follow this XML-like structure (no markdown, no asterisks, no bullet points):
+Using the provided astro data, write a concise, highly relevant **250–350 word** report on ${planetName} in the native's birth chart.
 
-──────────────────────────────
-<<<heading>>> Planet Placement: Which House Each Planet is In
-<content> Write 2–3 paragraphs explaining where ${planetName} is placed in the birth chart, the house and sign it occupies, and its core influence on personality and life direction. Blend psychological and spiritual tones.</content>
+STRICT RULES:
+- Do NOT include KP astrology.
+- Do NOT include cusps or Placidus/KP houses.
+- No divisional charts (D9, D10, etc.)
+- No repetitive or generic content.
+- Insights must stay directly relevant to the provided astro data.
 
-<<<heading>>> Planetary Aspects (Drishti)
-<content> Discuss the aspects formed by ${planetName} with other planets. Explain how these interactions modify its results in key life areas like career, relationships, and health.</content>
+Use XML-style tags EXACTLY like this structure:
 
-<<<heading>>> Planetary Strength & Nature (Shadbala & Report)
-<content> Analyze the planet's strength and dignity using Shadbala and overall placement. Describe whether it acts as a benefic or malefic and how it supports or challenges personal growth.</content>
+<<<heading>>> ${planetName} – Key Insights
+<content>
+<li><b>Role of ${planetName}:</b> Describe its natural significance and importance.</li>
+<li><b>Placement Meaning:</b> Interpret sign + house placement.</li>
+<li><b>Strengths & Weaknesses:</b> Based on dignity, aspects, retrograde state, shadbala, etc.</li>
+<li><b>Life Impact:</b> How it influences personality, relationships, career, finances, health.</li>
+<li><b>Remedies:</b> Provide 2–3 simple, practical remedies.</li>
+</content>
 
-<<<heading>>> KP Planetary Analysis
-<content> Offer interpretation based on KP astrology — the planet’s sub-lord connections, house significations, and how it affects timing of events.</content>
+Formatting Rules:
+- Use ONLY <li> and <b> for structure.
+- NO markdown, NO asterisks, NO extra formatting.
+- Avoid long stories or philosophy.
+- Keep the tone practical, sharp, and astrologically accurate.
 
-<<<heading>>> Retrogrades & Transits (2025 Outlook)
-<content> Explain how retrograde motion or upcoming transits in 2025 may influence the native’s experiences related to ${planetName}. Include predictions on timing, mindset, and opportunities.</content>
-
-<<<heading>>> Summary & Remedies
-<content> Conclude with an integrative summary of the planet’s lessons and karmic purpose. Recommend spiritual remedies, gemstones, or mindset practices that enhance harmony with ${planetName}.</content>
-──────────────────────────────
-
-Style & Tone:
-- Be eloquent, smooth, and encouraging.
-- Blend Vedic astrology, psychology, and spirituality naturally.
-- Do not use markdown (**bold**, lists, asterisks, etc.).
-- Write in ${userData.language || "English"}.
+Write in ${userData.language || "English"}.
 `;
 
-    // === Model call ===
-    let text;
+    let text = "";
     try {
       text = await callBedrock(prompt, combinedData);
       text = sanitizeText(text);
-    } catch (err) {
-      console.error(`Error generating ${planetName} report:`, err);
+    } catch {
       text = `Report for ${planetName} could not be generated.`;
     }
 
-    // === PDF Rendering ===
+    // === PDF Page Setup ===
     doc.addPage();
     addHeaderFooter(doc, doc.getNumberOfPages());
     drawBorder();
@@ -542,7 +595,7 @@ Style & Tone:
     doc.setTextColor("#000");
     doc.text(`${planetName} Report`, pageWidth / 2, 70, { align: "center" });
 
-    // Planet image
+    // Image
     const imagePath = `/assets/planets/${nameKey}.jpg`;
     const imageY = 100;
     const imageWidth = 230;
@@ -561,70 +614,104 @@ Style & Tone:
         };
         img.onerror = () => resolve();
       });
-    } catch {
-      console.warn(`⚠️ No image found for ${planetName}`);
-    }
+    } catch { }
 
     let cursorY = imageY + imageHeight + 40;
     const lineHeight = 20;
     const usableWidth = contentWidth - 30;
 
-    // === Parse custom tags and render ===
-    const tagRegex =
-      /(<<<heading>>>|<<subheading>>|<content>|<\/content>)/g;
-
+    // === Parse & Render ===
+    const tagRegex = /(<<<heading>>>|<<subheading>>|<content>|<\/content>)/g;
     const segments = text.split(tagRegex).filter(Boolean);
-
-    let currentTag: string | null = null;
+    let currentTag = null;
 
     for (const segment of segments) {
       const trimmed = segment.trim();
       if (!trimmed) continue;
 
-      // Detect opening tags
-      if (trimmed === "<<<heading>>>") {
-        currentTag = "heading";
-        continue;
-      } else if (trimmed === "<<subheading>>") {
-        currentTag = "subheading";
-        continue;
-      } else if (trimmed === "<content>") {
-        currentTag = "content";
-        continue;
-      } else if (trimmed === "</content>") {
-        currentTag = null;
-        continue;
-      }
+      if (trimmed === "<<<heading>>>") { currentTag = "heading"; continue; }
+      if (trimmed === "<<subheading>>") { currentTag = "subheading"; continue; }
+      if (trimmed === "<content>") { currentTag = "content"; continue; }
+      if (trimmed === "</content>") { currentTag = null; continue; }
 
-      // Apply font based on current tag
+      // === Headings ===
       if (currentTag === "heading") {
+        const cleanHeading = trimmed.replace(/\*/g, "").replace(/_/g, "");
         doc.setFont("NotoSans", "bold");
         doc.setFontSize(20);
         doc.setTextColor("#000");
         cursorY = addNewPageIfNeeded(cursorY, lineHeight * 2);
-        doc.text(trimmed, marginX + 10, cursorY);
-        cursorY += lineHeight * 1.5;
+
+        const wrappedHeading = doc.splitTextToSize(cleanHeading, usableWidth);
+        wrappedHeading.forEach((line: string) => {
+          cursorY = addNewPageIfNeeded(cursorY, lineHeight);
+          doc.text(line, pageWidth / 2, cursorY, { align: "center" });
+          cursorY += lineHeight * 1.1;
+        });
+
+        cursorY += lineHeight * 0.5;
         currentTag = null;
-      } else if (currentTag === "subheading") {
+      }
+
+      // === Subheadings ===
+      else if (currentTag === "subheading") {
+        const cleanSub = trimmed.replace(/\*/g, "").replace(/_/g, "");
         doc.setFont("NotoSans", "semibold");
         doc.setFontSize(17);
         doc.setTextColor("#a16a21");
         cursorY = addNewPageIfNeeded(cursorY, lineHeight * 2);
-        doc.text(trimmed, marginX + 12, cursorY);
-        cursorY += lineHeight * 1.2;
-        currentTag = null;
-      } else if (currentTag === "content") {
-        doc.setFont("NotoSans", "normal");
-        doc.setFontSize(15);
-        doc.setTextColor("#a16a21");
 
-        const wrappedText = doc.splitTextToSize(trimmed, usableWidth);
-        for (const line of wrappedText) {
-          cursorY = addNewPageIfNeeded(cursorY);
-          doc.text(line, marginX + 15, cursorY);
-          cursorY += lineHeight;
+        const wrappedSub = doc.splitTextToSize(cleanSub, usableWidth);
+        wrappedSub.forEach((line: string) => {
+          cursorY = addNewPageIfNeeded(cursorY, lineHeight);
+          doc.text(line, pageWidth / 2, cursorY, { align: "center" });
+          cursorY += lineHeight * 1.1;
+        });
+
+        cursorY += lineHeight * 0.3;
+        currentTag = null;
+      }
+
+      // === Content ===
+      else if (currentTag === "content") {
+        const listItems = trimmed.split(/<\/?li>/).filter((t) => t.trim() !== "");
+        for (let item of listItems) {
+          item = item.trim();
+          if (!item) continue;
+
+          const boldParts = item.split(/<\/?b>/);
+          const lineParts = [];
+          let isBold = false;
+          for (const part of boldParts) {
+            if (part.trim() === "") {
+              isBold = !isBold;
+              continue;
+            }
+            lineParts.push({ text: part.trim(), bold: isBold });
+            isBold = !isBold;
+          }
+
+          const x = marginX + 20;
+          cursorY = addNewPageIfNeeded(cursorY, lineHeight);
+          doc.setFont("NotoSans", "normal");
+          doc.setFontSize(15);
+          doc.setTextColor("#a16a21");
+          doc.text("•", x - 8, cursorY);
+
+          for (const part of lineParts) {
+            const wrappedLines = doc.splitTextToSize(
+              part.text.replace(/\*/g, "").replace(/_/g, ""),
+              usableWidth - 10
+            );
+            for (const wrappedLine of wrappedLines) {
+              cursorY = addNewPageIfNeeded(cursorY, lineHeight);
+              doc.setFont("NotoSans", part.bold ? "bold" : "normal");
+              doc.text(wrappedLine, x, cursorY);
+              cursorY += lineHeight * 0.9;
+            }
+          }
+          cursorY += lineHeight * 0.4;
         }
-        cursorY += lineHeight / 2;
       }
     }
   }
@@ -667,24 +754,31 @@ async function svgTextToPngBase64(svgText: string, width: number, height: number
 }
 
 /**
- * Generate a pure SVG Kundli (D1) styled like the golden chart-card layout, with house numbers.
- * @param {Record<string, any>} chartObj - mapping numeric keys -> planet entries (like your JSON)
- * @param {number} size - size of SVG square (default 500)
- * @returns {string} SVG string
+ * Generate a pure SVG Kundli (North Indian style) with Rāśi numbers and planet names.
+ * Text is clipped so it never overflows outside the house diamond shape.
  */
 function generateKundliSVG(chartObj: Record<string, any>, size = 500): string {
   const houses: string[][] = Array.from({ length: 12 }, () => []);
+  const rasiNos: (number | null)[] = Array(12).fill(null);
 
+  // Fill planet data for each Rāśi
   Object.keys(chartObj).forEach((k) => {
     if (!/^\d+$/.test(k)) return;
     const p = chartObj[k];
     const name = p.name || p.full_name || "";
     const display = p.retro ? `${name}(R)` : name;
-    const houseIndex = typeof p.house === "number" ? p.house - 1 : Number(p.house) - 1;
-    if (houseIndex >= 0 && houseIndex < 12) houses[houseIndex].push(display);
+    const rasiIndex =
+      typeof p.house === "number" ? p.house - 1 : Number(p.house) - 1;
+    if (rasiIndex >= 0 && rasiIndex < 12) {
+      houses[rasiIndex].push(display);
+      if (p.rasi_no != null && !rasiNos[rasiIndex]) rasiNos[rasiIndex] = p.rasi_no;
+    }
   });
 
-  // Planet text coordinates (approximate for North Indian diamond)
+  // Static 1–12 labels (outer)
+  const rasiNumbers = Array.from({ length: 12 }, (_, i) => ((i + 1) % 12) || 12);
+
+  // Planet text anchor points (fixed for 500x500)
   const coords = [
     { x: 250, y: 125 }, { x: 125, y: 35 }, { x: 35, y: 125 },
     { x: 125, y: 250 }, { x: 35, y: 375 }, { x: 125, y: 460 },
@@ -692,38 +786,80 @@ function generateKundliSVG(chartObj: Record<string, any>, size = 500): string {
     { x: 375, y: 250 }, { x: 465, y: 125 }, { x: 375, y: 35 }
   ];
 
-  // House number coordinates (placed near edges)
-  const houseNums = [
+  const stroke = "rgba(150,95,48,1)";
+  const strokeWidth = 5;
+  const planetFont = "15";
+  const rasiFont = "18";
+
+  // --- Clip paths (rectangles safely inside each house) ---
+  // These are conservative boxes so text won't cross lines.
+  const CLIP_W = 120;
+  const CLIP_H = 70;
+  const rasiClipDefs = coords
+    .map((c, i) => {
+      const x = c.x - CLIP_W / 2;
+      const y = c.y - CLIP_H / 2;
+      return `<clipPath id="clip-house-${i}">
+        <rect x="${x}" y="${y}" width="${CLIP_W}" height="${CLIP_H}" rx="6" ry="6" />
+      </clipPath>`;
+    })
+    .join("");
+
+  // Planet text (clipped per house)
+  const houseTexts = houses
+    .map((items, i) => {
+      const lines = items.slice(0, 4);
+      const tspans = lines
+        .map(
+          (t, idx) =>
+            `<tspan x="${coords[i].x}" dy="${idx === 0 ? "0" : "1.2em"}">${escapeXml(
+              t
+            )}</tspan>`
+        )
+        .join("");
+      return `<g clip-path="url(#clip-house-${i})">
+        <text x="${coords[i].x}" y="${coords[i].y}" font-family="'Poppins','Arial',sans-serif"
+              font-weight="600" font-size="${planetFont}" fill="rgb(68,68,68)"
+              text-anchor="middle">${tspans}</text>
+      </g>`;
+    })
+    .join("");
+
+  // Outer static rasi number positions
+  const rasiPositions = [
     { x: 250, y: 70 }, { x: 180, y: 50 }, { x: 70, y: 100 },
     { x: 80, y: 250 }, { x: 70, y: 400 }, { x: 180, y: 445 },
     { x: 250, y: 430 }, { x: 320, y: 445 }, { x: 430, y: 400 },
     { x: 420, y: 250 }, { x: 430, y: 100 }, { x: 320, y: 50 }
   ];
 
-  const stroke = "rgba(150,95,48,1)";
-  const strokeWidth = 5;
-
-  // Planet names inside each house
-  const houseTexts = houses.map((items, i) => {
-    const lines = items.length ? items : [""];
-    const tspans = lines.map(
-      (t, idx) =>
-        `<tspan x="${coords[i].x}" dy="${idx === 0 ? "0" : "1.2em"}">${escapeXml(t)}</tspan>`
-    ).join("");
-    return `<text x="${coords[i].x}" y="${coords[i].y}" font-family="'Lucida Sans','Lucida Grande',sans-serif" font-weight="800" font-size="16" fill="rgb(68,68,68)" text-anchor="middle">${tspans}</text>`;
-  }).join("");
-
-  // House number labels
-  const houseNumberTexts = houseNums
+  const rasiTexts = rasiPositions
     .map(
-      (pos, i) =>
-        `<text x="${pos.x}" y="${pos.y}" font-family="'Poppins','Arial',sans-serif" font-size="16" font-weight="700" fill="${stroke}" text-anchor="middle">${i + 1}</text>`
+      (pos, i) => `
+        <text x="${pos.x}" y="${pos.y}" font-family="'Poppins','Arial',sans-serif"
+              font-size="${rasiFont}" font-weight="700"
+              fill="${stroke}" text-anchor="middle">${rasiNumbers[i]}</text>`
     )
     .join("");
 
+  // Actual rasi_no (from data) — also clipped to the house
+  const actualRasiTexts = coords
+    .map((pos, i) => {
+      const rno = rasiNos[i];
+      if (rno == null) return "";
+      // place near top-right within the same clip
+      const rx = pos.x + CLIP_W / 2 - 6;   // 6px padding inside box
+      const ry = pos.y - CLIP_H / 2 + 16;  // 16px down for baseline
+      return `<g clip-path="url(#clip-house-${i})">
+        <text x="${rx}" y="${ry}" font-family="'Poppins','Arial',sans-serif"
+              font-size="14" font-weight="700"
+              fill="#b25713" text-anchor="end">♈ ${rno}</text>
+      </g>`;
+    })
+    .join("");
+
   const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <!-- Background Gradient & Shadow -->
+  <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 500 500">
     <defs>
       <radialGradient id="bg" cx="50%" cy="50%" r="70%">
         <stop offset="0%" stop-color="#fff9ee"/>
@@ -733,27 +869,24 @@ function generateKundliSVG(chartObj: Record<string, any>, size = 500): string {
       <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
         <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="rgba(0,0,0,0.25)" />
       </filter>
+      ${rasiClipDefs}
     </defs>
 
-    <!-- Chart Background -->
     <rect width="100%" height="100%" rx="20" ry="20" fill="url(#bg)" filter="url(#shadow)" />
 
     <!-- Chart Lines -->
-    <line x1="0" y1="0" x2="${size}" y2="${size}" stroke="${stroke}" stroke-width="${strokeWidth}" />
-    <line x1="${size}" y1="0" x2="0" y2="${size}" stroke="${stroke}" stroke-width="${strokeWidth}" />
-    <line x1="3" y1="0" x2="3" y2="${size}" stroke="${stroke}" stroke-width="${strokeWidth}" />
-    <line x1="0" y1="${size - 3}" x2="${size}" y2="${size - 3}" stroke="${stroke}" stroke-width="${strokeWidth}" />
-    <line x1="${size - 3}" y1="${size}" x2="${size - 3}" y2="0" stroke="${stroke}" stroke-width="${strokeWidth}" />
-    <line x1="0" y1="3" x2="${size}" y2="3" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="0" y1="0" x2="500" y2="500" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="500" y1="0" x2="0" y2="500" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="250" y1="0" x2="0"   y2="250" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="250" y1="0" x2="500" y2="250" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="250" y1="500" x2="500" y2="250" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <line x1="250" y1="500" x2="0"   y2="250" stroke="${stroke}" stroke-width="${strokeWidth}" />
 
-    <!-- Diamond Inner Lines -->
-    <line x1="${size / 2}" y1="0" x2="0" y2="${size / 2}" stroke="${stroke}" stroke-width="${strokeWidth}" />
-    <line x1="${size / 2}" y1="0" x2="${size}" y2="${size / 2}" stroke="${stroke}" stroke-width="${strokeWidth}" />
-    <line x1="${size / 2}" y1="${size}" x2="${size}" y2="${size / 2}" stroke="${stroke}" stroke-width="${strokeWidth}" />
-    <line x1="${size / 2}" y1="${size}" x2="0" y2="${size / 2}" stroke="${stroke}" stroke-width="${strokeWidth}" />
+    <!-- Rāśi Outer Numbers -->
+    ${rasiTexts}
 
-    <!-- House Numbers -->
-    ${houseNumberTexts}
+    <!-- Actual Rāśi Numbers (from data) -->
+    ${actualRasiTexts}
 
     <!-- Planet Names -->
     ${houseTexts}
@@ -762,7 +895,7 @@ function generateKundliSVG(chartObj: Record<string, any>, size = 500): string {
   return svg;
 }
 
-// Escape unsafe XML
+// Escape XML safely
 function escapeXml(unsafe: string): string {
   return String(unsafe || "")
     .replace(/&/g, "&amp;")
@@ -771,7 +904,6 @@ function escapeXml(unsafe: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
-
 
 interface DivisionalChart {
   chart_name: string;
@@ -817,7 +949,9 @@ async function addAllDivisionalChartsFromAstroData(
     if (!chartData) continue;
 
     if (i % chartsPerPage === 0) {
-      if (i > 0) doc.addPage();
+      if (i > 0) startSection(doc, `DIVISIONAL CHARTS`);
+      doc.addPage();
+      markSectionPage(doc);
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
@@ -825,7 +959,7 @@ async function addAllDivisionalChartsFromAstroData(
       doc.setFont("NotoSans", "bold");
       doc.setFontSize(26);
       doc.setTextColor("#a16a21");
-      doc.text("DIVISIONAL CHARTS", pageWidth / 2, 60, { align: "center" });
+      doc.text("DIVISIONAL CHARTS", pageWidth / 2, 70, { align: "center" });
     }
 
     const posInPage = i % chartsPerPage;
@@ -859,6 +993,7 @@ async function addAllDivisionalChartsFromAstroData(
 }
 
 const generateHouseReports = async (doc: jsPDF, AstroData: any, userData: UserData) => {
+
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 25;
@@ -866,82 +1001,117 @@ const generateHouseReports = async (doc: jsPDF, AstroData: any, userData: UserDa
   const contentWidth = pageWidth - 2 * marginX;
   const bottomLimit = pageHeight - marginY;
 
-  const kpHouses = AstroData?.kp_houses || [];
+  const safe = (val: any) => (val ? val : "Not Available");
 
-  const simplifiedHouses = kpHouses.map((house: any) => ({
-    house: house.house,
-    sign: house.sign,
-    lord: house.lord,
-    sub_lord: house.sub_lord,
-    nakshatra: house.nakshatra,
-    nakshatra_lord: house.nakshatra_lord,
-    planets_in_house: house.planets_in_house,
-    cusp_longitude: house.cusp_longitude,
-    cusp_sign: house.cusp_sign,
-    cusp_nakshatra: house.cusp_nakshatra,
-    cusp_sub_lord: house.cusp_sub_lord,
-    ashtakvarga_points: house.ashtakvarga_points,
-    significators: house.significators,
-  }));
+  const rasiLords: any = {
+    Aries: "Mars",
+    Taurus: "Venus",
+    Gemini: "Mercury",
+    Cancer: "Moon",
+    Leo: "Sun",
+    Virgo: "Mercury",
+    Libra: "Venus",
+    Scorpio: "Mars",
+    Sagittarius: "Jupiter",
+    Capricorn: "Saturn",
+    Aquarius: "Saturn",
+    Pisces: "Jupiter",
+  };
 
-  // 🧠 Custom prompt using <<<heading>>>, <<subheading>>, and <content>
-  const prompts = simplifiedHouses.map((house: any) => ({
+  const getRasiLord = (sign: string) => rasiLords[sign] || "Not Available";
+
+  const ashtakvargaTotals = AstroData?.ashtakvarga?.ashtakvarga_total || [];
+
+  // --------------------------------------------------------------------
+  // 🔥 BUILD PERFECT HOUSE OBJECT (NO UNDEFINED EVER)
+  // --------------------------------------------------------------------
+  const simplifiedHouses = Array.from({ length: 12 }, (_, i) => {
+    const houseNo = i + 1;
+
+    const kp = AstroData.kp_houses?.[i] || {};
+    const ph = AstroData.planets_in_houses?.[houseNo] || {};
+
+    return {
+      house: houseNo,
+      sign: safe(ph.zodiac),
+      lord: safe(getRasiLord(ph.zodiac)),
+      sub_lord: safe(kp.cusp_sub_lord),
+      nakshatra: safe(kp.start_nakshatra),
+      nakshatra_lord: safe(kp.start_nakshatra_lord),
+      planets_in_house: ph.planets || [],
+      signification: safe(ph.signification),
+      ashtakvarga_points: safe(ashtakvargaTotals[i]),
+    };
+  });
+
+  // --------------------------------------------------------------------
+  // 🔥 PROMPTS BUILDING
+  // --------------------------------------------------------------------
+  const prompts = simplifiedHouses.map((house) => ({
     house,
     prompt: `
-You are an expert Vedic and KP astrologer.
-Generate a detailed, narrative-style report for House ${house.house} using the provided KP-style data.
+Write a clear, concise, easy-to-understand **House ${house.house} Report** (max 220–280 words)
+based ONLY on the following data:
 
-The report must strictly follow this XML-like tag structure (no markdown, no asterisks, no bullet points):
+Sign: <b>${house.sign}</b>
+Lord: <b>${house.lord}</b>
+Sub-lord: <b>${house.sub_lord}</b>
+Nakshatra: <b>${house.nakshatra}</b>
+Nakshatra Lord: <b>${house.nakshatra_lord}</b>
+Ashtakvarga: <b>${house.ashtakvarga_points}</b>
+Planets in House: <b>${house.planets_in_house.join(", ") || "None"}</b>
+Meaning: <b>${house.signification}</b>
 
-──────────────────────────────
+Format strictly using these tags:
+
 <<<heading>>> Overview of House ${house.house}
-<content>Describe the general meaning of the ${house.house}th house in astrology and its psychological and karmic implications for the native. Write 2–3 paragraphs with an encouraging and introspective tone.</content>
+<content>
+<li><b>Meaning:</b> Short simple explanation (1–2 lines).</li>
+<li><b>Influence:</b> How the sign + lord affect this house (1–2 lines).</li>
+<li><b>Personality Focus:</b> Behavioral effect (1–2 lines max).</li>
+</content>
 
-<<<heading>>> House Lords & Significance
-<content>Explain the sign, lord, sub-lord, and nakshatra lord of this house. Describe how they shape this house’s expression and influence daily life and inner patterns.</content>
+<<<heading>>> Strengths & Remedies
+<content>
+<li><b>Ashtakvarga:</b> Strength interpretation in 1–2 lines.</li>
+<li><b>Planets:</b> Short effects of planets present (skip if none).</li>
+<li><b>Remedy:</b> One practical spiritual remedy.</li>
+</content>
 
-<<<heading>>> House Strength using Ashtakvarga
-<content>Analyze Ashtakvarga points and their meaning for this house’s strength, growth areas, and potential challenges. Interpret the score in the context of life themes.</content>
-
-<<<heading>>> Effects of Planets in Houses
-<content>Discuss the planets placed in this house. Explain their impact on emotions, relationships, finances, or other areas based on traditional and KP interpretations.</content>
-
-<<<heading>>> KP Houses & Cuspal Analysis
-<content>Analyze the cusp, its sign, sub-lord, and significators. Write how this affects timing of events and the practical manifestation of this house in real life.</content>
-
-<<<heading>>> Summary & Remedies
-<content>End with an uplifting summary of how this house supports the native’s growth. Suggest relevant remedies or mindset practices for balance and harmony.</content>
-──────────────────────────────
-
-Style & Tone:
-- Use only plain text, no markdown.
-- Be smooth, spiritual, and psychologically rich.
+Rules:
+- Use ONLY <li> and <b> tags.
+- NO markdown, NO asterisks.
+- NO KP, NO cusps, NO Placidus.
+- Keep every line short & meaningful.
 - Write in ${userData.language || "English"}.
-`,
+`
   }));
 
-  // === Generate all reports ===
+  // --------------------------------------------------------------------
+  // 🔥 GENERATE HOUSE TEXT
+  // --------------------------------------------------------------------
   const reports = await Promise.all(
-    prompts.map(async ({ house, prompt }: { house: any; prompt: string }) => {
+    prompts.map(async ({ house, prompt }) => {
       try {
-        const text = await callBedrock(prompt, { house });
-        return { house, text: sanitizeText(text) };
-      } catch (err) {
-        console.error(`Error generating House ${house.house}:`, err);
+        const aiText = await callBedrock(prompt, { house });
+        return { house, text: sanitizeText(aiText) };
+      } catch {
         return { house, text: `Report for House ${house.house} could not be generated.` };
       }
     })
   );
 
-  // === Helper to draw frame & header/footer ===
+  // --------------------------------------------------------------------
+  // DRAWING HELPERS
+  // --------------------------------------------------------------------
   const drawBorder = () => {
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
-    doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY, "S");
+    doc.rect(marginX, marginY, pageWidth - 2 * marginX, pageHeight - 2 * marginY);
   };
 
-  const addNewPageIfNeeded = (cursorY: number, estimatedHeight = 40) => {
-    if (cursorY + estimatedHeight > bottomLimit - 10) {
+  const addNewPageIfNeeded = (cursorY: number, estimated = 40) => {
+    if (cursorY + estimated > bottomLimit - 10) {
       doc.addPage();
       addHeaderFooter(doc, doc.getNumberOfPages());
       drawBorder();
@@ -950,19 +1120,21 @@ Style & Tone:
     return cursorY;
   };
 
-  // === Loop through houses ===
+  // --------------------------------------------------------------------
+  // 🔥 RENDER ALL HOUSES TO PDF
+  // --------------------------------------------------------------------
   for (const { house, text } of reports) {
+
     doc.addPage();
     addHeaderFooter(doc, doc.getNumberOfPages());
     drawBorder();
 
-    // === Title ===
     doc.setFont("NotoSans", "bold");
     doc.setFontSize(26);
     doc.setTextColor("#000");
     doc.text(`House ${house.house} Report`, pageWidth / 2, 70, { align: "center" });
 
-    // === Image ===
+    // --- IMAGE ---
     const imagePath = `/assets/houses/${house.house}.jpg`;
     const imageY = 100;
     const imageWidth = 230;
@@ -973,82 +1145,547 @@ Style & Tone:
       img.src = imagePath;
       await new Promise<void>((resolve) => {
         img.onload = () => {
-          const aspectRatio = img.height / img.width;
-          imageHeight = imageWidth * aspectRatio;
-          const imageX = (pageWidth - imageWidth) / 2;
-          doc.addImage(img, "JPG", imageX, imageY, imageWidth, imageHeight);
+          const aspect = img.height / img.width;
+          imageHeight = imageWidth * aspect;
+          doc.addImage(img, "JPG", (pageWidth - imageWidth) / 2, imageY, imageWidth, imageHeight);
           resolve();
         };
         img.onerror = () => resolve();
       });
-    } catch {
-      console.warn(`⚠️ No image found for House ${house.house}`);
-    }
+    } catch { }
 
     let cursorY = imageY + imageHeight + 40;
-    const lineHeight = 20;
     const usableWidth = contentWidth - 30;
+    const lineHeight = 20;
 
-    // === Tag-based text parsing ===
     const tagRegex = /(<<<heading>>>|<<subheading>>|<content>|<\/content>)/g;
     const segments = text.split(tagRegex).filter(Boolean);
-
-    let currentTag: string | null = null;
+    let currentTag = null;
 
     for (const segment of segments) {
-      const trimmed = sanitizeText(segment.trim());
+      const trimmed = segment.trim();
       if (!trimmed) continue;
 
-      // Identify tags
-      if (trimmed === "<<<heading>>>") {
-        currentTag = "heading";
-        continue;
-      } else if (trimmed === "<<subheading>>") {
-        currentTag = "subheading";
-        continue;
-      } else if (trimmed === "<content>") {
-        currentTag = "content";
-        continue;
-      } else if (trimmed === "</content>") {
-        currentTag = null;
-        continue;
-      }
+      if (trimmed === "<<<heading>>>") { currentTag = "heading"; continue; }
+      if (trimmed === "<<subheading>>") { currentTag = "subheading"; continue; }
+      if (trimmed === "<content>") { currentTag = "content"; continue; }
+      if (trimmed === "</content>") { currentTag = null; continue; }
 
-      // === Apply styles ===
+      // === Headings ===
       if (currentTag === "heading") {
+        const cleanHeading = trimmed.replace(/\*/g, "").replace(/_/g, "");
         doc.setFont("NotoSans", "bold");
         doc.setFontSize(20);
         doc.setTextColor("#000");
         cursorY = addNewPageIfNeeded(cursorY, lineHeight * 2);
-        doc.text(trimmed, marginX + 10, cursorY);
-        cursorY += lineHeight * 1.5;
+
+        const wrappedHeading = doc.splitTextToSize(cleanHeading, usableWidth);
+        wrappedHeading.forEach((line: string) => {
+          cursorY = addNewPageIfNeeded(cursorY, lineHeight);
+          doc.text(line, pageWidth / 2, cursorY, { align: "center" });
+          cursorY += lineHeight * 1.1;
+        });
+
+        cursorY += lineHeight * 0.5;
         currentTag = null;
-      } else if (currentTag === "subheading") {
+      }
+
+      // === Subheadings ===
+      else if (currentTag === "subheading") {
+        const cleanSub = trimmed.replace(/\*/g, "").replace(/_/g, "");
         doc.setFont("NotoSans", "semibold");
         doc.setFontSize(17);
         doc.setTextColor("#a16a21");
         cursorY = addNewPageIfNeeded(cursorY, lineHeight * 2);
-        doc.text(trimmed, marginX + 12, cursorY);
-        cursorY += lineHeight * 1.2;
-        currentTag = null;
-      } else if (currentTag === "content") {
-        doc.setFont("NotoSans", "normal");
-        doc.setFontSize(15);
-        doc.setTextColor("#a16a21");
 
-        const wrappedText = doc.splitTextToSize(trimmed, usableWidth);
-        for (const line of wrappedText) {
-          cursorY = addNewPageIfNeeded(cursorY);
-          doc.text(line, marginX + 15, cursorY);
-          cursorY += lineHeight;
+        const wrappedSub = doc.splitTextToSize(cleanSub, usableWidth);
+        wrappedSub.forEach((line: string) => {
+          cursorY = addNewPageIfNeeded(cursorY, lineHeight);
+          doc.text(line, pageWidth / 2, cursorY, { align: "center" });
+          cursorY += lineHeight * 1.1;
+        });
+
+        cursorY += lineHeight * 0.3;
+        currentTag = null;
+      }
+
+      // === Content ===
+      else if (currentTag === "content") {
+        const listItems = trimmed.split(/<\/?li>/).filter((t) => t.trim() !== "");
+        for (let item of listItems) {
+          item = item.trim();
+          if (!item) continue;
+
+          const boldParts = item.split(/<\/?b>/);
+          const lineParts = [];
+          let isBold = false;
+          for (const part of boldParts) {
+            if (part.trim() === "") {
+              isBold = !isBold;
+              continue;
+            }
+            lineParts.push({ text: part.trim(), bold: isBold });
+            isBold = !isBold;
+          }
+
+          const x = marginX + 20;
+          cursorY = addNewPageIfNeeded(cursorY, lineHeight);
+          doc.setFont("NotoSans", "normal");
+          doc.setFontSize(15);
+          doc.setTextColor("#a16a21");
+          doc.text("•", x - 8, cursorY);
+
+          for (const part of lineParts) {
+            const wrappedLines = doc.splitTextToSize(
+              part.text.replace(/\*/g, "").replace(/_/g, ""),
+              usableWidth - 10
+            );
+            for (const wrappedLine of wrappedLines) {
+              cursorY = addNewPageIfNeeded(cursorY, lineHeight);
+              doc.setFont("NotoSans", part.bold ? "bold" : "normal");
+              doc.text(wrappedLine, x, cursorY);
+              cursorY += lineHeight * 0.9;
+            }
+          }
+          cursorY += lineHeight * 0.4;
         }
-        cursorY += lineHeight / 2;
       }
     }
   }
 };
 
-// --- Enhanced function with table content integration ---
+type SectionEntry = {
+  title: string;
+  anchor: string;
+  page: number;
+  tocLabel?: string;
+  outlineParent?: string;
+  finalPage?: number; // not really needed now, but kept for future use
+};
+
+const __sectionRegistry: SectionEntry[] = [];
+
+function makeAnchor(title: string) {
+  return title
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .toLowerCase();
+}
+
+/**
+ * Register a section BEFORE creating content
+ */
+function startSection(
+  doc: jsPDF,
+  title: string,
+  tocLabel?: string,
+  outlineParent?: string
+) {
+  const anchor = makeAnchor(title);
+  const existing = __sectionRegistry.find((s) => s.anchor === anchor);
+  if (existing) {
+    existing.tocLabel = tocLabel || title;
+    existing.outlineParent = outlineParent || existing.outlineParent;
+    return existing;
+  }
+  const entry: SectionEntry = {
+    title,
+    anchor,
+    page: doc.getNumberOfPages() || 1,
+    tocLabel: tocLabel || title,
+    outlineParent,
+  };
+  __sectionRegistry.push(entry);
+  return entry;
+}
+
+/**
+ * Update section page AFTER doc.addPage() / section content creation
+ */
+function markSectionPage(doc: jsPDF) {
+  const last = __sectionRegistry[__sectionRegistry.length - 1];
+  if (!last) return;
+  last.page = doc.getNumberOfPages();
+}
+
+/**
+ * ✅ SAFE: Fill TOC into pre-reserved pages (no page reordering)
+ * - Assumes:
+ *   - Cover is page 1
+ *   - TOC pages are from startPage to endPage (2,3,...)
+ *   - Sections in __sectionRegistry already have correct .page
+ */
+function fillComplexTOC(doc: jsPDF, tocStart: number, tocEnd: number, tocText: string) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const leftX = 60;
+  const rightX = pageWidth - 60;
+  const mainTitleY = 70;
+  const lineHeight = 20;
+
+  const lines = tocText.split("\n").map(l => l.trim()).filter(Boolean);
+
+  type TocItem = { number: string; title: string; matches: SectionEntry | null };
+  const items: TocItem[] = [];
+
+  const regex = /^(\d+(\.\d+)*)\s+(.*)$/;
+
+  for (const line of lines) {
+    const m = line.match(regex);
+    if (!m) continue;
+    items.push({ number: m[1], title: m[3], matches: null });
+  }
+
+  function norm(str: string) {
+    return str.toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  // Enhanced matching with multiple strategies
+  for (const item of items) {
+    const itemNorm = norm(item.title);
+
+    // Strategy 1: Exact match
+    let found = __sectionRegistry.find(
+      s => norm(s.tocLabel || s.title) === itemNorm
+    );
+
+    // Strategy 2: Title contains TOC label or vice versa
+    if (!found) {
+      found = __sectionRegistry.find(s => {
+        const sNorm = norm(s.tocLabel || s.title);
+        return sNorm.includes(itemNorm) || itemNorm.includes(sNorm);
+      });
+    }
+
+    // Strategy 3: Extract first meaningful words (more flexible)
+    if (!found) {
+      const itemWords = itemNorm.split(" ").slice(0, 3).join(" ");
+      found = __sectionRegistry.find(s => {
+        const sNorm = norm(s.tocLabel || s.title);
+        const sWords = sNorm.split(" ").slice(0, 3).join(" ");
+        return sWords === itemWords || sNorm.startsWith(itemWords) || itemNorm.startsWith(sWords);
+      });
+    }
+
+    // Strategy 4: Partial word matching (handles splits like "Your Basic" vs "Basic Details")
+    if (!found) {
+      const itemKeywords = itemNorm.split(" ").filter(w => w.length > 3);
+      found = __sectionRegistry.find(s => {
+        const sNorm = norm(s.tocLabel || s.title);
+        return itemKeywords.some(kw => sNorm.includes(kw)) &&
+          itemKeywords.filter(kw => sNorm.includes(kw)).length >= 2;
+      });
+    }
+
+    item.matches = found || null;
+  }
+}
+
+// ========================================
+// HELPER FUNCTIONS
+// ========================================
+
+function sanitizeText(text: string): string {
+  return text
+    .replace(/([a-zA-Z])[\u0000-\u001F\u200B-\u206F\uFEFF\u00AD\uFFFD�]+([a-zA-Z])/g, "$1$2")
+    .replace(/(\s)&(\s)/g, "$1__AMP_PLACEHOLDER__$2")
+    .replace(/([a-zA-Z])&(?=[a-zA-Z])/g, "$1")
+    .replace(/&(?=[a-zA-Z])/g, "")
+    .replace(/([a-zA-Z])&/g, "$1")
+    .replace(/&+/g, "")
+    .replace(/__AMP_PLACEHOLDER__/g, "&")
+    .replace(/&[a-zA-Z#0-9]+;/g, "")
+    .replace(/[""«»„]/g, '"')
+    .replace(/[''‚‛]/g, "'")
+    .replace(/[–—―−]/g, "-")
+    .replace(/[•∙·⋅]/g, "*")
+    .replace(/[…]/g, "...")
+    .replace(/[°º˚]/g, "°")
+    .replace(/[×✕✖]/g, "x")
+    .replace(/[‐-‒⁃]/g, "-")
+    .replace(/[\u200B-\u200F\uFEFF\u034F\u061C\u00AD]/g, "")
+    .normalize("NFKC")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E\u0900-\u097F]/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .trim();
+}
+
+function normalizeBedrockText(xmlText: string): string {
+  return xmlText
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\r?\n\s*\r?\n/g, "\n")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+const PLANETS = [
+  "Sun",
+  "Moon",
+  "Mars",
+  "Mercury",
+  "Jupiter",
+  "Venus",
+  "Saturn",
+  "Rahu",
+  "Ketu",
+];
+
+async function callBedrock(prompt: string, jsonData: any) {
+  const res = await fetch("/api/bedrock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, jsonData }),
+  });
+
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    console.error("❌ Non-JSON response from /api/bedrock:", text);
+    throw new Error("Server did not return valid JSON.");
+  }
+
+  if (!res.ok) {
+    throw new Error(data.error || "Bedrock API failed.");
+  }
+
+  let message =
+    typeof data.message === "string"
+      ? data.message
+      : data.message?.text ||
+      data.message?.outputText ||
+      JSON.stringify(data.message, null, 2) ||
+      "";
+
+  if (typeof message === "string") {
+    message = message.replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "").trim();
+  }
+
+  return message;
+}
+
+interface UserData {
+  name: string;
+  sex: string;
+  dob: string;
+  time: string;
+  place: string;
+  state?: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+  language: string;
+}
+
+function addParagraphs(
+  doc: jsPDF,
+  rawText: string,
+  startX: number,
+  startY: number,
+  maxWidth: number
+) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 25;
+  const lineHeight = 20;
+  const bottomLimit = pageHeight - margin;
+  const usableWidth = maxWidth;
+  let cursorY = startY;
+
+  const drawBorder = () => {
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+  };
+
+  const addNewPageIfNeeded = () => {
+    if (cursorY + lineHeight > bottomLimit) {
+      doc.addPage();
+      drawBorder();
+      cursorY = margin + 40;
+    }
+  };
+
+  const text = rawText.replace(/[\u200B-\u200D\uFEFF]/g, "").trim();
+  if (!text) return cursorY;
+
+  const tagRegex = /(<<<heading>>>|<<subheading>>|<content>|<\/content>)/g;
+  const segments = text.split(tagRegex).filter(Boolean);
+  let currentTag: string | null = null;
+
+  for (const segment of segments) {
+    const trimmed = segment.trim();
+    if (!trimmed) continue;
+
+    if (trimmed === "<<<heading>>>") {
+      currentTag = "heading";
+      continue;
+    }
+    if (trimmed === "<<subheading>>") {
+      currentTag = "subheading";
+      continue;
+    }
+    if (trimmed === "<content>") {
+      currentTag = "content";
+      continue;
+    }
+    if (trimmed === "</content>") {
+      currentTag = null;
+      continue;
+    }
+
+    // ============================
+    // HEADING
+    // ============================
+    if (currentTag === "heading") {
+      const cleanHeading = trimmed.replace(/<\/?[^>]+(>|$)/g, "");
+      doc.setFont("NotoSans", "bold");
+      doc.setFontSize(20);
+      doc.setTextColor("#000");
+
+      const wrappedHeading = doc.splitTextToSize(cleanHeading, usableWidth);
+      wrappedHeading.forEach((line: string) => {
+        addNewPageIfNeeded();
+        doc.text(line, pageWidth / 2, cursorY, { align: "center" });
+        cursorY += lineHeight * 1.1;
+      });
+
+      cursorY += lineHeight * 0.6;
+      currentTag = null;
+      continue;
+    }
+
+    // ============================
+    // SUBHEADING
+    // ============================
+    if (currentTag === "subheading") {
+      const cleanSub = trimmed.replace(/<\/?[^>]+(>|$)/g, "");
+      doc.setFont("NotoSans", "semibold");
+      doc.setFontSize(17);
+      doc.setTextColor("#a16a21");
+
+      const wrappedSub = doc.splitTextToSize(cleanSub, usableWidth);
+      wrappedSub.forEach((line: string) => {
+        addNewPageIfNeeded();
+        doc.text(line, pageWidth / 2, cursorY, { align: "center" });
+        cursorY += lineHeight * 1.1;
+      });
+
+      cursorY += lineHeight * 0.4;
+      currentTag = null;
+      continue;
+    }
+
+    // ============================
+    // CONTENT LIST ITEMS
+    // ============================
+    // ============================
+    // CONTENT LIST ITEMS (INLINE BOLD SUPPORT)
+    // ============================
+    if (currentTag === "content") {
+
+      const listItems = trimmed.split(/<\/?li>/).filter(t => t.trim() !== "");
+
+      for (let item of listItems) {
+        item = item.trim();
+        if (!item) continue;
+
+        addNewPageIfNeeded();
+        doc.setFontSize(15);
+
+        // Draw bullet
+        doc.setFont("NotoSans", "normal");
+        doc.setTextColor("#a16a21");
+        doc.text("•", startX - 8, cursorY);
+
+        // Parse bold inline
+        const parts = item.split(/(<b>.*?<\/b>)/g).filter(Boolean);
+
+        let line = "";
+        let currentX = startX;
+        doc.setTextColor("#000");
+
+        for (let p of parts) {
+          const isBold = p.startsWith("<b>") && p.endsWith("</b>");
+          const txt = p.replace(/<\/?b>/g, "");
+
+          doc.setFont("NotoSans", isBold ? "bold" : "normal");
+
+          // Split words for inline wrapping
+          const words = txt.split(" ");
+
+          for (const word of words) {
+            const testLine = line + word + " ";
+            const testWidth = doc.getTextWidth(testLine);
+
+            if (testWidth > usableWidth) {
+              // Draw current line
+              doc.text(line, currentX, cursorY);
+              cursorY += lineHeight * 0.9;
+              addNewPageIfNeeded();
+              line = word + " ";
+            } else {
+              line = testLine;
+            }
+          }
+        }
+
+        // Draw leftover line
+        if (line.trim().length > 0) {
+          doc.text(line, currentX, cursorY);
+          cursorY += lineHeight * 0.9;
+        }
+
+        cursorY += lineHeight * 0.3;
+      }
+    }
+  }
+
+  return cursorY;
+}
+
+/* ============================================================
+   FIXED addParagraphss — BOLD DOES NOT FORCE NEW PAGE
+   ============================================================ */
+function addParagraphss(doc: jsPDF, text: string, x: number, y: number, maxWidth: number, lineHeight = 14) { const pageWidth = doc.internal.pageSize.getWidth(); const pageHeight = doc.internal.pageSize.getHeight(); const margin = 25; const bottomLimit = pageHeight - margin; let currentY = y; const drawPageBorder = () => { doc.setDrawColor("#a16a21"); doc.setLineWidth(1.5); doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S"); }; drawPageBorder(); const paragraphs = text.replace(/\r/g, "").split(/\n\s*\n/).map((p) => p.trim()).filter((p) => p.length > 0); for (const para of paragraphs) { const segments = para.split(/(<b>.*?<\/b>)/g).filter(Boolean); for (const seg of segments) { const isBold = seg.startsWith("<b>") && seg.endsWith("</b>"); const clean = seg.replace(/<\/?b>/g, ""); doc.setFont("NotoSans", isBold ? "bold" : "normal"); doc.setFontSize(16); doc.setTextColor("#a16a21"); const lines = doc.splitTextToSize(clean, maxWidth); const adjustedLineHeight = lineHeight + 4; for (const line of lines) { if (currentY + adjustedLineHeight > bottomLimit) { doc.addPage(); drawPageBorder(); currentY = margin + 20; } doc.text(line, x, currentY); currentY += adjustedLineHeight; } } currentY += 10; } return currentY; }
+
+const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
+  if (pageNum === 1) return;
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  const prevFont = doc.getFont().fontName;
+  const prevStyle = doc.getFont().fontStyle;
+  const prevColor = doc.getTextColor();
+  const prevSize = doc.getFontSize();
+
+  doc.setFont("Times", "normal");
+  doc.setTextColor("#a16a21");
+  doc.setFontSize(12);
+
+  doc.text(
+    "© 2025 TrustAstrology. All rights reserved.",
+    pageWidth / 2,
+    pageHeight - 30,
+    { align: "center" }
+  );
+
+  doc.setFont(prevFont, prevStyle);
+  doc.setFontSize(prevSize);
+  doc.setTextColor(prevColor);
+};
+
+// ========================================
+// MAIN PDF GENERATION FUNCTION
+// ========================================
+
 export async function generateAndDownloadFullCosmicReportWithTable(
   name: string,
   dob: string,
@@ -1057,25 +1694,24 @@ export async function generateAndDownloadFullCosmicReportWithTable(
   userData: UserData
 ) {
   try {
-    const astroData = await readAstroJSON("astro_data_Vivek.json");
+    // reset section registry for each generation
+    __sectionRegistry.length = 0;
 
-    // 3️⃣ Create PDF
+    const astroData = await readAstroJSON("astro_data_Saurabh.json");
     const doc = new jsPDF("p", "pt", "a4");
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const lineHeight = 26; // slightly increased spacing for bigger text
 
-    // --- COVER PAGE SECTION ---
+    // ========== COVER PAGE ==========
+    startSection(doc, "Cover Page", "Cover");
+
     const coverImageMale = "/assets/cover_male.jpg";
     const coverImageFemale = "/assets/cover_female.jpg";
-
-    // Determine which image to use based on gender
     let selectedCoverImage = coverImageMale;
     if (userData?.sex?.toLowerCase() === "female") {
       selectedCoverImage = coverImageFemale;
     }
 
-    // Try loading the image
     try {
       const img = new Image();
       img.src = selectedCoverImage;
@@ -1083,368 +1719,333 @@ export async function generateAndDownloadFullCosmicReportWithTable(
         img.onload = resolve;
         img.onerror = reject;
       });
-
-      // Add cover image full-page
       doc.addImage(img, "JPEG", 0, 0, pageWidth, pageHeight);
     } catch (error) {
-      console.warn("Cover image failed to load:", error);
       doc.setFillColor(245, 245, 245);
       doc.rect(0, 0, pageWidth, pageHeight, "F");
     }
 
-    // --- TEXT ON RIGHT SIDE ---
+
     const marginRight = 50;
     const marginBottom = 40;
-    const reportDate = new Date().toLocaleDateString(userData.language || "en-US", { year: "numeric", month: "long" });
+    const lineHeight = 26;
+    const reportDate = new Date().toLocaleDateString(userData.language || "en-US", {
+      year: "numeric",
+      month: "long",
+    });
 
-    // Translation map for static text (you can expand for more languages)
     const translations = {
       en: { dob: "DOB", location: "Location not available" },
       hi: { dob: "जन्मतिथि", location: "स्थान उपलब्ध नहीं" },
-      fr: { dob: "Date de naissance", location: "Lieu non disponible" },
-      be: { dob: "Нарадзіўся", location: "Месца недаступна" },
-      ka: { dob: "ಜನ್ಮದಿನ", location: "ಸ್ಥಳ ಲಭ್ಯವಿಲ್ಲ" },
-      ml: { dob: "ജനനത്തിയതി", location: "സ്ഥലം ലഭ്യമല്ല" }
-    } as const; // <- makes keys readonly literals
+    } as const;
 
-    type Lang = keyof typeof translations; // "en" | "hi" | "fr" | "be" | "ka" | "ml"
+    type Lang = keyof typeof translations;
+    const lang: Lang = (userData?.language as Lang) || "en";
+    const t = translations[lang];
 
-    const lang: Lang = (userData?.language as Lang) || "en"; // cast to Lang
-    const t = translations[lang]; // no more TS error
-
-    // Define text lines in user’s language
     const textLines = [
       `${name || "Unknown"}`,
       `${dob ? t.dob + ": " + dob : "N/A"} ${time || ""}`,
       `${place || t.location}`,
-      `${reportDate}`
+      `${reportDate}`,
     ];
 
-    //doc.addFont("NotoSans-VariableFont_wdth,wght.ttf", "NotoSans", "normal");
     doc.setTextColor(255, 255, 255);
-
     const yPos = pageHeight - marginBottom - (textLines.length - 1) * lineHeight;
 
     textLines.forEach((line, i) => {
-      if (i === 0) {
-        doc.setFont("NotoSans", "bold");
-        doc.setFontSize(18);
-      } else if (i === textLines.length - 1) {
-        doc.setFont("NotoSans", "bold");
-        doc.setFontSize(18);
-      } else {
-        doc.setFont("NotoSans", "bold");
-        doc.setFontSize(18);
-      }
-
+      doc.setFont("NotoSans", "bold");
+      doc.setFontSize(18);
       doc.text(line, pageWidth - marginRight, yPos + i * lineHeight, {
         align: "right",
       });
     });
+    // ========= CUSTOM TABLE OF CONTENTS (RESERVE PAGES AFTER COVER) =========
+    const tocText = `
+1. About You
+
+1.1 Your Basic Birth Details 
+1.2 Your Lucky Number & Color 
+1.3 Numerology Insights 
+1.4 Your Personality Traits 
+1.5 Chara Karakas & Life Purpose
+1.6 Your Planet Overview 
+
+2. Your Life Areas
+
+2.1 The 12 Life Areas 
+2.2 Main Influences 
+2.3 Your Life Balance
+2.4 Planet Effects 
+2.5 Detailed Life Area Review 
+
+3. Your Planets and Their Impact
+
+3.1 Where Your Planets Are 
+3.2 How They Work Together 
+3.3 Your Strong Planets 
+3.4 Planet Energy Review 
+3.5 Planet Movements 
+
+4. Love, Emotions & Relationships
+
+4.1 Your Emotional Side 
+4.2 Your Compatibility 
+4.3 Your Relationship Style 
+4.4 Planets of Love 
+4.5 Marriage & Partnership 
+4.6 Timing in Love 
+4.7 Lessons in Love 
+4.8 Darakaraka & Soulmate Planet 
+
+5. Career & Success
+
+5.1 Your Career Strengths 
+5.2 Ideal Work Style 
+5.3 Success Factors 
+5.4 Turning Points 
+5.5 Your Professional Future 
+5.6 Mahadasha Career Influence 
+
+6. Health & Wellbeing
+
+6.1 Overall Health Picture 
+6.2 Planet Influence on Health 
+6.3 Mind-Body Connection 
+6.4 Stress Triggers 
+6.5 Simple Remedies 
+6.6 Sade Sati & Mangalik Analysis 
+
+7. Life Lessons & Purpose
+
+7.1 Your Life Purpose 
+7.2 Growth Phases 
+7.3 Past-Life Connections 
+7.4 Key Turning Points 
+7.5 Learning Through Challenges 
+7.6 Rahu-Ketu Axis 
+
+8. Timing & Future Outlook
+
+8.1 Major Life Phases 
+8.2 Upcoming Events 
+8.3 Year Ahead Forecast 
+8.4 Planet Movements 
+8.5 Overall Outlook 
+
+9. Remedies & Positive Actions
+
+9.1 Lucky Stones & Crystals 
+9.2 Powerful Mantras 
+9.3 Helpful Rituals 
+9.4 Good Deeds & Charity 
+9.5 Protection & Peace Tips 
+9.6 Ishtdev & Yantra Guidance 
+9.7 Rudraksha & Gemstone Remedies 
+
+10. Deeper Insights 
+
+10.1 Your Strength Map 
+10.2 Planet Power Levels 
+10.3 Detailed Life Charts 
+10.4 Fine Timing Review 
+10.5 Special Planet Effects 
+10.6 Raj Yogas & Karmic Doshas 
+
+11. Important Timings
+
+11.1 Sunrise & Sunset on Birth Day 
+11.2 Moonrise & Moonset
+11.3 Auspicious Hours 
+11.4 Planetary Hours 
+
+12. Your Personal Guidance
+
+12.1 Common Questions Answered
+12.2 Next Steps: Using Insights & Remedies for Personal Growth
+12.3 Personalized Astro Guidance & Conclusion
+`;
+    // startSection(doc, `Table of Contents`);
+    // doc.addPage();
+    // markSectionPage(doc);
+    // doc.setDrawColor("#a16a21");
+    //     doc.setLineWidth(1.5);
+    //     doc.rect(25, 25, 545, 792, "S");
+
+    //     doc.setFont("NotoSans", "bold");
+    //     doc.setFontSize(26);
+    //     doc.setTextColor("#000");
+    //     doc.text("Table of Contents", pageWidth / 2, 70, { align: "center" });
+
+    // --- Variables for layout ---
+    // doc.setFont("NotoSans", "normal");
+    // doc.setFontSize(14);
+    // const lines = tocText.trim().split("\n");
+    // let z = 100;
+    // const lineHeights = 18;
+    // const marginTop = 50;
+    // const marginBottoms = 50;
+    // const pageHeights = doc.internal.pageSize.getHeight();
+
+    // // --- Helper to add new bordered page ---
+    // function addNewPage() {
+    //   doc.addPage();
+    //   doc.setDrawColor("#a16a21");
+    //   doc.setLineWidth(1.5);
+    //   doc.rect(25, 25, 545, 792, "S");
+    //   z = marginTop + 50; // Reset y for new page
+    // }
+
+    // // --- Draw each line ---
+    // lines.forEach(line => {
+    //   if (line.trim() === "") {
+    //     z += 10;
+    //     return;
+    //   }
+
+    //   // Check if next line will overflow page height
+    //   if (z + lineHeights > pageHeights - marginBottoms) {
+    //     addNewPage();
+    //   }
+
+    //   const isSubtopic = /^\s*\d+\.\d+/.test(line);
+    //   const x = isSubtopic ? 80 : 50;
+
+    //   if (!isSubtopic) {
+    //     doc.setFont("NotoSans", "bold");
+    //     doc.setTextColor("#a16a21");
+    //   } else {
+    //     doc.setFont("NotoSans", "normal");
+    //     doc.setTextColor("#000");
+    //   }
+
+    //   doc.text(line.trim(), x, z);
+    //   z += lineHeights;
+    // });
+
+    // decide how many TOC pages we need
+    const tocLines = tocText
+      .trim()
+      .split("\n")
+      .filter((l) => l.trim() !== "");
+
+    const tocLineHeight = 18;
+    const firstLineY = 110;
+    const bottomMarginTOC = 60;
+    const usableHeight = pageHeight - firstLineY - bottomMarginTOC;
+    const linesPerPage = Math.max(1, Math.floor(usableHeight / tocLineHeight));
+
+    const tocPagesCount = Math.max(1, Math.ceil(tocLines.length / linesPerPage));
+
+    const tocPageStart = doc.getNumberOfPages() + 1;
+    for (let i = 0; i < tocPagesCount; i++) {
+      doc.addPage(); // these become TOC pages right after cover
+    }
+    const tocPageEnd = doc.getNumberOfPages();
+
+    // ========= RESERVE TOC PAGES RIGHT AFTER COVER =========
+    // const tocPagesCount = 2; // adjust if you expect more TOC content
+    // const tocPageStart = doc.getNumberOfPages() + 1;
+    // for (let i = 0; i < tocPagesCount; i++) {
+    //   doc.addPage(); // these become page 2 and 3
+    // }
+    // const tocPageEnd = doc.getNumberOfPages();
+
+    // ========== DISCLAIMER PAGE ==========
+    startSection(doc, "Disclaimer", "Disclaimer");
     doc.addPage();
-    // --- Generate Disclaimer Page using AI ---
-    const generateIntroSections = async (doc: jsPDF) => {
-      const pageWidth = doc.internal.pageSize.getWidth();
+    markSectionPage(doc);
 
-      const addPageWithTitle = (title: string, useNewPage = true) => {
-        if (useNewPage) doc.addPage();
-        const margin = 25;
-        const rectHeight = doc.internal.pageSize.getHeight() - 2 * margin;
+    const margin = 25;
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
 
-        doc.setDrawColor("#a16a21");
-        doc.setLineWidth(1.5);
-        doc.rect(margin, margin, pageWidth - 2 * margin, rectHeight, "S");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor("#000");
+    doc.text("DISCLAIMER", pageWidth / 2, 60, { align: "center" });
 
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(26);
-        doc.setTextColor("#000");
-        doc.text(title, pageWidth / 2, 60, { align: "center" });
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(16);
-        doc.setTextColor("#a16a21");
-
-        return 100;
-      };
-
-
-
-      // 🧾 STATIC TEXT CONTENTS (replace with your own text)
-      const disclaimerText = `
+    const disclaimerText = `
 Disclaimer for Comprehensive Vedic Astrology Report
-This comprehensive astrology report is prepared based on the principles of
-Vedic Astrology, also known as Jyotisha, an ancient Indian system of
-understanding the influences of celestial bodies on human life. It is important
-to understand that this report is intended for informational and guidance
-purposes only.
-Astrology is not an exact science and should not be interpreted as providing
-definitive or deterministic predictions about the future. Instead, this report
-offers potential insights into your inherent tendencies, strengths, challenges,
-and potential life path based on your unique birth chart.
-Please be aware that astrological interpretations can vary significantly
-between different astrologers and across various astrological traditions. The
-interpretations presented in this report reflect the understanding and expertise
-of the astrologer who prepared it and may not align perfectly with other
-interpretations you may encounter.
-Any remedies, suggestions, or recommendations provided within this report
-are offered as potential supportive measures and should not be considered a
-substitute for professional advice from qualified medical, legal, financial, or
-psychological professionals. Always consult with appropriate experts for any
-health concerns, legal matters, financial decisions, or mental health issues.
-The results and outcomes described in this report are not guaranteed and may
-vary significantly from person to person. Individual experiences are
-influenced by a multitude of factors, including personal choices,
-environmental influences, and free will, all of which interact with the
-astrological influences in complex ways.
-Astrologer shall not be liable for any direct, indirect,
-incidental, consequential, or punitive damages arising out of the use of or
-reliance on this astrology report. You acknowledge and agree that you are
-solely responsible for your own decisions and actions.
-While we endeavor to provide accurate and insightful interpretations,
-remember that the cosmos operates on a grand and mysterious scale. Use this
-report as a tool for self-discovery and personal growth, and embrace the
-journey with an open mind and a hopeful heart. May the wisdom of the stars
-illuminate your path.
-  `;
 
-      const authorText = `
-Subject: Welcome to Your Personalized Cosmic Journey!
-Dearest Friend,
-Welcome! I'm absolutely thrilled to present you with your personalized Vedic
-Astrology report. I truly believe this is more than just a document; it's a map
-to a deeper understanding of yourself and your place in the grand cosmic
-design.
-For many years, I've been captivated by the ancient wisdom of Vedic
-Astrology. It started as a personal quest for self-discovery and quickly
-blossomed into a lifelong passion. I've spent countless hours studying the
-intricate interplay of planets, signs, and houses, always amazed by the
-profound insights they offer. It's been an honour to guide others on their
-journeys using this beautiful science.
-This report is a culmination of my experience, carefully blending ancient
-Vedic principles with practical, modern-day interpretations. You'll find it
-delves into the core aspects of your birth chart, revealing your strengths,
-challenges, and potential. It's designed not just to predict, but to empower
-you to make conscious choices and navigate life's path with greater clarity
-and confidence.
-While this report offers valuable guidance, remember that astrology is a tool,
-not a definitive answer. Your intuition and personal connection to the
-information are paramount. Trust your inner wisdom as you explore these
-insights, and allow them to resonate with your own experiences.
-The ultimate goal of this report is to foster self-awareness and personal
-growth. By understanding the cosmic influences at play in your life, you can
-unlock your hidden potential, overcome obstacles, and create a life that is
-truly aligned with your soul's purpose.
-I encourage you to approach this report with an open mind and a curious
-heart. Allow the information to inspire reflection and self-discovery. This is
-your journey, and I hope this report serves as a valuable companion along the
-way.
-Wishing you clarity, growth, and abundant blessings on your path.
+This comprehensive astrology report is prepared based on the principles of Vedic Astrology, also known as Jyotisha, an ancient Indian system of understanding the influences of celestial bodies on human life. It is important to understand that this report is intended for informational and guidance purposes only.
+
+Astrology is not an exact science and should not be interpreted as providing definitive or deterministic predictions about the future. Instead, this report offers potential insights into your inherent tendencies, strengths, challenges, and potential life path based on your unique birth chart.
+
+Please be aware that astrological interpretations can vary significantly between different astrologers and across various astrological traditions. The interpretations presented in this report reflect the understanding and expertise of the astrologer who prepared it and may not align perfectly with other interpretations you may encounter.
+
+Any remedies, suggestions, or recommendations provided within this report are offered as potential supportive measures and should not be considered a substitute for professional advice from qualified medical, legal, financial, or psychological professionals.
+
+The results and outcomes described in this report are not guaranteed and may vary significantly from person to person. Individual experiences are influenced by a multitude of factors, including personal choices, environmental influences, and free will.
+    `;
+
+    addParagraphss(doc, disclaimerText, 50, 100, pageWidth - 100);
+
+    // ========== AUTHOR MESSAGE ==========
+    startSection(doc, "Message from Author", "Author's Message");
+    doc.addPage();
+    markSectionPage(doc);
+
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor("#000");
+    doc.text("MESSAGE FROM THE AUTHOR", pageWidth / 2, 60, { align: "center" });
+
+    const authorText = `
+Welcome! I'm absolutely thrilled to present you with your personalized Vedic Astrology report. I truly believe this is more than just a document; it's a map to a deeper understanding of yourself and your place in the grand cosmic design.
+
+For many years, I've been captivated by the ancient wisdom of Vedic Astrology. It started as a personal quest for self-discovery and quickly blossomed into a lifelong passion. I've spent countless hours studying the intricate interplay of planets, signs, and houses, always amazed by the profound insights they offer.
+
+This report is a culmination of my experience, carefully blending ancient Vedic principles with practical, modern-day interpretations. You'll find it delves into the core aspects of your birth chart, revealing your strengths, challenges, and potential.
+
+While this report offers valuable guidance, remember that astrology is a tool, not a definitive answer. Your intuition and personal connection to the information are paramount. Trust your inner wisdom as you explore these insights.
+
 Warmly,
 Your Astrologer,
 TrustAstrology
-  `;
+    `;
 
-      const studyText = `
-Unlocking Your Cosmic Blueprint: A Guide to Your Vedic Astrology Report
-Welcome to a journey of self-discovery through the wisdom of Vedic
-astrology! Your personalized report is more than just a document; it's a map
-to understanding your inherent strengths, potential challenges, and life's
-purpose. To truly unlock its value, approach it with intention and patience.
-First Impressions Matter, But Subsequent Readings Reveal More: Don't
-expect to grasp everything in one sitting. Read your report multiple times,
-each time with a fresh perspective. The first read provides a general
-overview, while subsequent readings will unveil deeper nuances and
-connections.
-Layers of Insight: Think of your report as an onion – each layer reveals a
-new dimension of understanding. Start with the broad interpretations of
-planets and houses, then delve into the more specific aspects and planetary
-periods (Dashas). The true power lies in understanding how these layers
-interact to shape your unique destiny.
-Cultivate Calm & Focus: Before diving in, create a quiet and peaceful
-environment. Take a few deep breaths, clear your mind, and approach the
-report with an open heart. This will allow you to absorb the information
-more effectively.
-Note-Taking and Reflection: Actively engage with the report. Take notes on
-key insights, recurring themes, and areas that resonate with you. Reflect on
-how these insights relate to your past experiences and current circumstances.
-Practical Application is Key: Don't just read the report – apply its guidance!
-If the report highlights a strength in communication, look for opportunities to
-use your skills. If it identifies a potential challenge in relationships, be
-mindful of your interactions and work on cultivating healthier connections.
-A Living Document: Your Vedic astrology report isn't a one-time read.
-Revisit it periodically, especially during significant life transitions. As you
-evolve, your understanding of the report will also deepen.
-Empowerment Through Awareness: Ultimately, your Vedic astrology report
-is a tool for self-empowerment. It provides insights to inform your decisions,
-not dictate them. Use this knowledge to make conscious choices that align
-with your true self and lead you toward a fulfilling life. Embrace your
-cosmic blueprint and embark on your journey with confidence!
-  `;
+    addParagraphss(doc, authorText, 50, 100, pageWidth - 100);
 
-      // 🧠 Add sections to PDF
-      addPageWithTitle("DISCLAIMER", false);
-      addParagraphss(doc, disclaimerText, 50, 100, pageWidth - 100);
-
-      addPageWithTitle("MESSAGE FROM THE AUTHOR", true);
-      addParagraphss(doc, authorText, 50, 100, pageWidth - 100);
-
-      addPageWithTitle("BEST WAY TO STUDY THE REPORT", true);
-      addParagraphss(doc, studyText, 50, 100, pageWidth - 100);
-    };
-
-    await generateIntroSections(doc);
-    // --- Generate Table of Contents using AI ---
-    let tocText = `
-01. Immediate Personal Insights
- 1.1 Basic Birth & Ascendant Details (Moon Sign, Sun Sign, Ascendant)
- 1.2 Lucky Number & Color (Nakshatra Based)
- 1.3 Snapshot of Chart (Planetary Overview)
- 1.4 Numerology Analysis
- 1.5 Personality Traits & Characteristics
-
-02. Houses (Bhavas)
- 2.1 Overview of 12 Houses
- 2.2 House Lords & Significance
- 2.3 House Strength using Ashtakvarga
- 2.4 Effects of Planets in Houses
- 2.5 KP Houses & Cuspal Analysis
-
-03. Planets
- 3.1 Planet Placement: Which House Each Planet is In
- 3.2 Planetary Aspects (Drishti)
- 3.3 Planetary Strength & Nature (Shadbala & Report)
- 3.4 KP Planetary Analysis
- 3.5 Retrogrades & Transits 
-
-04. Love & Marriage
- 4.1 Nakshatras & Moon Signs: Emotional Needs & Compatibility
- 4.2 Moon Sign (Rashi): Temperament & Emotional Expression
- 4.3 Nakshatra (Lunar Mansion): Psychological Traits & Bonding
- 4.4 Planetary Positions & Relationship Patterns
- 4.5 Venus: Love, Romance & Attraction
- 4.6 Mars: Passion, Assertiveness & Sexual Compatibility
- 4.7 Jupiter: Marriage Timing & Spouse Characteristics
- 4.8 Saturn: Delays, Karmic Lessons & Longevity of Bond
- 4.9 7th House: Marriage, Partnership & Spouse Indications
- 4.10 Planetary Aspects on 7th House
- 4.11 Divisional Charts (D9 - Navamsa, D2 - Hora)
- 4.12 Yogas & Doshas: Mangal, Chandra-Mangal, Venus-Mars
- 4.13 Dashas Influencing Relationships (Mahadasha, Antardasha)
-
-05. Career & Profession
- 5.1 Houses Related to Career: 1st, 2nd, 6th, 10th
- 5.2 Planetary Traits & Amatyakaraka Insights
- 5.3 Nakshatra / Moon Sign Influence: Work Style & Profession
- 5.4 Dashas & Yogas: Career Growth & Success Timing
- 5.5 Divisional Chart (D10 - Dasamsa) Insights
-
-06. Health & Wellbeing
- 6.1 Doshas in Vedic Astrology: Manglik, Pitra, Kaalsarp, Papasamaya
- 6.2 Planetary Influence on Health: Sun, Moon, Mars, Saturn, Rahu/Ketu
- 6.3 Houses Related to Health: 1st, 6th, 8th, 12th
- 6.4 Nakshatra & Moon Sign: Emotional and Mental Balance
- 6.5 Ayurvedic Correlation: Vata, Pitta, Kapha Imbalances
- 6.6 Remedies for Health-Related Doshas
-
-07. Karmic & Purpose Insights
- 7.1 Chara Karakas: Soul Purpose & Life Goals
- 7.2 Sade Sati Journey: Phases, Challenges & Remedies
- 7.3 Karmic Yogas & Mangalik Combinations
- 7.4 Astrological Doshas: Karmic Blocks & Lessons
- 7.5 Retrograde Planets: Past-Life Influences
-
-08. Timing & Predictive Insights
- 8.1 Mahadasha Overview: Major Life Phases
- 8.2 Antardasha Details: Sub-Periods & Impact
- 8.3 Paryantar & Yogini Dashas: Micro Life Events
- 8.4 Transit Dates of Planets (Predictions)
- 8.5 AI-Based 12-Month Prediction (Favorable vs Challenging Periods)
-
-09. Remedies & Spiritual Guidance
- 9.1 Rudraksha Guidance & Recommendations
- 9.2 Gemstone Remedies & Gem Details
- 9.3 Mantra Chanting & Yantra Suggestions
- 9.4 Charitable Actions & Spiritual Practices
- 9.5 Sade Sati & Dosha Remedies
-
-10. Advanced Calculations & Optional Insights
- 10.1 Ashtakvarga: Strength & Fortune Analysis
- 10.2 Shadbala: Sixfold Planetary Strength
- 10.3 Divisional Charts Summary (D1–D12 Overview)
- 10.4 Pratyantar Dasha: Sub-Periods for Predictive Analysis
- 10.5 Planetary Wars (Grah Yuddha) & Retrograde Impacts
-
-11. Panchang & Astronomical Insights
- 11.1 Sunrise & Sunset Timings (Birth Day Reference)
- 11.2 Moonrise & Moonset Timings
- 11.3 Choghadiya Muhurta: Daily Auspicious Hours
- 11.4 Hora Muhurta: Planetary Hour Influences
-
-12. Q&A & Personalized Advice
- 12.1 Frequently Asked Questions
- 12.2 Next Steps: Using Insights & Remedies for Personal Growth
- 12.3 Personalized Astro Guidance & Conclusion
-`;
-
-    // --- PDF Rendering ---
+    // ========== STUDY GUIDE ==========
+    startSection(doc, "How to Study This Report", "Study Guide");
     doc.addPage();
+    markSectionPage(doc);
+
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
-    doc.rect(25, 25, 545, 792, "S");
+    doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
 
-    doc.setFont("NotoSans", "bold");
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(26);
     doc.setTextColor("#000");
-    doc.text("Table of Contents", pageWidth / 2, 60, { align: "center" });
+    doc.text("BEST WAY TO STUDY THE REPORT", pageWidth / 2, 60, { align: "center" });
 
-    // --- Variables for layout ---
-    doc.setFont("NotoSans", "normal");
-    doc.setFontSize(14);
-    const lines = tocText.trim().split("\n");
-    let z = 100;
-    const lineHeights = 18;
-    const marginTop = 50;
-    const marginBottoms = 50;
-    const pageHeights = doc.internal.pageSize.getHeight();
+    const studyText = `
+Unlocking Your Cosmic Blueprint: A Guide to Your Vedic Astrology Report
 
-    // --- Helper to add new bordered page ---
-    function addNewPage() {
-      doc.addPage();
-      doc.setDrawColor("#a16a21");
-      doc.setLineWidth(1.5);
-      doc.rect(25, 25, 545, 792, "S");
-      z = marginTop + 50; // Reset y for new page
-    }
+Welcome to a journey of self-discovery through the wisdom of Vedic astrology! Your personalized report is more than just a document; it's a map to understanding your inherent strengths, potential challenges, and life's purpose.
 
-    // --- Draw each line ---
-    lines.forEach(line => {
-      if (line.trim() === "") {
-        z += 10;
-        return;
-      }
+First Impressions Matter: Don't expect to grasp everything in one sitting. Read your report multiple times, each time with a fresh perspective. The first read provides a general overview, while subsequent readings will unveil deeper nuances.
 
-      // Check if next line will overflow page height
-      if (z + lineHeights > pageHeights - marginBottoms) {
-        addNewPage();
-      }
+Layers of Insight: Think of your report as an onion – each layer reveals a new dimension of understanding. Start with the broad interpretations of planets and houses, then delve into the more specific aspects.
 
-      const isSubtopic = /^\s*\d+\.\d+/.test(line);
-      const x = isSubtopic ? 80 : 50;
+Cultivate Calm & Focus: Before diving in, create a quiet and peaceful environment. Take a few deep breaths, clear your mind, and approach the report with an open heart.
 
-      if (!isSubtopic) {
-        doc.setFont("NotoSans", "bold");
-        doc.setTextColor("#a16a21");
-      } else {
-        doc.setFont("NotoSans", "normal");
-        doc.setTextColor("#000");
-      }
+Note-Taking and Reflection: Actively engage with the report. Take notes on key insights, recurring themes, and areas that resonate with you. Reflect on how these insights relate to your experiences.
 
-      doc.text(line.trim(), x, z);
-      z += lineHeights;
-    });
+Practical Application is Key: Don't just read the report – apply its guidance! Use this knowledge to make conscious choices that align with your true self.
+    `;
 
-    // --- Add Table Content Page with Real API Data ---
-
+    addParagraphss(doc, studyText, 50, 100, pageWidth - 100);
+    //  startSection(doc, "Disclaimer", "Disclaimer");
+    // ========== BASIC TABLE ==========
+    startSection(doc, "Your Basic Birth Details", "Your Basic Birth Details");
     await generateReusableTableContent({
       doc,
       astroData,
@@ -1452,6 +2053,7 @@ cosmic blueprint and embark on your journey with confidence!
       title: "AVAKAHADA CHAKRA",
       showUserInfo: true
     });
+    markSectionPage(doc);
 
     const minimalAstroData = {
       nakshatra: astroData?.nakshatra,
@@ -1470,11 +2072,25 @@ Write 2–4 flowing paragraphs (no bullet points, no tables) describing:
 3. Gemstone guidance based on planetary harmony.
 4. Spiritual or lifestyle advice aligned with their Nakshatra.
 
+Use the provided data (nakshatra, planet_details, gem_suggestion) below.
+Whenever you use any data (like Nakshatra name, planet name, gemstone, number, or color), 
+automatically wrap it in <b>...</b> tags.
+
 Tone: spiritual, elegant, poetic but informative.
+
+FORMATTING RULES:
+- Use <b>...</b> HTML tags around important words like planets (Sun, Moon, Mars, Jupiter, Venus, etc.), 
+  numbers (1–9), colors, gemstones, and key traits (Confidence, Harmony, Energy, Balance, Wisdom, etc.).
+- Do NOT use markdown (** or *).
+- Output must be plain text with <b> tags only for emphasis.
+- Do not write headings or labels — only narrative paragraphs.
+
+DATA:
+${JSON.stringify(minimalAstroData, null, 2)}
 `;
 
-    let response = await callBedrock(fullPrompt, { minimalAstroData });
-    console.log("RAW BEDROCK:", response);
+    const response = await callBedrock(fullPrompt, { minimalAstroData });
+    // console.log("RAW BEDROCK:", response);
 
     let text =
       typeof response === "string"
@@ -1491,17 +2107,192 @@ Tone: spiritual, elegant, poetic but informative.
     text = sanitizeText(String(text));
     text = removeMarkdown(String(text));
 
-    console.log("After cleaning:", text);
+    // console.log("After cleaning:", text);
 
+    startSection(doc, "Your Lucky Number & Color", "Your Lucky Number & Color");
     doc.addPage();
+    markSectionPage(doc);
     doc.setDrawColor("#a16a21");
     doc.setLineWidth(1.5);
     doc.rect(25, 25, 545, 792, "S");
     doc.setFont("NotoSans", "bold");
     doc.setFontSize(26);
-    doc.text("Lucky Number & Color (Nakshatra Based)", pageWidth / 2, 60, { align: "center" });
+    doc.text("Lucky Number & Color (Nakshatra Based)", pageWidth / 2, 70, { align: "center" });
 
     addParagraphss(doc, text, 50, 100, pageWidth - 100);
+    // doc.addPage();
+    const numerologySections = [
+      "3.1 Mulank (Birth Number): Explain the influence of the Birth Number (radical_number) and its ruling planet (radical_ruler), personality traits, thinking patterns, emotional tendencies, favorable colors, metals, gemstones, friendly numbers, favorite deity, and mantra. End with how this number defines the person’s core identity and how to strengthen it.",
+      "3.2 Bhagyank (Life Path Number): Describe the meaning of the Life Path (destiny) number — the person’s purpose, karmic journey, strengths, and challenges. Mention its harmony or contrast with the Birth Number and conclude with a practical insight for alignment.",
+      "3.3 Success Number (Name Number): Explain how the name number influences career success, fame, and personal magnetism. Discuss compatibility using friendly, evil, and neutral numbers. Conclude with insights on how name vibrations affect destiny.",
+      "3.4 Connection Number: Analyze the relationship between Birth, Destiny, and Name Numbers. Include the Personal Day Number interpretation and offer guidance for balancing energies using gemstones, colors, or affirmations. End with a motivational summary of their overall vibration."
+    ];
+
+    async function fetchNumerologySection(sectionPrompt: string) {
+      const requiredKeys = [
+        "numerology_prediction",
+        "numero_table",
+        "gem_suggestion",
+        "gem_details",
+        "personal_characteristics",
+      ];
+
+      // Extract only necessary data from astroData
+      const filteredData = Object.fromEntries(
+        Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
+      );
+
+      const fullPrompt = `
+You are an expert Numerologist and Vedic astrologer.
+
+Using the following filtered JSON data, generate the section:
+"${sectionPrompt}"
+
+GUIDELINES:
+- Write in 2–4 elegant, flowing paragraphs (no bullet points, no lists).
+- Tone: warm, premium, spiritual, and professional.
+- Explain the influence of the number — its ruling planet, key personality traits, 
+  emotional nature, strengths, friendly and challenging numbers, lucky colors, 
+  suitable gemstones, and guiding energy.
+- End with an uplifting line about harmony and personal growth.
+
+FORMATTING RULES:
+- Use <b>...</b> HTML tags around important elements such as:
+  • Number names (e.g., <b>Number 3</b>, <b>Life Path 5</b>)
+  • Planet names (e.g., <b>Jupiter</b>, <b>Saturn</b>)
+  • Core qualities (e.g., <b>Confidence</b>, <b>Wisdom</b>, <b>Creativity</b>)
+  • Key words (e.g., <b>Lucky Color</b>, <b>Gemstone</b>, <b>Purpose</b>)
+- Avoid markdown symbols or tables.
+- Output only formatted narrative paragraphs.
+`;
+
+
+      let text = await callBedrock(fullPrompt, { filteredData });
+      text = sanitizeText(text);
+      text = removeMarkdown(text);
+      return text;
+    }
+
+    for (const sectionPrompt of numerologySections) {
+      const texts = await fetchNumerologySection(sectionPrompt);
+      startSection(doc, "Numerology Insights", "Numerology Insights");
+      doc.addPage();
+      markSectionPage(doc);
+      doc.setDrawColor("#a16a21");
+      doc.setLineWidth(1.5);
+      doc.rect(25, 25, 545, 792, "S");
+      doc.setFont("NotoSans", "bold");
+      doc.setFontSize(26);
+      doc.setTextColor("#000");
+      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
+
+      //const formattedText = boldTextBeforeColonString(texts);
+      addParagraphss(doc, texts, 50, 100, pageWidth - 100);
+    }
+    const personalityPrompt = `
+You are an expert Vedic astrologer and psychologist.
+Based on the following astro data, generate "1.5 Personality Traits & Characteristics" 
+describing personality type, behavior, strengths, and emotional tendencies.
+
+STYLE:
+- Warm, elegant, human-centered tone.
+- 2–3 smooth paragraphs (no bullet points).
+- Focus on emotional depth, thinking patterns, and core nature.
+
+FORMATTING RULES:
+- Use <b>...</b> HTML tags around key traits and characteristics such as:
+  <b>Confidence</b>, <b>Empathy</b>, <b>Determination</b>, <b>Creativity</b>, <b>Discipline</b>, <b>Intuition</b>.
+- Bold planetary influences (e.g., <b>Sun</b> for vitality, <b>Moon</b> for emotion).
+- Output must be plain text with <b> tags only — no markdown or lists.
+`;
+
+
+    const requiredKeys = [
+      "planet_details",
+      "ascendant_report",
+      "personal_characteristics",
+      "find_moon_sign",
+      "find_sun_sign",
+      "find_ascendant",
+      "yoga_list",
+      "jaimini_karakas"
+    ];
+
+    const filteredAstroData = Object.fromEntries(
+      Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
+    );
+
+    let personalityText = await callBedrock(personalityPrompt, JSON.stringify(filteredAstroData));
+    personalityText = sanitizeText(personalityText);
+    personalityText = removeMarkdown(personalityText);
+    startSection(doc, "Your Personality Traits", "Your Personality Traits");
+    doc.addPage();
+    markSectionPage(doc);
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(25, 25, 545, 792, "S");
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor("#000");
+    doc.text("1.4 Personality Traits & Characteristics", pageWidth / 2, 70, { align: "center" });
+    doc.setTextColor("#a16a21");
+    addParagraphss(doc, personalityText, 50, 100, pageWidth - 100);
+
+    // === 1.6 CHARA KARAKAS & LIFE PURPOSE ===
+
+    const charaPrompt = `
+You are an expert Vedic astrologer and spiritual psychologist.
+Based on the following astro data, generate "1.6 Chara Karakas & Life Purpose" 
+explaining the deeper meaning of the seven Jaimini Karakas (Atmakaraka, Amatyakaraka, Bhratrikaraka, Matrikaraka, Putrakaraka, Gnatikaraka, and Darakaraka).
+Describe how these planetary indicators reveal the person's inner nature, soul direction, emotional lessons, and ultimate life path.
+
+STYLE:
+- Warm, elegant, and human-centered tone.
+- 2–3 flowing paragraphs (no bullet points, no lists).
+- Integrate psychological depth and spiritual purpose.
+- Mention how <b>Atmakaraka</b> defines the soul’s mission, <b>Amatyakaraka</b> guides career and dharma, and others shape relationships and evolution.
+
+FORMATTING RULES:
+- Use <b>...</b> HTML tags around key traits and planetary influences such as:
+  <b>Sun</b>, <b>Moon</b>, <b>Mercury</b>, <b>Venus</b>, <b>Mars</b>, <b>Jupiter</b>, <b>Saturn</b>, <b>Rahu</b>, <b>Ketu</b>.
+- Also bold spiritual and emotional qualities like <b>Purpose</b>, <b>Wisdom</b>, <b>Transformation</b>, <b>Discipline</b>, <b>Devotion</b>, <b>Empathy</b>, <b>Balance</b>.
+- Do NOT use markdown (** or *), only HTML <b>...</b> tags.
+- Output must be narrative only — no headings, lists, or bullet points.
+`;
+
+    // Filter the relevant keys (important for Jaimini Karaka interpretation)
+    const charaKeys = [
+      "jaimini_karakas",
+      "planet_details",
+      "ascendant_report",
+      "find_moon_sign",
+      "find_sun_sign",
+      "find_ascendant",
+      "yoga_list"
+    ];
+
+    const filteredCharaData = Object.fromEntries(
+      Object.entries(astroData).filter(([key]) => charaKeys.includes(key))
+    );
+
+    // === Call the model for this section ===
+    let charaText = await callBedrock(charaPrompt, JSON.stringify(filteredCharaData));
+    charaText = sanitizeText(charaText);
+    charaText = removeMarkdown(charaText);
+
+    // === Render the section ===
+    startSection(doc, "Chara Karakas & Life Purpose", "Chara Karakas & Life Purpose");
+    doc.addPage();
+    markSectionPage(doc);
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(25, 25, 545, 792, "S");
+    doc.setFont("NotoSans", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor("#000");
+    doc.text("1.5 Chara Karakas & Life Purpose", pageWidth / 2, 70, { align: "center" });
+    doc.setTextColor("#a16a21");
+    addParagraphss(doc, charaText, 50, 100, pageWidth - 100);
     doc.addPage();
 
     // Generate SVG
@@ -1534,260 +2325,175 @@ Tone: spiritual, elegant, poetic but informative.
 
     await addAllDivisionalChartsFromAstroData(doc, availableCharts, astroData);
 
-    const numerologySections = [
-      "4.1 Mulank (Birth Number): Explain the influence of the Birth Number (radical_number) and its ruling planet (radical_ruler), personality traits, thinking patterns, emotional tendencies, favorable colors, metals, gemstones, friendly numbers, favorite deity, and mantra. End with how this number defines the person’s core identity and how to strengthen it.",
-      "4.2 Bhagyank (Life Path Number): Describe the meaning of the Life Path (destiny) number — the person’s purpose, karmic journey, strengths, and challenges. Mention its harmony or contrast with the Birth Number and conclude with a practical insight for alignment.",
-      "4.3 Success Number (Name Number): Explain how the name number influences career success, fame, and personal magnetism. Discuss compatibility using friendly, evil, and neutral numbers. Conclude with insights on how name vibrations affect destiny.",
-      "4.4 Connection Number: Analyze the relationship between Birth, Destiny, and Name Numbers. Include the Personal Day Number interpretation and offer guidance for balancing energies using gemstones, colors, or affirmations. End with a motivational summary of their overall vibration."
-    ];
-
-    async function fetchNumerologySection(sectionPrompt: string) {
-      const requiredKeys = [
-        "numerology_prediction",
-        "numero_table",
-        "gem_suggestion",
-        "gem_details",
-        "personal_characteristics",
-      ];
-
-      // Extract only necessary data from astroData
-      const filteredData = Object.fromEntries(
-        Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
-      );
-
-      const fullPrompt = `
-You are an expert Numerologist and Vedic astrologer.
-
-Using the following filtered JSON data, generate the section:
-"${sectionPrompt}"
-
-Guidelines:
-- Write in 2–4 elegant, insight-rich paragraphs.
-- Tone: warm, premium, and professional (avoid casual tone).
-- Focus on **Birth Number**, **Destiny Number**, **Name Number**, and **Connection Number** meanings.
-- Include: ruling planet, traits, strengths, emotional tendencies, friendly & evil numbers, colors, metals, gemstones, and practical guidance.
-- Avoid repetition or raw data. Interpret intelligently.
-- End with a smooth concluding or transitional line.
-- Format output as plain text (no markdown symbols or bullet points).
-- Use **bold** for key terms like **Number 3**, **Jupiter**, **Life Path 5**, etc.
-- Make it PDF-ready — no lists, only short structured paragraphs.
-`;
-
-      let text = await callBedrock(fullPrompt, { filteredData });
-      text = sanitizeText(text);
-      text = removeMarkdown(text);
-      return text;
-    }
-
-    for (const sectionPrompt of numerologySections) {
-      const texts = await fetchNumerologySection(sectionPrompt);
-
-      doc.addPage();
-      doc.setDrawColor("#a16a21");
-      doc.setLineWidth(1.5);
-      doc.rect(25, 25, 545, 792, "S");
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(26);
-      doc.setTextColor("#000");
-      doc.text(sectionPrompt.split(":")[0], pageWidth / 2, 60, { align: "center" });
-
-      //const formattedText = boldTextBeforeColonString(texts);
-      addParagraphss(doc, texts, 50, 100, pageWidth - 100);
-    }
-    const personalityPrompt = `
-You are an expert Vedic astrologer and psychologist.
-Based on the following astro data, generate "1.5 Personality Traits & Characteristics" 
-describing personality type, behavior, strengths, and emotional tendencies.
-
-STYLE:
-- Warm, elegant tone.
-- 2–3 paragraphs.
-- Bold important traits.
-`;
-
-    const requiredKeys = [
-      "planet_details",
-      "ascendant_report",
-      "personal_characteristics",
-      "find_moon_sign",
-      "find_sun_sign",
-      "find_ascendant",
-      "yoga_list",
-      "jaimini_karakas"
-    ];
-
-    const filteredAstroData = Object.fromEntries(
-      Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
-    );
-
-    let personalityText = await callBedrock(personalityPrompt, JSON.stringify(filteredAstroData));
-    personalityText = sanitizeText(personalityText);
-    personalityText = removeMarkdown(personalityText);
-    doc.addPage();
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(26);
-    doc.setTextColor("#000");
-    doc.text("1.5 Personality Traits & Characteristics", pageWidth / 2, 60, { align: "center" });
-    doc.setTextColor("#a16a21");
-    addParagraphss(doc, personalityText, 50, 100, pageWidth - 100);
-
     await generateHouseReports(doc, astroData, userData);
 
     await generatePlanetReportsWithImages(doc, astroData, userData);
-    // Add initial "Love and Marriage" page
+
+    // ===== PART 2 =====
 
     doc.addPage();
-    const margin = 25;
     const corner = 25;
 
-    // Draw border
+    // === BACKGROUND ===
     doc.setFillColor("#fdf2e9");
     doc.rect(0, 0, pageWidth, pageHeight, "F");
 
-    // === OUTER GRADIENT BORDER EFFECT ===
-    // Outer dark gold frame
+    // === OUTER FRAME ===
     doc.setFillColor("#a16a21");
     doc.rect(margin / 2, margin / 2, pageWidth - margin, pageHeight - margin, "F");
 
-    // Inner lighter gold layer for contrast
+    // === INNER FRAME ===
     doc.setFillColor("#d9b46c");
     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "F");
 
-    // === DECORATIVE CORNER LINES ===
+    // === CORNER LINES ===
     doc.setDrawColor("#ffffff");
     doc.setLineWidth(1.5);
+    const drawCorner = (x: number, y: number, isTop: boolean, isRight: boolean) => {
+      const dx = isRight ? -corner : corner;
+      const dy = isTop ? corner : -corner;
+      doc.line(x, y, x + dx, y);
+      doc.line(x, y, x, y + dy);
+    };
 
-    // Top-left
-    doc.line(margin + 6, margin + 6, margin + 6 + corner, margin + 6);
-    doc.line(margin + 6, margin + 6, margin + 6, margin + 6 + corner);
+    // Four corners
+    drawCorner(margin + 6, margin + 6, true, false);
+    drawCorner(pageWidth - margin - 6, margin + 6, true, true);
+    drawCorner(margin + 6, pageHeight - margin - 6, false, false);
+    drawCorner(pageWidth - margin - 6, pageHeight - margin - 6, false, true);
 
-    // Top-right
-    doc.line(pageWidth - margin - 6, margin + 6, pageWidth - margin - 6 - corner, margin + 6);
-    doc.line(pageWidth - margin - 6, margin + 6, pageWidth - margin - 6, margin + 6 + corner);
-
-    // Bottom-left
-    doc.line(margin + 6, pageHeight - margin - 6, margin + 6 + corner, pageHeight - margin - 6);
-    doc.line(margin + 6, pageHeight - margin - 6, margin + 6, pageHeight - margin - 6 - corner);
-
-    // Bottom-right
-    doc.line(pageWidth - margin - 6, pageHeight - margin - 6, pageWidth - margin - 6 - corner, pageHeight - margin - 6);
-    doc.line(pageWidth - margin - 6, pageHeight - margin - 6, pageWidth - margin - 6, pageHeight - margin - 6 - corner);
-
-    // === CENTERED TEXT ===
+    // === TITLE ===
     doc.setFont("NotoSans", "bold");
     doc.setTextColor("#ffffff");
     doc.setFontSize(40);
-    doc.text("Love and Marriage", pageWidth / 2, pageHeight / 2 - 10, { align: "center" });
+    doc.text("Love, Emotions & Relationships", pageWidth / 2, pageHeight / 2 - 10, { align: "center" });
 
-    // Subtext line
+    // === SUBTEXT ===
     doc.setFont("NotoSans", "normal");
     doc.setFontSize(18);
-    doc.text("A Journey of Hearts and Destiny", pageWidth / 2, pageHeight / 2 + 20, { align: "center" });
+    doc.text("A Journey Through the Heart and Soul", pageWidth / 2, pageHeight / 2 + 20, { align: "center" });
 
-    // === OPTIONAL — ORNAMENT UNDER TITLE ===
+    // === ORNAMENT ===
     const ornamentWidth = 60;
     const ornamentY = pageHeight / 2 + 30;
     doc.setLineWidth(0.8);
     doc.line(pageWidth / 2 - ornamentWidth / 2, ornamentY, pageWidth / 2 + ornamentWidth / 2, ornamentY);
     doc.circle(pageWidth / 2, ornamentY, 2, "F");
 
+    // === SUB-SECTIONS ===
     const loveSections = [
-      "Nakshatras & Moon Signs: Provide an in-depth interpretation of the individual's Nakshatra and Moon Sign, focusing on emotional needs, compatibility tendencies, and patterns in intimate connections.",
-      "Moon Sign (Rashi): Explain the emotional temperament, instinctive reactions, and expressive style in relationships as governed by the Moon sign.",
-      "Nakshatra (Lunar Mansion): Discuss psychological traits, emotional bonding style, and deeper subconscious motivations influenced by the native’s Nakshatra.",
-      "Planetary Positions & Relationship Patterns: Analyze how the placement and aspects of key planets (especially Venus, Mars, Jupiter, and Saturn) shape love life, attachment style, and relationship experiences.",
-      "Venus: Examine love language, romantic expression, desires in partnerships, and overall capacity for affection, harmony, and attraction.",
-      "Mars: Explore the native’s level of passion, assertiveness, and sexual compatibility, including the influence of Mars’ sign, house, and aspects.",
-      "Jupiter: Interpret how Jupiter signifies marriage prospects, spouse qualities, wisdom in relationships, and timing of significant partnerships.",
-      "Saturn: Assess karmic lessons, emotional maturity, possible delays, and endurance in long-term relationships brought by Saturn’s influence.",
-      "7th House: Provide a detailed reading of the 7th house sign, lordship, and planetary placements, revealing insights into marriage, partnerships, and spouse characteristics.",
-      "Planetary Aspects on 7th House: Analyze how different planets aspecting the 7th house influence relationship patterns, harmony, challenges, and spouse behavior.",
-      "Divisional Charts (D9 - Navamsa, D2 - Hora): Interpret the Navamsa (D9) for depth of marriage and spiritual connection, and the Hora (D2) for financial compatibility and shared prosperity.",
-      "Yogas & Doshas: Identify and explain relationship-related yogas and doshas like Mangal Dosha, Chandra–Mangal Yoga, Venus–Mars conjunctions, or Rahu–Ketu influences, including their significance, strength, and possible remedies.",
-      "Dashas Influencing Relationships: Analyze the Mahadasha and Antardasha periods that activate relationship events, emotional shifts, and marriage timing, providing a clear understanding of love life progression."
+      "4.1 Your Emotional Side – How you express and handle feelings",
+      "4.2 Your Compatibility – How you connect with others",
+      "4.3 Your Relationship Style – What you need in love",
+      "4.4 Planets of Love – What Venus and Mars say about romance and attraction",
+      "4.5 Marriage & Partnership – What your chart says about long-term bonds",
+      "4.6 Timing in Love – When love and marriage are most likely to happen",
+      "4.7 Lessons in Love – What you learn through relationships",
+      "4.8 Darakaraka & Soulmate Planet – The celestial force that defines your life partner"
     ];
 
+    // === ENHANCED BEDROCK GENERATION ===
     async function fetchLoveSection(sectionPrompt: string) {
       const lowerPrompt = sectionPrompt.toLowerCase();
       let requiredKeys: string[] = [];
 
-      if (lowerPrompt.includes("moon sign") || lowerPrompt.includes("nakshatra")) {
-        requiredKeys = ["find_moon_sign", "find_sun_sign", "find_ascendant", "planet_details", "personal_characteristics"];
-      } else if (lowerPrompt.includes("planetary positions")) {
-        requiredKeys = ["planet_details", "planetary_aspects_planets", "planetary_aspects_houses", "planets_in_houses"];
-      } else if (lowerPrompt.includes("venus")) {
-        requiredKeys = ["planet_report_venus", "planet_details", "planets_in_houses"];
-      } else if (lowerPrompt.includes("mars")) {
-        requiredKeys = ["planet_report_mars", "planet_details", "planets_in_houses"];
-      } else if (lowerPrompt.includes("jupiter")) {
-        requiredKeys = ["planet_report_jupiter", "planet_details", "planets_in_houses"];
-      } else if (lowerPrompt.includes("saturn")) {
-        requiredKeys = ["planet_report_saturn", "planet_details", "planets_in_houses"];
-      } else if (lowerPrompt.includes("7th house")) {
-        requiredKeys = ["planets_in_houses", "planetary_aspects_houses", "kp_houses", "find_ascendant"];
-      } else if (lowerPrompt.includes("divisional chart")) {
-        requiredKeys = ["divisional_chart_D9", "divisional_chart_D2", "find_moon_sign"];
-      } else if (lowerPrompt.includes("yoga") || lowerPrompt.includes("dosha")) {
-        requiredKeys = ["yoga_list", "mangal_dosh", "manglik_dosh", "kaalsarp_dosh", "pitra_dosh", "papasamaya"];
-      } else if (lowerPrompt.includes("dasha")) {
+      if (lowerPrompt.includes("emotional")) {
+        requiredKeys = ["find_moon_sign", "find_ascendant", "nakshatra_report", "planet_details"];
+      } else if (lowerPrompt.includes("compatibility")) {
+        requiredKeys = ["planet_details", "planetary_aspects_houses", "planetary_aspects_planets"];
+      } else if (lowerPrompt.includes("relationship style")) {
+        requiredKeys = ["planet_report_venus", "planet_report_mars", "planet_details"];
+      } else if (lowerPrompt.includes("planets of love")) {
+        requiredKeys = ["planet_report_venus", "planet_report_mars", "planet_report_jupiter"];
+      } else if (lowerPrompt.includes("marriage")) {
+        requiredKeys = ["planets_in_houses", "kp_houses", "planet_report_jupiter", "find_ascendant"];
+      } else if (lowerPrompt.includes("timing")) {
+        requiredKeys = ["maha_dasha", "antar_dasha", "yogini_dasha_main", "yogini_dasha_sub"];
+      } else if (lowerPrompt.includes("lessons")) {
+        requiredKeys = ["planet_report_saturn", "planet_report_rahu", "planet_report_ketu"];
+      }
+      // 🆕 Handle 4.8 Darakaraka & Soulmate Planet
+      else if (lowerPrompt.includes("darakaraka") || lowerPrompt.includes("soulmate")) {
         requiredKeys = [
-          "maha_dasha", "maha_dasha_predictions", "antar_dasha",
-          "char_dasha_main", "char_dasha_sub", "yogini_dasha_main", "yogini_dasha_sub"
+          "chara_karakas",
+          "planet_report_venus",
+          "planet_report_jupiter",
+          "find_ascendant",
+          "planet_details"
         ];
       } else {
-        requiredKeys = ["planet_details", "find_moon_sign", "find_ascendant", "planets_in_houses"];
+        requiredKeys = ["planet_details", "find_moon_sign", "find_ascendant"];
       }
 
-      // Filter AstroData keys
+      // Filter astroData by relevant keys
       const filteredData = Object.fromEntries(
         Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
       );
 
-      // ✨ Clean tag-based structure prompt (no markdown)
+      // === Generate contextual prompt ===
       const fullPrompt = `
-You are a professional Vedic astrologer specializing in Love, Compatibility, and Marriage Astrology.
-
-Generate a deeply insightful, elegant, and psychologically rich report for:
+You are a compassionate Vedic astrologer writing for a reader who seeks understanding of their heart and relationships.
+Write a warm, emotionally intelligent, poetic reading for:
 "${sectionPrompt}"
 
+Astro Data (for context only):
+${JSON.stringify(filteredData, null, 2)}
+
 Output Format:
-Use only the following XML-style tags anywhere in your response as needed:
+Use only the following XML-style tags in your response:
 <<<heading>>>
 <<subheading>>
 <content>
+... your text here ...
+</content>
+
+Inside <content>:
+- Use <b>...</b> to highlight important spiritual lessons, qualities, or realizations.
+- Use <li>...</li> for gentle, poetic bullet points — such as lessons, insights, or guidance steps.
+- Write naturally and emotionally — like speaking to the user with wisdom and kindness.
 
 Rules:
-- Do NOT use markdown (**bold**, lists, bullet points).
-- Use only these tags exactly as shown.
-- Be smooth, empathetic, and clear.
+- Do NOT use markdown, asterisks (*), or other symbols.
+- Do NOT include words like "Introduction" or "Summary".
+- Write smooth, connected paragraphs with natural flow.
+- Keep tone: comforting, spiritual, and empowering.
 - Write in ${userData.language || "English"}.
+- Avoid technical astrology jargon. Translate planets and cycles into emotional and real-life meanings.
+- Focus on what the person can <b>learn, heal, and grow</b> from, and how challenges turn into strength.
 `;
 
       let text = await callBedrock(fullPrompt, { filteredData });
+      text = text.replace(/[\u200B-\u200D\uFEFF]/g, "").trim();
       text = sanitizeText(text);
+      text = normalizeBedrockText(text);
       return text;
     }
-    // 🔄 Generate all sections concurrently (fast)
+
+    // === GENERATE ALL LOVE SECTIONS ===
     const loveResults = await Promise.all(loveSections.map(fetchLoveSection));
 
-    // 🧾 Render all sections into PDF pages
+    // === RENDER SECTIONS TO PDF ===
     for (let i = 0; i < loveSections.length; i++) {
-      const sectionTitle = loveSections[i].split(":")[0];
+      const sectionTitle = loveSections[i].split("–")[0].trim();
       const sectionText = loveResults[i];
-
+      startSection(doc, `${sectionTitle}`, `${sectionTitle}`);
       doc.addPage();
+      markSectionPage(doc);
+      // Draw border
+      const margin = 25;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
-      doc.rect(25, 25, 545, 792, "S");
+      doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
 
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(26);
-      doc.setTextColor("#000");
-      doc.text(sectionTitle, pageWidth / 2, 60, { align: "center" });
+      // // Add section title
+      // doc.setFont("NotoSans", "bold");
+      // doc.setFontSize(24);
+      // doc.setTextColor("#000");
+      // doc.text(sectionTitle, pageWidth / 2, 70, { align: "center" });
 
+      // Render AI text
       addParagraphs(doc, sectionText, 50, 100, pageWidth - 100);
     }
 
@@ -1848,11 +2554,11 @@ Rules:
     doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
     doc.circle(pageWidth / 2, y, 2, "F");
     const careerSections = [
-      "Houses Related to Career (1st, 2nd, 6th, 10th): Provide an in-depth analysis of the key houses influencing profession, reputation, income, and work stability. Discuss how these houses and their lords define the individual’s natural talents, professional strengths, and career direction.",
-      "Planetary Traits & Amatyakaraka Insights: Examine how different planetary placements shape career aptitude, ambition, and leadership qualities. Include an interpretation of the Amatyakaraka planet to understand vocational purpose and career-driving motivations.",
-      "Nakshatra / Moon Sign Influence: Analyze how the native’s Nakshatra and Moon sign influence work style, emotional approach to profession, decision-making, and preferred work environments.",
-      "Dashas & Yogas: Evaluate the planetary periods (Mahadashas and Antardashas) that bring career growth, job changes, or recognition. Identify major yogas indicating professional success, government positions, entrepreneurship, or creative prominence.",
-      "Divisional Chart (D10 - Dasamsa) Insights: Offer a comprehensive reading of the Dasamsa chart, highlighting professional reputation, authority, leadership potential, and the soul’s deeper purpose in career matters."
+      "5.1 Your Career Strengths – Analyze the native’s natural talents, skills, and professional strengths. Discuss how planetary placements and house influences reveal their core abilities and what fields they are naturally drawn toward.",
+      "5.2 Ideal Work Style – Explore the individual’s approach to work, their preferred environments, and how they handle responsibility, teamwork, and leadership. Explain what kind of professional setting best supports their emotional and intellectual fulfillment.",
+      "5.3 Success Factors – Identify the planetary influences and time periods that bring professional growth, promotions, recognition, and financial success. Describe how luck, effort, and timing combine to shape career progress.",
+      "5.4 Turning Points – Examine the planetary periods (Dashas, Yogas, and transits) that signal job changes, business opportunities, or major career transitions. Highlight when key breakthroughs or challenges are most likely to occur.",
+      "5.5 Your Professional Future – Offer a holistic, future-oriented view of the person’s long-term professional journey, leadership potential, and overall success indicators. Conclude with motivating insights on how they can align with their soul’s true vocational path."
     ];
 
     async function fetchCareerSection(sectionPrompt: string) {
@@ -1873,26 +2579,41 @@ Rules:
 
       // ✨ Tag-structured prompt (NO markdown)
       const fullPrompt = `
-You are a highly experienced Vedic astrologer and career counselor.
+You are an experienced Vedic astrologer and career guide.
 
-Generate a deeply detailed, elegant, and psychologically insightful analysis for:
+Write a detailed, clear, and inspiring explanation for:
 "${sectionPrompt}"
 
+Context:
+This part belongs to the "Career & Success" section of a personal astrology report.
+Your goal is to mix Vedic astrology insights with practical and motivational career advice.
+
 Output Format:
-Use only the following XML-style tags anywhere in your response as needed:
+Use only the following XML-style tags in your response:
 <<<heading>>>
 <<subheading>>
 <content>
+... your text here ...
+</content>
+
+Inside <content>:
+- Use <b>...</b> to highlight important spiritual lessons, qualities, or realizations.
+- Use <li>...</li> for gentle, poetic bullet points — such as lessons, insights, or guidance steps.
+- Write naturally and emotionally — like speaking to the user with wisdom and kindness.
 
 Rules:
-- Do NOT use markdown, bold markers, or bullet points.
-- Write continuous, narrative paragraphs with depth and flow.
-- Maintain a professional, motivational tone.
+- Do NOT use markdown, asterisks (*), or other symbols.
+- Do NOT include words like "Introduction" or "Summary".
+- Write smooth, connected paragraphs with natural flow.
+- Keep tone: comforting, spiritual, and empowering.
 - Write in ${userData.language || "English"}.
+- Avoid technical astrology jargon. Translate planets and cycles into emotional and real-life meanings.
+- Focus on what the person can <b>learn, heal, and grow</b> from, and how challenges turn into strength.
 `;
 
       let text = await callBedrock(fullPrompt, { filteredData });
       text = sanitizeText(text);
+      text = normalizeBedrockText(text);
       return text;
     }
 
@@ -1903,17 +2624,18 @@ Rules:
     for (let i = 0; i < careerSections.length; i++) {
       const sectionTitle = careerSections[i].split(":")[0];
       const text = results[i];
-
+      startSection(doc, `${sectionTitle}`, `${sectionTitle}`);
       doc.addPage();
+      markSectionPage(doc);
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
       // Section Header
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(26);
-      doc.setTextColor("#000");
-      doc.text(sectionTitle, pageWidth / 2, 60, { align: "center" });
+      // doc.setFont("NotoSans", "bold");
+      // doc.setFontSize(26);
+      // doc.setTextColor("#000");
+      // doc.text(sectionTitle, pageWidth / 2, 60, { align: "center" });
 
       // Section Content
       addParagraphs(doc, text, 50, 100, pageWidth - 100);
@@ -1987,103 +2709,116 @@ Rules:
     //   pageWidth - margin - 40, pageHeight - margin - 20, 
     //   pageWidth - margin - 20, pageHeight - margin - 60
     // );
+    // === TABLE OF CONTENTS ALIGNED HEALTH SECTIONS ===
     const healthSections = [
-      "Doshas in Vedic Astrology : Identify and interpret major health-related doshas, explaining their origins, planetary causes, and potential impact on physical, mental, and emotional wellbeing. Provide an overview of their intensity and possible remedies.",
-      "Planetary Influence on Health : Analyze how these planets affect vitality, immunity, stress, and chronic conditions. Highlight benefic or malefic influences and how their positioning contributes to overall health and energy balance.",
-      "Houses Related to Health : Provide an in-depth reading of these houses and their lords to understand physical constitution, disease tendencies, recovery capacity, and karmic health challenges.",
-      "Nakshatra & Moon Sign: Examine how the Nakshatra and Moon sign influence emotional resilience, mental balance, and psychosomatic patterns that can impact physical health.",
-      "Ayurvedic Correlation : Correlate planetary and elemental influences with Ayurvedic principles, identifying dominant doshas and potential imbalances affecting health and lifestyle.",
-      "Remedies for Health-Related Doshas: Suggest appropriate Vedic, spiritual, and lifestyle remedies such as mantras, donations, fasting, yoga, or meditation to mitigate health doshas and strengthen overall wellbeing."
+      "6.1 Overall Health Picture – Describe the user's overall health potential and natural constitution. Highlight their key strengths, healing abilities, and any areas that may need extra care. Offer gentle guidance on lifestyle balance and wellbeing.",
+      "6.2 Planet Influence on Health – Explain how different planets affect the user's physical energy, immunity, stress response, and emotional balance. Mention which planets give strength and vitality, and which may create temporary health challenges.",
+      "6.3 Mind-Body Connection – Show how the user's emotions, thoughts, and energy flow affect their physical health. Talk about how their Moon, Mercury, and Ascendant signs influence emotional stability, mental clarity, and inner peace.",
+      "6.4 Stress Triggers – Identify what kinds of situations or patterns may lead to stress or imbalance. Offer insights on what the user should avoid and what habits or mindsets help them stay calm and focused.",
+      "6.5 Simple Remedies – Provide practical, easy-to-follow suggestions to maintain good health. Include natural, spiritual, or lifestyle remedies such as meditation, breathing exercises, balanced diet, rest, or small rituals that promote overall wellbeing.",
+      "6.6 Sade Sati & Mangalik Analysis – Planetary challenges and their healing lessons"
     ];
 
+
+    // === FETCH HEALTH SECTION DATA ===
     async function fetchHealthSection(sectionPrompt: string) {
       const requiredKeys = [
-        // Doshas
         "mangal_dosh", "kaalsarp_dosh", "manglik_dosh", "pitra_dosh", "papasamaya",
-
-        // Planetary data
         "planet_details", "planetary_aspects_houses", "planetary_aspects_planets",
         "planets_in_houses", "find_sun_sign", "find_moon_sign", "find_ascendant",
         "shad_bala", "kp_houses", "kp_planets", "yoga_list", "ashtakvarga",
-
-        // Divisional charts
         "divisional_chart_D1", "divisional_chart_D9", "divisional_chart_D10",
-
-        // Dashas
         "maha_dasha", "antar_dasha", "paryantar_dasha", "yogini_dasha_main",
-        "yogini_dasha_sub", "sade_sati_table",
-
-        // Extended horoscope data
-        "current_sade_sati", "varshapal_details", "extended_kundli_details",
+        "yogini_dasha_sub", "sade_sati_table", "current_sade_sati", "varshapal_details",
+        "extended_kundli_details",
       ];
 
       const filteredData = Object.fromEntries(
         Object.entries(astroData).filter(([key]) => requiredKeys.includes(key))
       );
 
-      // ✨ New tag-based, markdown-free structured prompt
+      // 🌿 Simplified and user-friendly prompt
       const fullPrompt = `
-You are an expert Vedic astrologer and holistic wellness counselor.
+You are a kind and knowledgeable Vedic astrologer and holistic health guide.
 
-Generate a detailed, 700–900 word health report for:
+Write a clear, friendly, and emotionally supportive reading for:
 "${sectionPrompt}"
 
+Context:
+This is part of the "Health & Wellbeing" section of a personal astrology report.
+You are helping the reader understand their body, emotions, and energy patterns through astrology.
+
 Output Format:
-Use only the following XML-style tags anywhere in your response as needed:
+Use only the following XML-style tags in your response:
 <<<heading>>>
 <<subheading>>
 <content>
+... your text here ...
+</content>
+
+Inside <content>:
+- Use <b>...</b> to highlight important spiritual lessons, qualities, or realizations.
+- Use <li>...</li> for gentle, poetic bullet points — such as lessons, insights, or guidance steps.
+- Write naturally and emotionally — like speaking to the user with wisdom and kindness.
 
 Rules:
-- Do NOT use markdown (**bold**, bullet points, or symbols).
-- Write continuous, elegant paragraphs only.
-- Tone: compassionate, insightful, and reassuring.
-- Blend Vedic Astrology, Ayurveda, and psychology seamlessly.
+- Do NOT use markdown, asterisks (*), or other symbols.
+-Avoid markdown or Sanskrit-heavy terms.
+- Do NOT include words like "Introduction" or "Summary".
+- Write smooth, connected paragraphs with natural flow.
+- Keep tone: comforting, spiritual, and empowering.
 - Write in ${userData.language || "English"}.
+- Avoid technical astrology jargon. Translate planets and cycles into emotional and real-life meanings.
+- Focus on what the person can <b>learn, heal, and grow</b> from, and how challenges turn into strength.
 `;
 
       let text = await callBedrock(fullPrompt, { filteredData });
       text = sanitizeText(text);
+      text = normalizeBedrockText(text);
       return text;
     }
 
-    // 🧠 Generate all sections in parallel for performance
-    const resultss = await Promise.all(healthSections.map(fetchHealthSection));
 
-    // 🧾 Render all sections into PDF pages
+    // === GENERATE ALL HEALTH SECTIONS ===
+    const resulthealth = await Promise.all(healthSections.map(fetchHealthSection));
+
+
+    // === RENDER HEALTH SECTIONS INTO PDF ===
     for (let i = 0; i < healthSections.length; i++) {
       const sectionPrompt = healthSections[i];
-      const text = resultss[i];
-
+      const text = resulthealth[i];
+      startSection(doc, `${sectionPrompt}`, `${sectionPrompt}`);
       doc.addPage();
+      markSectionPage(doc);
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
       // 🩺 Title setup
-      const sectionTitle = sectionPrompt.split(":")[0].trim();
-      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
-      const titleFontSize = titleLines.length > 1 ? 20 : 22;
-      const titleLineHeight = 24;
+      // const sectionTitle = sectionPrompt.split("–")[0].trim();
+      // const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      // const titleFontSize = titleLines.length > 1 ? 20 : 22;
+      // const titleLineHeight = 24;
 
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(titleFontSize);
-      doc.setTextColor("#000");
+      // doc.setFont("NotoSans", "bold");
+      // doc.setFontSize(titleFontSize);
+      // doc.setTextColor("#000");
 
-      let titleY = 60;
-      titleLines.forEach((line: string, idx: number) => {
-        doc.text(line, pageWidth / 2, titleY + idx * titleLineHeight, { align: "center" });
-      });
+      // let titleY = 60;
+      // titleLines.forEach((line: string, idx: number) => {
+      //   doc.text(line, pageWidth / 2, titleY + idx * titleLineHeight, { align: "center" });
+      // });
 
-      titleY += titleLines.length * titleLineHeight + 10;
+      // titleY += titleLines.length * titleLineHeight + 10;
 
-      // 🧘 Content
+      // 🌱 Content
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
-      doc.setTextColor("#a16a21");
+      doc.setTextColor("#5a4632");
 
-      addParagraphs(doc, text, 50, titleY + 30, pageWidth - 100);
+      addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
+
     doc.addPage();
 
     // Draw border
@@ -2141,14 +2876,18 @@ Rules:
     doc.setDrawColor("#f5d06f");
     doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
     doc.circle(pageWidth / 2, y, 2, "F");
+    // === LIFE LESSONS & PURPOSE SECTIONS (Aligned with ToC) ===
     const karmicSections = [
-      "Chara Karakas: Soul Purpose & Life Goals — Analyze the Chara Karakas (Atmakaraka, Amatyakaraka, etc.) to reveal the soul’s deeper purpose, key life missions, and the spiritual themes guiding the individual’s journey through destiny and growth.",
-      "Sade Sati Journey: Phases, Challenges & Remedies — Provide a detailed explanation of the three phases of Sade Sati, its transformative challenges, emotional tests, and karmic maturity lessons, along with effective spiritual and practical remedies.",
-      "Karmic Yogas & Mangalik Combinations — Identify yogas and planetary combinations indicating past-life influences, karmic debts, and intense emotional or relational lessons, including the role of Mangal Dosha and its higher transformative purpose.",
-      "Astrological Doshas: Karmic Blocks & Lessons — Examine doshas such as Kaalsarp, Pitra, and Graha Shrapa as reflections of unresolved karmic patterns. Explain their impact on different life areas and provide insights into transcending them through awareness and discipline.",
-      "Retrograde Planets: Past-Life Influences — Interpret the karmic significance of retrograde planets, showing how they reveal unfinished lessons, repetitive experiences, and opportunities for healing and evolution in this lifetime."
+      "7.1 Your Life Purpose – Explain the soul’s deeper mission, the key lessons to learn in this lifetime, and what the user is meant to achieve through personal and spiritual growth. Show how the birth chart reveals their higher calling and guiding values.",
+      "7.2 Growth Phases – Describe the major life phases and challenges that help the user mature emotionally and spiritually. Discuss how planetary cycles, especially Saturn and Sade Sati, shape wisdom, strength, and resilience over time.",
+      "7.3 Past-Life Connections – Share insights about what past-life experiences or karmic themes might carry over into this life. Talk about patterns or emotions that repeat and how they offer chances for healing and completion.",
+      "7.4 Key Turning Points – Identify the spiritual or life-changing moments that redirect the user’s path. Include major planetary transits or dashas that bring self-discovery, breakthroughs, or powerful realizations.",
+      "7.5 Learning Through Challenges – Explain how difficulties, emotional tests, or delays help the user evolve. Show how every challenge teaches patience, courage, and compassion, leading them closer to inner freedom and self-awareness.",
+      "7.6 Rahu-Ketu Axis – Understanding your karmic push and pull"
     ];
 
+
+    // === FETCH KARMIC SECTION DATA ===
     async function fetchKarmicSection(sectionPrompt: string) {
       const minimalData = {
         chara_karakas: astroData?.jaimini_karakas,
@@ -2165,72 +2904,90 @@ Rules:
         ascendant: astroData?.find_ascendant,
       };
 
-      // ✨ Clean XML-tag based structured prompt
+      // ✨ Friendly, clear, and spiritually grounded prompt
       const fullPrompt = `
-You are an experienced Vedic astrologer specializing in karmic evolution, past-life insights, and spiritual transformation.
+You are a compassionate Vedic astrologer and spiritual life guide.
 
-Generate a profound, detailed, and emotionally resonant report for the topic:
+Write a warm, insightful, and easy-to-understand explanation for:
 "${sectionPrompt}"
 
+Context:
+This is part of the "Life Lessons & Purpose" section in a personal astrology report.
+The goal is to help the reader understand their soul journey, growth path, and spiritual evolution through astrology.
+
 Output Format:
-Use only the following XML-style tags anywhere in your response as needed:
+Use only the following XML-style tags in your response:
 <<<heading>>>
 <<subheading>>
 <content>
+... your text here ...
+</content>
+
+Inside <content>:
+- Use <b>...</b> to highlight important spiritual lessons, qualities, or realizations.
+- Use <li>...</li> for gentle, poetic bullet points — such as lessons, insights, or guidance steps.
+- Write naturally and emotionally — like speaking to the user with wisdom and kindness.
 
 Rules:
-- Do NOT use markdown or bullet points.
-- Use only the above tag structure exactly as written.
-- Write 3–4 elegant, flowing paragraphs.
-- Tone: compassionate, wise, and transformative.
+- Do NOT use markdown, asterisks (*), or other symbols.
+- Do NOT include words like "Introduction" or "Summary".
+- Write smooth, connected paragraphs with natural flow.
+- Keep tone: comforting, spiritual, and empowering.
 - Write in ${userData.language || "English"}.
+- Avoid technical astrology jargon. Translate planets and cycles into emotional and real-life meanings.
+-Avoid markdown or Sanskrit-heavy terms.
+- Focus on what the person can <b>learn, heal, and grow</b> from, and how challenges turn into strength.
 `;
 
       let text = await callBedrock(fullPrompt, { minimalData });
       text = sanitizeText(text);
+      text = normalizeBedrockText(text);
       return text;
     }
 
-    // Run all API calls in parallel
-    const resultkarmic = await Promise.all(karmicSections.map(fetchKarmicSection));
 
-    // Now render all sections into the PDF
+    // === GENERATE ALL KARMIC SECTIONS ===
+    const karmicResults = await Promise.all(karmicSections.map(fetchKarmicSection));
+
+
+    // === RENDER INTO PDF ===
     for (let i = 0; i < karmicSections.length; i++) {
       const sectionPrompt = karmicSections[i];
-      const text = resultkarmic[i];
-
+      const text = karmicResults[i];
+      startSection(doc, `${sectionPrompt}`, `${sectionPrompt}`);
       doc.addPage();
+      markSectionPage(doc);
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
-      const sectionTitle = sectionPrompt.split("—")[0].trim(); // ✅ only use text before "—"
-      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
-      let titleY = 60;
 
-      // Choose smaller font size if title is long
-      const titleFontSize = titleLines.length > 1 ? 18 : 20;
-      const titleLineHeight = 24;
+      // ✨ Title setup
+      // const sectionTitle = sectionPrompt.split("–")[0].trim();
+      // const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      // const titleFontSize = titleLines.length > 1 ? 18 : 20;
+      // const titleLineHeight = 24;
+      // let titleY = 60;
 
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(titleFontSize);
-      doc.setTextColor("#000");
+      // doc.setFont("NotoSans", "bold");
+      // doc.setFontSize(titleFontSize);
+      // doc.setTextColor("#000");
 
-      // Center the title lines properly
-      titleLines.forEach((line: string, i: number) => {
-        doc.text(line, pageWidth / 2, titleY + i * titleLineHeight, { align: "center" });
-      });
+      // titleLines.forEach((line: string, idx: number) => {
+      //   doc.text(line, pageWidth / 2, titleY + idx * titleLineHeight, { align: "center" });
+      // });
 
-      titleY += titleLines.length * titleLineHeight + 10;
+      // titleY += titleLines.length * titleLineHeight + 10;
 
-
+      // 🪶 Content
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
-      doc.setTextColor("#a16a21");
-      //const formatedtext = boldTextBeforeColonString(text);
+      doc.setTextColor("#5a4632");
+
       addParagraphs(doc, text, 50, 100, pageWidth - 100);
     }
 
-    // Generate "09 Timing & Predictive Insights" section
+
+    //     // Generate "09 Timing & Predictive Insights" section
     doc.addPage();
 
     // Draw border
@@ -2285,24 +3042,22 @@ Rules:
     doc.circle(pageWidth / 2, y, 2, "F");
 
     const timingSections = [
-      "Mahadasha Overview: Major Life Phases — Provide a detailed overview of the native’s current and upcoming Mahadashas, interpreting their planetary themes, major life transitions, and long-term influence on career, health, relationships, and spiritual growth.",
-      "Antardasha Details: Sub-Periods & Impact — Analyze the sub-periods (Antardashas) within each Mahadasha to identify specific timeframes of progress, challenges, and opportunities across key life areas.",
-      "Paryantar & Yogini Dashas: Micro Life Events — Examine Paryantar and Yogini Dashas for micro-level insights, highlighting subtle shifts, short-term developments, and emotional or karmic lessons influencing daily experiences.",
-      "Transit Dates of Planets (Predictions): Provide accurate planetary transit timelines for 2025, describing how each planet’s movement affects personal growth, career dynamics, financial stability, and relationship trends throughout the year.",
-      "AI-Based 12-Month Prediction: Generate a data-driven, AI-supported analysis of the next 12 months, categorizing months into favorable and challenging periods with corresponding planetary reasoning and actionable guidance."
+      "8.1 Major Life Phases – The big themes that guide your future",
+      "8.2 Upcoming Events – What the next few years may bring",
+      "8.3 Year Ahead Forecast – Favorable and challenging months",
+      "8.4 Planet Movements – How upcoming changes may influence you",
+      "8.5 Overall Outlook – What to expect in your personal and professional life"
     ];
 
     const PAGE_HEIGHT = 842;
-    //const LINE_HEIGHT = 20;
+
     const essentialTimingData = {
-      // Dashas
       maha_dasha: astroData.maha_dasha,
       antar_dasha: astroData.antar_dasha,
       paryantar_dasha: astroData.paryantar_dasha,
       yogini_dasha_main: astroData.yogini_dasha_main,
       yogini_dasha_sub: astroData.yogini_dasha_sub,
 
-      // Transits
       transit_dates_sun: astroData.transit_dates_sun,
       transit_dates_moon: astroData.transit_dates_moon,
       transit_dates_mars: astroData.transit_dates_mars,
@@ -2313,69 +3068,70 @@ Rules:
       transit_dates_rahu: astroData.transit_dates_rahu,
       transit_dates_ketu: astroData.transit_dates_ketu,
 
-      // Supporting context
       yoga_list: astroData.yoga_list,
       current_sade_sati: astroData.current_sade_sati,
       varshapal_details: astroData.varshapal_details,
       ai_12_month_prediction: astroData.ai_12_month_prediction,
 
-      // Personality / chart reference
       find_ascendant: astroData.find_ascendant,
       find_moon_sign: astroData.find_moon_sign,
       find_sun_sign: astroData.find_sun_sign,
     };
 
     for (const sectionPrompt of timingSections) {
-      let fullPrompt = `
-You are a senior Vedic astrologer and predictive analyst. 
-Generate an in-depth, elegant, and section-specific report for the following topic:
+
+      const fullPrompt = `
+You are a senior Vedic astrologer and intuitive life guide with deep understanding of human emotions and destiny patterns.
+
+Write a profound, emotionally intelligent, and spiritually warm interpretation for:
 "${sectionPrompt}"
 
-Use the following strict XML-style tag format for structure:
-──────────────────────────────
-<<<heading>>> Major Overview
-<content>Begin with a short overview explaining the astrological theme of this section — its purpose, planetary background, and timing relevance.</content>
+Context:
+This is part of a personalized astrology report designed to help the reader understand their journey, timing influences, and soul lessons in practical, healing language.
 
-<<subheading>> Planetary Influences
-<content>Describe how planetary energies and interactions shape the timing of events. Include planetary strengths, house rulerships, and psychological or karmic significance.</content>
+Output Format:
+Use only the following XML-style tags in your response:
+<<<heading>>>
+<<subheading>>
+<content>
+... your text here ...
+</content>
 
-<<subheading>> Dasha & Antardasha Periods
-<content>For every Mahadasha and Antardasha, use <subheading> tags for the period names (e.g. "Mars Mahadasha", "Venus/Mercury Antardasha"). Follow each with <content> paragraphs explaining the effects, areas of change, and key lessons during that phase.</content>
+Inside <content>:
+- Use <b>...</b> to emphasize planets, life areas, or important realizations.
+- Use <li>...</li> for listing karmic lessons, opportunities, or insights.
+- Express astrology in an emotionally rich, human-centered way — translating planetary movements into personal experiences and growth lessons.
 
-<<subheading>> Transit & Predictive Insights
-<content>Summarize how current or upcoming transits enhance or challenge these Dasha outcomes. Describe how planetary movement affects timing, transformation, and progress.</content>
-
-<<subheading>> Spiritual Takeaways & Remedies
-<content>Conclude with uplifting insights, karmic takeaways, and practical remedies (mantras, meditation, rituals, or mindset) for aligning with the planetary flow.</content>
-──────────────────────────────
-
-Formatting Rules:
-- Do NOT use markdown (**bold**, asterisks, or bullets).
-- Keep 3–6 cohesive paragraphs.
-- Ensure every Dasha (Mahadasha, Antardasha, etc.) is formatted as:
-  <<subheading>> Mars Mahadasha
-  <content>Interpretation text...</content>
-- Similarly for Antardashas: 
-  <<subheading>> Jupiter/Mercury Antardasha
-  <content>Interpretation text...</content>
-- Maintain a smooth, explanatory tone — predictive yet empowering.
-- Avoid Sanskrit-heavy or overly technical words.
+Rules:
+- Do NOT use markdown, asterisks (*), or decorative symbols.
+- Do NOT include labels like “Introduction”, “Overview”, or “Summary”.
+- Maintain smooth, connected paragraphs with gentle flow and empathy.
+- Tone should be wise, uplifting, and supportive — never mechanical.
 - Write in ${userData.language || "English"}.
+- Avoid Sanskrit-heavy terms or overly technical astrology jargon.
+- Focus on emotional meaning, life purpose, and personal transformation.
+- Every section should feel like heartfelt guidance — showing how one can <b>grow, heal, and evolve</b> through their astrological timing.
+
+Special Addition:
+If the section prompt includes “Year Ahead Forecast”, include a special forecast section like this:
+<<<heading>>>AI-Based 12-Month Forecast 
+<content>
+Begin with a short summary of the year’s overall theme.
+Then add monthly insights using <li>...</li> for each month (January to December), highlighting key emotional, professional, or spiritual tones.
+Conclude with an inspiring closing paragraph that ties the year’s journey together with hope and reflection.
+</content>
+
 `;
 
-      // ✅ Add the 12-month prediction instruction ONLY for that specific section
-      if (/AI[- ]?Based\s*12[- ]?Month/i.test(sectionPrompt)) {
-        fullPrompt += `
-For the <<<heading>>> AI-Based 12-Month Prediction:
-<content>Include a 1-paragraph overview of 2025, then write concise monthly insights (Jan–Dec 2025) under <subheading>Month Name</subheading> tags, labeling favorable vs challenging periods clearly. End with a positive, integrative closing paragraph.</content>
-`;
-      }
-
+      // --- Call the AI model ---
       let text = await callBedrock(fullPrompt, { essentialTimingData });
+      text = normalizeBedrockText(text);
       text = sanitizeText(text);
-      //text = removeMarkdown(text);
-      // --- Clean title ---
+
+      // --- Add a page for this section ---
+      startSection(doc, `${sectionPrompt}`, `${sectionPrompt}`);
       doc.addPage();
+      markSectionPage(doc);
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
@@ -2383,9 +3139,8 @@ For the <<<heading>>> AI-Based 12-Month Prediction:
       const pageWidth = doc.internal.pageSize.getWidth();
       let cursorY = 110;
 
-      // --- Titles ---
-      let sectionTitle = sectionPrompt.split("—")[0].trim();
-      sectionTitle = sectionTitle.split(":")[0].trim();
+      // --- Section Title ---
+      const sectionTitle = sectionPrompt.split("–")[0].trim();
       const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
       const titleFontSize = titleLines.length > 1 ? 18 : 20;
 
@@ -2399,12 +3154,10 @@ For the <<<heading>>> AI-Based 12-Month Prediction:
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(16);
       doc.setTextColor("#a16a21");
-      //doc.text(sectionPrompt.split(":")[1] || "", pageWidth / 2, 80, { align: "center" });
 
-      // --- TABLE SECTIONS ---
-      if (sectionPrompt.includes("Mahadasha")) {
+      // --- Conditional Tables ---
+      if (sectionPrompt.includes("Major Life Phases")) {
         const dashas: MahaDasha[] = astroData?.maha_dasha_predictions?.dashas || [];
-
         const mahaData: string[][] = dashas.map((d: MahaDasha) => [
           d.dasha,
           d.dasha_start_year,
@@ -2418,39 +3171,24 @@ For the <<<heading>>> AI-Based 12-Month Prediction:
           cursorY,
           PAGE_HEIGHT
         );
-
         cursorY += 20;
       }
 
-      if (sectionPrompt.includes("Antardasha")) {
-        const antardashaData = astroData?.antar_dasha; // ✅ ensure correct key name
-        const mahaDashas = astroData?.mahadasha_data?.mahadasha || [];
-
-        if (!antardashaData?.antardashas?.length) {
-          console.warn("No Antardasha data found.");
-        }
-
+      if (sectionPrompt.includes("Upcoming Events")) {
+        const antardashaData = astroData?.antar_dasha;
         (antardashaData.antardashas || []).forEach((antarList: string[], index: number) => {
           const antarOrder: string[] = antardashaData.antardasha_order?.[index] || [];
-
-          if (!antarList?.length) return;
-
-          // ✅ Safely create rows with proper start and end date
           const antarData: string[][] = antarList.map((sub, i) => [
             sub || "N/A",
             antarOrder[i] || "N/A",
             antarOrder[i + 1] || antarOrder[i] || "—"
           ]);
 
-          // ✅ Add title with safe page break
           if (cursorY > PAGE_HEIGHT - 150) {
             doc.addPage();
             cursorY = 60;
           }
 
-          cursorY += 10;
-
-          // ✅ Draw table (make sure your addPaginatedTable handles multi-page tables)
           cursorY = addPaginatedTable(
             doc,
             ["Antardasha", "Start Date", "End Date"],
@@ -2458,17 +3196,15 @@ For the <<<heading>>> AI-Based 12-Month Prediction:
             cursorY,
             PAGE_HEIGHT
           );
-
           cursorY += 30;
         });
       }
 
-      // --- CONTENT (ALWAYS SHOW AFTER TABLES) ---
+      // --- Render HTML as text blocks (preserve <b> and <li> emphasis) ---
       doc.setFont("NotoSans", "normal");
       doc.setFontSize(14);
       doc.setTextColor("#000");
       addParagraphs(doc, text, 50, cursorY, pageWidth - 100);
-
     }
 
     // --- Helper: addPaginatedTable ---
@@ -2623,137 +3359,170 @@ For the <<<heading>>> AI-Based 12-Month Prediction:
     doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
     doc.circle(pageWidth / 2, y, 2, "F");
 
-    // --- Remedies Section Definitions ---
+    // === 9. Remedies & Positive Actions ===
     const remediesSections = [
-      "Rudraksha Guidance & Recommendations — Provide personalized Rudraksha recommendations based on planetary afflictions, Nakshatra, and emotional balance.",
-      "Gemstone Remedies & Gem Details — Suggest auspicious gemstones aligned with the native’s planetary strengths and weaknesses.",
-      "Mantra Chanting & Yantra Suggestions — Recommend suitable mantras and yantras to strengthen benefic planets and reduce malefic influences.",
-      "Charitable Actions & Spiritual Practices — Outline meaningful donations, fasting rituals, and meditation techniques to enhance planetary harmony.",
-      "Sade Sati & Dosha Remedies — Offer targeted remedies for Sade Sati, Kaalsarp, Mangalik, or other doshas."
+      "9.1 Lucky Stones & Crystals – Best choices for your energy",
+      "9.2 Powerful Mantras – Chants that calm and strengthen you",
+      "9.3 Helpful Rituals – Easy daily or weekly practices",
+      "9.4 Good Deeds & Charity – Acts that improve your karma",
+      "9.5 Protection & Peace Tips – Simple ways to stay positive"
     ];
 
-    // --- Essential Data: Split by Relevance to Reduce Bedrock Payload ---
+    // --- Minimal Astro Data Mappings ---
     const dataMap = {
-      "Rudraksha Guidance & Recommendations": {
-        rudraksh_suggestion: astroData.rudraksh_suggestion,
-        planet_details: astroData.planet_details,
-        find_moon_sign: astroData.find_moon_sign,
-        find_ascendant: astroData.find_ascendant,
+      "Lucky Stones & Crystals": {
+        gem_suggestion: astroData?.gem_suggestion,
+        gem_details: astroData?.gem_details,
+        planet_details: astroData?.planet_details,
       },
-      "Gemstone Remedies & Gem Details": {
-        gem_suggestion: astroData.gem_suggestion,
-        gem_details: astroData.gem_details,
-        planet_details: astroData.planet_details,
+      "Powerful Mantras": {
+        yoga_list: astroData?.yoga_list,
+        find_moon_sign: astroData?.find_moon_sign,
+        find_sun_sign: astroData?.find_sun_sign,
       },
-      "Mantra Chanting & Yantra Suggestions": {
-        yoga_list: astroData.yoga_list,
-        find_moon_sign: astroData.find_moon_sign,
-        find_sun_sign: astroData.find_sun_sign,
+      "Helpful Rituals": {
+        kaalsarp_dosh: astroData?.kaalsarp_dosh,
+        manglik_dosh: astroData?.manglik_dosh,
+        pitra_dosh: astroData?.pitra_dosh,
       },
-      "Charitable Actions & Spiritual Practices": {
-        papasamaya: astroData.papasamaya,
-        pitra_dosh: astroData.pitra_dosh,
-        mangal_dosh: astroData.mangal_dosh,
-        kaalsarp_dosh: astroData.kaalsarp_dosh,
+      "Good Deeds & Charity": {
+        papasamaya: astroData?.papasamaya,
+        sade_sati: astroData?.current_sade_sati,
+        planet_details: astroData?.planet_details,
       },
-      "Sade Sati & Dosha Remedies": {
-        current_sade_sati: astroData.current_sade_sati,
-        kaalsarp_dosh: astroData.kaalsarp_dosh,
-        manglik_dosh: astroData.manglik_dosh,
-        pitra_dosh: astroData.pitra_dosh,
+      "Protection & Peace Tips": {
+        current_sade_sati: astroData?.current_sade_sati,
+        manglik_dosh: astroData?.manglik_dosh,
+        kaalsarp_dosh: astroData?.kaalsarp_dosh,
+        pitra_dosh: astroData?.pitra_dosh,
       },
     };
 
-    // --- Bedrock Section Generator with Robust Logging ---
+    // === Friendly, Tag-Based Prompt ===
     async function fetchRemediesSection(sectionPrompt: string) {
-      const sectionTitle = sectionPrompt.split("—")[0].trim();
-      const fullPrompt = `
-You are a compassionate and scholarly Vedic astrologer and spiritual counselor.
+      const sectionTitle = sectionPrompt.split("–")[0].trim();
 
-Generate a deeply insightful, section-specific remedies report for:
+      const fullPrompt = `
+You are a compassionate Vedic astrologer and spiritual life guide.
+
+Write a heart-centered, clear, and hopeful explanation for:
 "${sectionPrompt}"
 
+Context:
+This is part of the "9. Remedies & Positive Actions" section in a personal astrology report.
+Your goal is to gently help the reader restore balance, peace, and confidence through astrological remedies.
+
 Output Format:
-Use only the following XML-style tags anywhere in your response as needed:
+Use only these XML-style tags:
 <<<heading>>>
 <<subheading>>
 <content>
 
+Inside <content>:
+- Use <b>...</b> for gemstones, mantras, or key guidance.
+- Use <li>...</li> for bullet-style practical steps.
+- Maintain an uplifting, peaceful, and empathetic tone.
+
 Rules:
-- Do NOT use markdown or asterisks.
-- Use only these tags: <<<heading>>>, <<subheading>>, <content>.
-- Write 4–6 flowing, paragraph-style segments with deep spiritual and practical relevance.
-- Maintain a calm, empathetic, and elevating tone.
-- Avoid overly technical Sanskrit terms.
+- Do NOT use markdown symbols (*, **, #, etc.).
+- Avoid complex Sanskrit or technical astrology jargon — explain simply.
+- Keep 3–5 coherent paragraphs or sections with emotional warmth.
+- Relate each remedy to inner growth, harmony, and mindfulness.
+- Always connect physical remedies to emotional and spiritual balance.
 - Write in ${userData.language || "English"}.
+
+Structure Example:
+──────────────────────────────
+<<<heading>>> ${sectionTitle}
+<content>
+Begin with a gentle introduction about this type of remedy and its purpose.
+<li>Describe how this remedy helps balance energies or ease emotional tension.</li>
+<li>Explain how it can be practiced daily or weekly in a simple way.</li>
+<li>End with a reflective insight about growth or healing.</li>
+</content>
+
+<<subheading>> How It Helps
+<content>
+<li>Explain which <b>planet</b> or <b>life area</b> this remedy aligns with.</li>
+<li>Describe emotional and karmic benefits it brings.</li>
+<li>Give a relatable example or scenario where it helps in real life.</li>
+</content>
+
+<<subheading>> Practice & Mindset
+<content>
+<li>Offer tips for consistency, awareness, and positive mindset.</li>
+<li>Encourage gratitude, patience, and faith while following the remedy.</li>
+</content>
+──────────────────────────────
 `;
 
       try {
-        const key = sectionTitle as keyof typeof dataMap;
-        const inputData = dataMap[key] || {};
-        const raw = await callBedrock(fullPrompt, inputData);
+        type RemediesKey = keyof typeof dataMap;
 
-        if (!raw || raw.trim().length < 100) {
-          console.warn(`⚠️ Bedrock empty or short response for ${sectionTitle}`);
-          return `<<<heading>>> ${sectionTitle}\n<content>No detailed guidance could be generated for this section.</content>`;
+        const key = Object.keys(dataMap).find((k) =>
+          sectionTitle.includes(k)
+        ) as RemediesKey | undefined;
+
+        const inputData = key ? dataMap[key] : {};
+        let raw = await callBedrock(fullPrompt, inputData);
+
+        if (!raw || raw.trim().length < 80) {
+          console.warn(`⚠️ No sufficient content generated for ${sectionTitle}`);
+          return `<<<heading>>> ${sectionTitle}\n<content>No detailed guidance available for this section.</content>`;
         }
 
-        const cleaned = sanitizeText(raw);
-        console.log(`✅ Cleaned Bedrock message for ${sectionTitle}:`, cleaned.slice(0, 150));
-        return cleaned;
+        raw = normalizeBedrockText(raw);
+        return sanitizeText(raw);
       } catch (err) {
-        console.error(`❌ Error fetching ${sectionTitle}:`, err);
-        return `<<<heading>>> ${sectionTitle}\n<content>Error generating remedies for this section.</content>`;
+        console.error(`❌ Error generating ${sectionTitle}:`, err);
+        return `<<<heading>>> ${sectionTitle}\n<content>Error generating content for this section.</content>`;
       }
     }
 
-    // --- Sequential Execution with Progress Logging (safer than Promise.all) ---
-    const resultRemedies = [];
+    // === Sequential Generation ===
+    const resultRemedies: string[] = [];
     for (const section of remediesSections) {
-      console.log(`🕉️ Generating Remedies Section → ${section.split("—")[0].trim()} ...`);
       const text = await fetchRemediesSection(section);
       resultRemedies.push(text);
     }
-    console.log("✨ All Remedies Sections Generated!");
 
-    // --- PDF Rendering ---
+    // === PDF Rendering ===
     for (let i = 0; i < remediesSections.length; i++) {
       const sectionPrompt = remediesSections[i];
       const text = resultRemedies[i];
-
+      startSection(doc, `${sectionPrompt}`, `${sectionPrompt}`);
       doc.addPage();
+      markSectionPage(doc);
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      // --- Title ---
-      const sectionTitle = sectionPrompt.split("—")[0].trim();
-      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
-      const titleFontSize = titleLines.length > 1 ? 20 : 22;
-      const titleLineHeight = 24;
-      let titleY = 60;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      // const sectionTitle = `9.${i + 1} ${sectionPrompt}`;
+      // const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      // const titleFontSize = titleLines.length > 1 ? 18 : 20;
 
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(titleFontSize);
-      doc.setTextColor("#000");
-      titleLines.forEach((line: string, idx: number) => {
-        doc.text(line, pageWidth / 2, titleY + idx * titleLineHeight, { align: "center" });
-      });
+      // doc.setFont("NotoSans", "bold");
+      // doc.setFontSize(titleFontSize);
+      // doc.setTextColor("#000");
+      // titleLines.forEach((line: string, idx: number) =>
+      //   doc.text(line, pageWidth / 2, 60 + idx * 22, { align: "center" })
+      // );
 
-      titleY += titleLines.length * titleLineHeight + 20;
+      // const contentY = 60 + titleLines.length * 22 + 20;
+      // doc.setFont("NotoSans", "normal");
+      // doc.setFontSize(14);
+      // doc.setTextColor("#000");
 
-      // --- Content ---
       if (text && text.trim().length > 0) {
-        addParagraphs(doc, text, 50, titleY, pageWidth - 100);
+        addParagraphs(doc, text, 50, 100, pageWidth - 100);
       } else {
         doc.setFont("NotoSans", "italic");
         doc.setFontSize(15);
         doc.setTextColor("#a16a21");
-        doc.text("⚠️ No content generated for this section.", 50, titleY);
+        doc.text("⚠️ No content generated for this section.", 50, 30);
       }
     }
-
-
 
     doc.addPage();
 
@@ -2820,13 +3589,17 @@ Rules:
     doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
     doc.circle(pageWidth / 2, y, 2, "F");
 
+    // === 10. Deeper Insights ===
     const advancedSections = [
-      "Ashtakvarga: Strength & Fortune Analysis — Provide a detailed breakdown of planetary strength through the Ashtakvarga system. Interpret bindus for each planet and house to assess luck, vitality, and the overall flow of fortune in the native’s life path.",
-      "Shadbala: Sixfold Planetary Strength — Analyze the quantitative strength of each planet using the Shadbala system. Discuss how these strength levels influence success, decision-making, and performance in key life areas like career, health, and relationships.",
-      "Divisional Charts Summary (D1–D12 Overview) — Offer a summarized interpretation of divisional charts D1 to D12, focusing on their respective domains (e.g., D9 for marriage, D10 for career, D12 for parental karma). Highlight the interplay of planetary strengths across these charts.",
-      "Pratyantar Dasha: Sub-Periods for Predictive Analysis — Examine the Pratyantar Dasha layers within major and sub-periods to provide refined predictive insights into short-term developments, opportunities, and turning points.",
-      "Planetary Wars (Grah Yuddha) & Retrograde Impacts — Explain instances of planetary war and retrogression, interpreting their effects on confidence, clarity, delays, and karmic lessons. Provide guidance on managing such planetary tensions through awareness and timing."
+      "10.1 Your Strength Map – Where your natural power lies",
+      "10.2 Planet Power Levels – How much influence each planet has",
+      "10.3 Detailed Life Charts – In-depth look at all life areas",
+      "10.4 Fine Timing Review – Small changes and their meanings",
+      "10.5 Special Planet Effects – When two planets compete or combine",
+      "10.6 Raj Yogas & Karmic Doshas – Combinations that bring fame or challenges"
     ];
+
+    // === Essential Data for This Section ===
     const essentialAdvancedData = {
       ashtakvarga: astroData.ashtakvarga,
       shad_bala: astroData.shad_bala,
@@ -2847,71 +3620,117 @@ Rules:
       yoga_list: astroData.yoga_list,
     };
 
-    async function fetchAdvanceSection(sectionPrompt: string) {
-      const fullPrompt = `
-You are an advanced Vedic astrologer and researcher with deep expertise in mathematical, predictive, and intuitive astrology.
+    // === Friendly, Analytical, Spiritually Balanced Prompt ===
+    async function fetchAdvancedSection(sectionPrompt: string) {
+      const sectionTitle = sectionPrompt.split("–")[0].trim();
 
-Generate a detailed, human-readable, and spiritually insightful report for this section:
+      const fullPrompt = `
+You are a senior Vedic astrologer and analytical guide with deep insight into predictive and spiritual astrology.  
+Write a deeply insightful and easy-to-understand explanation for:
 "${sectionPrompt}"
 
+Context:
+This is part of the "10. Deeper Insights" chapter of a personal astrology report.
+It should blend precision (planetary analytics) with soulful understanding (guidance, awareness, and empowerment).
+
 Output Format:
-Use only the following XML-style tags anywhere in your response as needed:
+Use only the following XML-style tags:
 <<<heading>>>
 <<subheading>>
 <content>
 
+Inside <content>:
+- Use <b>...</b> to emphasize key ideas, planets, or houses.
+- Use <li>...</li> for structured insights, lists, or examples.
+- Maintain a balanced tone: informative, calm, and encouraging.
+
 Rules:
-- Do NOT use markdown or symbols like **, ---, or bullets.
-- Use only the tags: <<<heading>>>, <<subheading>>, <content>.
-- Write 4–6 flowing paragraphs that blend analytical clarity and spiritual depth.
-- Keep tone professional, empowering, and interpretive — avoid jargon-heavy Sanskrit.
-- Always close with guidance or actionable wisdom.
+- Do NOT use markdown symbols (*, **, #, etc.).
+- Avoid overly technical Sanskrit; interpret concepts intuitively.
+- Include 3–5 segments (each with a heading, subheading, and content).
 - Write in ${userData.language || "English"}.
+- End each section with uplifting, actionable wisdom.
+
+Structure Example:
+──────────────────────────────
+<<<heading>>> ${sectionTitle}</heading>
+<content>
+Begin with a clear overview explaining the main astrological theme of this section.
+<li>Summarize how this aspect reveals deeper self-knowledge.</li>
+<li>Include insights from Ashtakvarga, Shadbala, or Divisional Charts when relevant.</li>
+<li>Close with one empowering thought about embracing these energies.</li>
+</content>
+
+<<subheading>> Planetary Highlights</subheading>
+<content>
+<li>Highlight which <b>planets</b> show dominant strength or influence.</li>
+<li>Describe what their high or low strength means for success, health, or emotions.</li>
+<li>Include an easy, practical interpretation for each insight.</li>
+</content>
+
+<<subheading>> Spiritual Takeaways</subheading>
+<content>
+<li>Offer reflective lessons about self-awareness and patience.</li>
+<li>Encourage trust in timing and inner resilience.</li>
+<li>End with an affirming message about growth and balance.</li>
+</content>
+──────────────────────────────
 `;
 
       let text = await callBedrock(fullPrompt, { essentialAdvancedData });
       text = sanitizeText(text);
+      text = normalizeBedrockText(text);
       return text;
     }
-    // Run all API calls in parallel
-    const resultadvance = await Promise.all(advancedSections.map(fetchAdvanceSection));
 
-    // Now render all sections into the PDF
+    // === Generate All Subsections Sequentially ===
+    const resultAdvanced: string[] = [];
+    for (const section of advancedSections) {
+      console.log(`🔭 Generating Deeper Insights → ${section.split("–")[0].trim()} ...`);
+      const text = await fetchAdvancedSection(section);
+      resultAdvanced.push(text);
+    }
+    console.log("✨ All Deeper Insights sections generated successfully!");
+
+    // === Render All Sections in PDF ===
     for (let i = 0; i < advancedSections.length; i++) {
       const sectionPrompt = advancedSections[i];
-      const text = resultadvance[i];
-
+      const text = resultAdvanced[i];
+      startSection(doc, `${sectionPrompt}`, `${sectionPrompt}`);
       doc.addPage();
+      markSectionPage(doc);
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      // --- Title ---
-      const sectionTitle = sectionPrompt.split("—")[0].trim();
-      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
-      const titleFontSize = titleLines.length > 1 ? 20 : 22;
-      const titleLineHeight = 24;
-      let titleY = 60;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      // const sectionTitle = `10.${i + 1} ${sectionPrompt}`;
+      // const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      // const titleFontSize = titleLines.length > 1 ? 18 : 20;
+      // const titleLineHeight = 24;
 
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(titleFontSize);
-      doc.setTextColor("#000");
-      titleLines.forEach((line: string, i: number) => {
-        doc.text(line, pageWidth / 2, titleY + i * titleLineHeight, { align: "center" });
-      });
+      // doc.setFont("NotoSans", "bold");
+      // doc.setFontSize(titleFontSize);
+      // doc.setTextColor("#000");
+      // titleLines.forEach((line: string, idx: number) =>
+      //   doc.text(line, pageWidth / 2, 60 + idx * titleLineHeight, { align: "center" })
+      // );
 
-      titleY += titleLines.length * titleLineHeight + 20;
+      // const contentY = 60 + titleLines.length * titleLineHeight + 20;
+      // doc.setFont("NotoSans", "normal");
+      // doc.setFontSize(14);
+      // doc.setTextColor("#000");
 
-      // --- Body ---
       if (text && text.trim().length > 0) {
-        addParagraphs(doc, text, 50, titleY, pageWidth - 100);
+        addParagraphs(doc, text, 50, 100, pageWidth - 100);
       } else {
         doc.setFont("NotoSans", "italic");
         doc.setFontSize(15);
         doc.setTextColor("#a16a21");
-        doc.text("⚠️ No content generated for this section.", 50, titleY);
+        doc.text("⚠️ No content generated for this section.", 50, 30);
       }
     }
+
     doc.addPage();
     doc.setFillColor("#4b1f65"); // Deep violet
     doc.rect(0, 0, pageWidth, pageHeight, "F");
@@ -2968,13 +3787,15 @@ Rules:
     doc.line(pageWidth / 2 - lineWidth / 2, y, pageWidth / 2 + lineWidth / 2, y);
     doc.circle(pageWidth / 2, y, 2, "F");
 
+    // === 11. Important Timings ===
     const panchangSections = [
-      "Sunrise & Sunset Timings (Birth Day Reference) — Provide precise sunrise and sunset timings for the native’s birth date and location. Explain their significance in determining Lagna, planetary strength, and the energetic start and end of the day.",
-      "Moonrise & Moonset Timings — Offer accurate moonrise and moonset times for the birth day, describing their astrological relevance for emotional rhythms, mind stability, and lunar influences on the native’s temperament.",
-      "Choghadiya Muhurta: Daily Auspicious Hours — Present the Choghadiya segments for the day of birth, classifying them as auspicious, neutral, or inauspicious. Explain how these timings influence daily decisions, events, and beginnings.",
-      "Hora Muhurta: Planetary Hour Influences — Detail the planetary hours (Horas) governing the birth period, illustrating how each planetary hour impacts decision-making, productivity, and the native’s inherent timing for success."
+      "11.1 Sunrise & Sunset on Birth Day – How they shaped your energy",
+      "11.2 Moonrise & Moonset – Your emotional timing",
+      "11.3 Auspicious Hours – Your naturally lucky times of day",
+      "11.4 Planetary Hours – Best hours for decisions and activities",
     ];
 
+    // === Panchang Data Context ===
     const essentialPanchangData = {
       sunrise: astroData.sunrise,
       sunset: astroData.sunset,
@@ -2987,90 +3808,123 @@ Rules:
       current_sade_sati: astroData.current_sade_sati,
     };
 
-    // --- Loop through each Panchang sub-section ---
-    async function fetchpanchangSection(sectionPrompt: string) {
-      const fullPrompt = `
-You are a Vedic astrologer and Panchang expert with profound knowledge of planetary timings, Muhurtas, and the subtle energy patterns that guide daily life.
+    // === Section Generator ===
+    async function fetchPanchangSection(sectionPrompt: string) {
+      const sectionTitle = sectionPrompt.split("–")[0].trim();
 
-Generate a deeply insightful and well-structured astrology report for:
+      const fullPrompt = `
+You are a Vedic astrologer and Panchang expert with deep spiritual awareness and practical insight.
+
+Generate an elegant, structured, and easy-to-understand explanation for:
 "${sectionPrompt}"
 
+Context:
+This section belongs to “11. Important Timings” in a personal astrology report.
+It explains the timing patterns surrounding the native’s birth — when the Sun, Moon, and planetary hours shaped their natural rhythm.
+
 Output Format:
-Use only the following XML-style tags anywhere in your response as needed:
+Use only the following XML-style tags:
 <<<heading>>>
 <<subheading>>
 <content>
 
-Rules:
-- Use these tags naturally throughout the content — not necessarily in fixed order.
-- Each heading and subheading must be unique, context-specific, and written in a natural, descriptive style (not generic like “Overview”).
-- Write 4–6 rich paragraphs blending:
-  1. Astronomical and calculation insights (what it is and how it works)
-  2. Astrological impact (how it influences personality, emotions, or daily rhythm)
-  3. Spiritual or psychological meaning (symbolism, mindfulness, inner awareness)
-  4. Practical guidance (how to apply this knowledge in life, rituals, or planning)
-  5. Closing reflection (a poetic or philosophical takeaway about cosmic harmony)
-- Maintain a calm, wise, insightful, and readable tone.
-- Avoid lists, markdown, or bullet points.
-- Keep flow smooth and meditative, suitable for readers seeking clarity and depth.
-- Write in ${userData.language || "English"}.
-`;
+Inside <content>:
+- Use <b>...</b> to highlight planetary names, timings, or key themes.
+- Use <li>...</li> to list important insights or practical suggestions.
+- Maintain a calm, meditative tone that blends science, astrology, and inner wisdom.
 
+Rules:
+- Do NOT use markdown symbols (*, **, etc.).
+- Each heading or subheading should feel descriptive and human (not generic like “Overview”).
+- Include 3–5 structured parts, each with explanation and meaning.
+- Avoid Sanskrit-heavy language; use intuitive explanations.
+- Close with a brief reflective paragraph on harmony, timing, or self-alignment.
+- Write in ${userData.language || "English"}.
+
+Structure Example:
+──────────────────────────────
+<<<heading>>> ${sectionTitle}</heading>
+<content>
+Begin with a short overview describing what this timing means and how it influences personality or mood.
+<li>Explain the scientific or astronomical basis briefly.</li>
+<li>Describe the astrological interpretation (e.g., <b>Sunrise</b> = vitality, <b>Sunset</b> = closure).</li>
+<li>Offer a daily life reflection about energy cycles and awareness.</li>
+</content>
+
+<<subheading>> Planetary or Energetic Influence</subheading>
+<content>
+<li>Explain which <b>planet</b> or <b>element</b> governs this timing and its emotional or mental effect.</li>
+<li>Discuss balance or imbalance patterns based on these timings.</li>
+<li>Offer simple awareness or mindfulness practices aligned with them.</li>
+</content>
+
+<<subheading>> Practical Guidance</subheading>
+<content>
+<li>Share 2–3 easy suggestions for using these hours for meditation, creativity, or decision-making.</li>
+<li>Highlight how respecting these natural rhythms improves harmony and productivity.</li>
+</content>
+──────────────────────────────
+`;
 
       try {
         const raw = await callBedrock(fullPrompt, essentialPanchangData);
         let text = sanitizeText(raw);
+        text = normalizeBedrockText(text);
 
         if (!text || typeof text !== "string" || text.trim() === "") {
-          text = "<<<heading>>> Panchang Data\n<content>Astrological data for this section is currently unavailable.</content>";
+          text = `<<<heading>>> ${sectionTitle}\n<content>No Panchang data could be generated for this section.</content>`;
         }
 
         return text;
       } catch (err) {
         console.error("⚠️ Panchang Bedrock Error:", err);
-        return "<<<heading>>> Panchang Data\n<content>Astrological data for this section could not be generated.</content>";
+        return `<<<heading>>> ${sectionTitle}\n<content>Error generating this Panchang section.</content>`;
       }
     }
-    // --- Run all API calls in parallel ---
-    const resultpanchang = await Promise.all(panchangSections.map(fetchpanchangSection));
 
-    // --- Render all sections ---
+    // === Parallel Generation for All Subsections ===
+    const resultPanchang = await Promise.all(panchangSections.map(fetchPanchangSection));
+
+    // === PDF Rendering ===
     for (let i = 0; i < panchangSections.length; i++) {
       const sectionPrompt = panchangSections[i];
-      const text = resultpanchang[i];
-
-      let sectionTitle = sectionPrompt.split("—")[0].trim();
-
-      // --- Page Setup ---
+      const text = resultPanchang[i];
+      startSection(doc, `${sectionPrompt}`, `${sectionPrompt}`);
       doc.addPage();
+      markSectionPage(doc);
       doc.setDrawColor("#a16a21");
       doc.setLineWidth(1.5);
       doc.rect(25, 25, 545, 792, "S");
 
-      // --- Title ---
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(22);
-      doc.setTextColor("#000");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      // const sectionTitle = `11.${i + 1} ${sectionPrompt}`;
+      // const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 120);
+      // const titleFontSize = titleLines.length > 1 ? 18 : 20;
+      // const titleLineHeight = 24;
 
-      const titleLines = doc.splitTextToSize(sectionTitle, pageWidth - 100);
-      let titleY = 70;
-      titleLines.forEach((line: string, idx: number) => {
-        doc.text(line, pageWidth / 2, titleY + idx * 24, { align: "center" });
-      });
+      // doc.setFont("NotoSans", "bold");
+      // doc.setFontSize(titleFontSize);
+      // doc.setTextColor("#000");
+      // titleLines.forEach((line: string, idx: number) =>
+      //   doc.text(line, pageWidth / 2, 60 + idx * titleLineHeight, { align: "center" })
+      // );
 
-      const startY = titleY + titleLines.length * 30;
+      // const contentY = 60 + titleLines.length * titleLineHeight + 20;
+      // doc.setFont("NotoSans", "normal");
+      // doc.setFontSize(14);
+      // doc.setTextColor("#000");
 
-      // --- Content ---
       if (text && text.trim().length > 0) {
-        addParagraphs(doc, text, 50, startY, pageWidth - 100);
+        addParagraphs(doc, text, 50, 100, pageWidth - 100);
       } else {
         doc.setFont("NotoSans", "italic");
         doc.setFontSize(15);
         doc.setTextColor("#a16a21");
-        doc.text("⚠️ No content generated for this section.", 50, startY);
+        doc.text("⚠️ No content generated for this section.", 50, 30);
       }
     }
-    // Generate "12 Q&A & Personalized Advice" section
+
+    //     // Generate "12 Q&A & Personalized Advice" section
     const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
     // --- Generate 12–15 Personalized Questions (Categorized) ---
@@ -3105,114 +3959,115 @@ Rules:
     }
 
     // --- Main Function to Generate Predictive Q&A PDF ---
-   async function generateQAPDF(doc: jsPDF, userLanguage = "English") {
-  // ✅ Load locally stored astrology data
-  const astroData = await readAstroJSON("astro_data_Vivek.json");
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
+    async function generateQAPDF(doc: jsPDF, userLanguage = "English") {
+      // ✅ Load locally stored astrology data
+      const astroData = await readAstroJSON("astro_data_Vivek.json");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
 
-  // Layout constants
-  const marginX = 50;
-  const marginY = 60;
-  const maxWidth = pageWidth - 2 * marginX;
-  const lineHeight = 22;
+      // Layout constants
+      const marginX = 50;
+      const marginY = 60;
+      const maxWidth = pageWidth - 2 * marginX;
+      const lineHeight = 22;
 
-  // Step 1: Generate predictive questions
-  const questionSections = await generateSpecificQuestions();
+      // Step 1: Generate predictive questions
+      const questionSections = await generateSpecificQuestions();
 
-  // Step 2: Generate answers
-  const allSectionPromises = Object.entries(questionSections).map(async ([section, questions]) => {
-    const qaPairs = await Promise.all(
-      questions.map(async (question, index) => {
-        await sleep(index * 200);
-        const answer = await generateAnswer(question, astroData);
-        return { question, answer };
-      })
-    );
-    return { section, qaPairs };
-  });
+      // Step 2: Generate answers
+      const allSectionPromises = Object.entries(questionSections).map(async ([section, questions]) => {
+        const qaPairs = await Promise.all(
+          questions.map(async (question, index) => {
+            await sleep(index * 200);
+            const answer = await generateAnswer(question, astroData);
+            return { question, answer };
+          })
+        );
+        return { section, qaPairs };
+      });
 
-  const resolvedSections = await Promise.all(allSectionPromises);
+      const resolvedSections = await Promise.all(allSectionPromises);
 
-  // 🎨 Local-only Border Drawer (Q&A pages only)
-  const drawQABorder = (doc: jsPDF) => {
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(marginX - 20, marginY - 30, pageWidth - 2 * (marginX - 20), pageHeight - 2 * (marginY - 30), "S");
-  };
+      // 🎨 Local-only Border Drawer (Q&A pages only)
+      const drawQABorder = (doc: jsPDF) => {
+        doc.setDrawColor("#a16a21");
+        doc.setLineWidth(1.5);
+        doc.rect(marginX - 20, marginY - 30, pageWidth - 2 * (marginX - 20), pageHeight - 2 * (marginY - 30), "S");
+      };
 
-  // Step 3: Add Q&A Section Page
-  doc.addPage();
-  drawQABorder(doc);
-  addHeaderFooter(doc, doc.getNumberOfPages());
+      // Step 3: Add Q&A Section Page
+      startSection(doc, `Common Questions Answered`, `Common Questions Answered`);
+      doc.addPage();
+      markSectionPage(doc);
+      drawQABorder(doc);
+      addHeaderFooter(doc, doc.getNumberOfPages());
 
-  // Title
-  doc.setFont("NotoSans", "bold");
-  doc.setFontSize(26);
-  doc.setTextColor("#000");
-  doc.text("Personalized Predictive Q&A", pageWidth / 2, 80, { align: "center" });
-
-  let currentY = 120;
-
-  for (const { section, qaPairs } of resolvedSections) {
-    // 🟣 Section Heading
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(18);
-    doc.setTextColor("#a16a21");
-    doc.text(section.replace(/_/g, " "), marginX, currentY);
-    currentY += lineHeight + 6;
-
-    for (const { question, answer } of qaPairs) {
-      // --- Question ---
+      // Title
       doc.setFont("NotoSans", "bold");
-      doc.setFontSize(14);
+      doc.setFontSize(26);
       doc.setTextColor("#000");
-      doc.text("Question:", marginX, currentY);
-      currentY += lineHeight - 4;
+      doc.text("Personalized Predictive Q&A", pageWidth / 2, 70, { align: "center" });
 
-      const qLines = doc.splitTextToSize(question.trim(), maxWidth);
-      for (const line of qLines) {
-        if (currentY > pageHeight - 100) {
-          doc.addPage();
-          drawQABorder(doc); // 🟠 Only draw border for new Q&A pages
-          addHeaderFooter(doc, doc.getNumberOfPages());
-          currentY = marginY + 20;
+      let currentY = 120;
+
+      for (const { section, qaPairs } of resolvedSections) {
+        // 🟣 Section Heading
+        doc.setFont("NotoSans", "bold");
+        doc.setFontSize(18);
+        doc.setTextColor("#a16a21");
+        doc.text(section.replace(/_/g, " "), marginX, currentY);
+        currentY += lineHeight + 6;
+
+        for (const { question, answer } of qaPairs) {
+          // --- Question ---
+          doc.setFont("NotoSans", "bold");
+          doc.setFontSize(14);
+          doc.setTextColor("#000");
+          doc.text("Question:", marginX, currentY);
+          currentY += lineHeight - 4;
+
+          const qLines = doc.splitTextToSize(question.trim(), maxWidth);
+          for (const line of qLines) {
+            if (currentY > pageHeight - 100) {
+              doc.addPage();
+              drawQABorder(doc); // 🟠 Only draw border for new Q&A pages
+              addHeaderFooter(doc, doc.getNumberOfPages());
+              currentY = marginY + 20;
+            }
+            doc.text(line, marginX + 10, currentY);
+            currentY += lineHeight - 6;
+          }
+
+          currentY += 6;
+
+          // --- Answer ---
+          doc.setFont("NotoSans", "bold");
+          doc.setFontSize(14);
+          doc.setTextColor("#000");
+          doc.text("Answer:", marginX, currentY);
+          currentY += lineHeight - 4;
+
+          const aLines = doc.splitTextToSize(answer.trim(), maxWidth);
+          for (const line of aLines) {
+            if (currentY > pageHeight - 100) {
+              doc.addPage();
+              drawQABorder(doc); // 🟠 Only draw border for new Q&A pages
+              addHeaderFooter(doc, doc.getNumberOfPages());
+              currentY = marginY + 20;
+            }
+            doc.text(line, marginX + 10, currentY);
+            currentY += lineHeight - 6;
+          }
+
+          currentY += 12;
         }
-        doc.text(line, marginX + 10, currentY);
-        currentY += lineHeight - 6;
+
+        currentY += 16;
       }
 
-      currentY += 6;
-
-      // --- Answer ---
-      doc.setFont("NotoSans", "bold");
-      doc.setFontSize(14);
-      doc.setTextColor("#000");
-      doc.text("Answer:", marginX, currentY);
-      currentY += lineHeight - 4;
-
-      const aLines = doc.splitTextToSize(answer.trim(), maxWidth);
-      for (const line of aLines) {
-        if (currentY > pageHeight - 100) {
-          doc.addPage();
-          drawQABorder(doc); // 🟠 Only draw border for new Q&A pages
-          addHeaderFooter(doc, doc.getNumberOfPages());
-          currentY = marginY + 20;
-        }
-        doc.text(line, marginX + 10, currentY);
-        currentY += lineHeight - 6;
-      }
-
-      currentY += 12;
+      // ✅ No border redraw for other (non-Q&A) pages
+      return doc;
     }
-
-    currentY += 16;
-  }
-
-  // ✅ No border redraw for other (non-Q&A) pages
-  return doc;
-}
-
 
     async function generateAnswer(
       question: string,
@@ -3320,20 +4175,20 @@ Rules:
 
         // 🔮 AI prompt
         const prompt = `
-You are an expert Vedic astrologer. Write a clear, predictive answer (6–8 sentences)
-for the following question using the provided astro data.
+    You are an expert Vedic astrologer. Write a clear, predictive answer (6–8 sentences)
+    for the following question using the provided astro data.
 
-Question: "${question}"
+    Question: "${question}"
 
-Astro Data (summary):
-${contextSummary}
+    Astro Data (summary):
+    ${contextSummary}
 
-Guidelines:
-- Mention relevant planets, dashas, or yogas that influence the topic.
-- Explain the overall planetary outlook (positive/neutral/challenging).
-- End with one short, practical astrological suggestion.
-- Avoid generic phrases like "Without birth details".
-`;
+    Guidelines:
+    - Mention relevant planets, dashas, or yogas that influence the topic.
+    - Explain the overall planetary outlook (positive/neutral/challenging).
+    - End with one short, practical astrological suggestion.
+    - Avoid generic phrases like "Without birth details".
+    `;
 
         let ans = await callBedrock(prompt, { fullData: relevantData });
         ans = sanitizeText(ans).replace(/[*_~`]/g, "");
@@ -3348,27 +4203,66 @@ Guidelines:
       }
     }
 
-    // ✅ Usage
+    //     // ✅ Usage
     await generateQAPDF(doc, "English");
-    const essentialAstroData = {
-      mangal_dosh: astroData.mangal_dosh,
-      kaalsarp_dosh: astroData.kaalsarp_dosh,
-      maha_dasha: astroData.maha_dasha,
-      antar_dasha: astroData.antar_dasha,
-      current_sade_sati: astroData.current_sade_sati,
-      find_moon_sign: astroData.find_moon_sign,
-      find_sun_sign: astroData.find_sun_sign,
-      find_ascendant: astroData.find_ascendant,
-      shad_bala: astroData.shad_bala,
-      yoga_list: astroData.yoga_list,
-      gem_suggestion: astroData.gem_suggestion,
-      rudraksh_suggestion: astroData.rudraksh_suggestion,
-    };
+    // === Section Titles ===
+    // === Section Titles ===
+    // ========== TYPE DEFINITIONS ==========
 
-    const nextstepPrompt = `
+    interface AstroData {
+      mangal_dosh?: any;
+      kaalsarp_dosh?: any;
+      maha_dasha?: any;
+      antar_dasha?: any;
+      current_sade_sati?: any;
+      find_moon_sign?: any;
+      find_sun_sign?: any;
+      find_ascendant?: any;
+      shad_bala?: any;
+      yoga_list?: any;
+      gem_suggestion?: any;
+      rudraksh_suggestion?: any;
+    }
+
+    // Declare reusable functions/types (import from elsewhere in your project)
+
+
+    // ========== MAIN FUNCTION ==========
+
+    async function generateGrowthSections(
+      doc: any,
+      astroData: AstroData
+    ): Promise<void> {
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      // === Section Titles ===
+      const growthSections: string[] = [
+        "Next Steps: Using Insights & Remedies for Personal Growth",
+        "Personalized Astro Guidance & Conclusion",
+      ];
+
+      // === Context Data ===
+      const essentialAstroData: Record<string, any> = {
+        mangal_dosh: astroData.mangal_dosh,
+        kaalsarp_dosh: astroData.kaalsarp_dosh,
+        maha_dasha: astroData.maha_dasha,
+        antar_dasha: astroData.antar_dasha,
+        current_sade_sati: astroData.current_sade_sati,
+        find_moon_sign: astroData.find_moon_sign,
+        find_sun_sign: astroData.find_sun_sign,
+        find_ascendant: astroData.find_ascendant,
+        shad_bala: astroData.shad_bala,
+        yoga_list: astroData.yoga_list,
+        gem_suggestion: astroData.gem_suggestion,
+        rudraksh_suggestion: astroData.rudraksh_suggestion,
+      };
+
+      // === Prompt Generator ===
+      const getGrowthPrompt = (sectionTitle: string): string => {
+        if (sectionTitle.includes("Next Steps")) {
+          return `
 You are a Vedic astrologer, life coach, and psychologist.  
 Using the data below, write **"Next Steps: Using Insights & Remedies for Personal Growth"** in **3 short, warm, and inspiring paragraphs**.
-
 
 GUIDELINES:
 - Tone: **Empathetic, guiding, and practical.**
@@ -3376,31 +4270,11 @@ GUIDELINES:
 - Mention how to align with **strong planets** and improve weak ones.
 - Suggest 2–3 **simple remedies** (e.g., meditation, gratitude, rituals).
 - Avoid horoscope clichés. Make it **personal and actionable**.
-- Use **bold** for key traits or advice.
-`;
+- Use **bold** for key traits or advice.`;
+        }
 
-    let nextstepText = await callBedrock(nextstepPrompt, { essentialAstroData });
-    nextstepText = sanitizeText(nextstepText);
-    doc.addPage();
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(26);
-    doc.setTextColor("#000");
-    doc.text(
-      "Next Steps: Using Insights & Remedies for Personal Growth",
-      pageWidth / 2,
-      60,
-      {
-        align: "center",
-        maxWidth: pageWidth - 50, // leave some margin (25px on each side)
-      }
-    );
-    doc.setTextColor("#a16a21");
-    addParagraphss(doc, nextstepText, 50, 140, pageWidth - 100);
-
-    const ConclusionPrompt = `
+        if (sectionTitle.includes("Conclusion")) {
+          return `
 You are an expert Vedic astrologer and spiritual psychologist.
 Generate **"Personalized Astro Guidance & Conclusion"** — a reflective summary of the native’s life path and inner journey.
 
@@ -3412,37 +4286,101 @@ STYLE & CONTENT REQUIREMENTS:
 - Highlight clarity, acceptance, and empowerment.
 - End with an uplifting note or blessing.
 - Use **bold** for key insights.
-- Avoid repetition or generic text.
-`;
+- Avoid repetition or generic text.`;
+        }
 
-    let conclusionText = await callBedrock(ConclusionPrompt, { astroData });
-    conclusionText = sanitizeText(conclusionText);
-    doc.addPage();
-    doc.setDrawColor("#a16a21");
-    doc.setLineWidth(1.5);
-    doc.rect(25, 25, 545, 792, "S");
-    doc.setFont("NotoSans", "bold");
-    doc.setFontSize(26);
-    doc.setTextColor("#000");
-    doc.text(
-      "Personalized Astro Guidance & Conclusion",
-      pageWidth / 2,
-      60,
-      {
-        align: "center",
-        maxWidth: pageWidth - 50, // leave some margin (25px on each side)
+        return "You are a Vedic astrologer. Generate insightful guidance text.";
+      };
+
+      // === Section Generator ===
+      const fetchGrowthSection = async (sectionTitle: string): Promise<string> => {
+        const fullPrompt = getGrowthPrompt(sectionTitle);
+
+        try {
+          const contextData = sectionTitle.includes("Next Steps")
+            ? { essentialAstroData }
+            : JSON.stringify(astroData);
+
+          const raw = await callBedrock(fullPrompt, contextData);
+          let text = removeMarkdown(raw || "");
+          text = sanitizeText(text);
+          text = normalizeBedrockText(text);
+          text = text.replace(/&[a-z]+;/gi, "").replace(/[�]/g, "").trim();
+
+          if (!text || typeof text !== "string" || text.trim() === "") {
+            text = `<<<heading>>> ${sectionTitle}\n<content>No data could be generated for this section.</content>`;
+          }
+
+          return text;
+        } catch (err) {
+          console.error(`⚠️ Growth Section Error [${sectionTitle}]:`, err);
+          return `<<<heading>>> ${sectionTitle}\n<content>Error generating this section.</content>`;
+        }
+      };
+
+      // === Parallel Section Generation ===
+      const resultGrowth: string[] = await Promise.all(
+        growthSections.map((section) => fetchGrowthSection(section))
+      );
+
+      // === PDF Rendering ===
+      for (let i = 0; i < growthSections.length; i++) {
+        const sectionTitle = growthSections[i];
+        const text = resultGrowth[i];
+        startSection(doc, sectionTitle, sectionTitle);
+        doc.addPage();
+        markSectionPage(doc);
+        doc.setDrawColor("#a16a21");
+        doc.setLineWidth(1.5);
+        doc.rect(25, 25, 545, 792, "S");
+
+        // === Title ===
+        const maxTitleWidth = pageWidth - 120;
+        let titleLines = doc.splitTextToSize(sectionTitle, maxTitleWidth);
+
+        // If title has more than 2 lines, limit to 2
+        if (titleLines.length > 2) {
+          // Merge excess lines into 2nd line with ellipsis
+          titleLines = [titleLines[0], titleLines.slice(1).join(" ").slice(0, 60) + "..."];
+        }
+
+        // Adjust font size dynamically
+        const titleFontSize = titleLines.length > 1 ? 20 : 24;
+        const titleLineHeight = 26;
+
+        doc.setFont("NotoSans", "bold");
+        doc.setFontSize(titleFontSize);
+        doc.setTextColor("#000");
+
+        // Center both lines
+        titleLines.forEach((line: string, idx: number) => {
+          const yPos = 60 + idx * titleLineHeight;
+          doc.text(line, pageWidth / 2, yPos, { align: "center" });
+        });
+
+        // === Body ===
+        if (text && text.trim().length > 0) {
+          doc.setTextColor("#a16a21");
+          addParagraphss(doc, text, 50, 120, pageWidth - 100);
+        } else {
+          doc.setFont("NotoSans", "italic");
+          doc.setFontSize(15);
+          doc.setTextColor("#a16a21");
+          doc.text("⚠️ No content generated for this section.", 50, 120);
+        }
       }
-    );
-    doc.setTextColor("#a16a21");
-    addParagraphss(doc, conclusionText, 50, 100, pageWidth - 100);
+    }
+
+    await generateGrowthSections(doc, astroData);
     // ---------- LAST PAGE: ABOUT TRUSTASTROLOGY.AI (with SVG design) ----------
     const generateAboutCompanyPage = async (doc: jsPDF) => {
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 25;
-
+      startSection(doc, "About TrustAstrology.ai", "About Us");
       // Add a new page
       doc.addPage();
+      markSectionPage(doc);
 
       // ===== Decorative SVGs (top banner + footer ribbon) =====
       const topBannerSVG = createCosmicBannerSVG(pageWidth, 160);
@@ -3478,14 +4416,14 @@ STYLE & CONTENT REQUIREMENTS:
 
       // ===== Body Copy =====
       const bodyText = `
-TrustAstrology.ai (TrustAstrology) is a cutting-edge AI-powered astrology platform. Our mission is to blend ancient astrological wisdom with modern artificial intelligence to provide accurate, personalized guidance for our users. With TrustAstrology, anyone can explore insights into their life's questions through an intuitive, private, and 24/7 available AI astrologer.
+    TrustAstrology.ai (TrustAstrology) is a cutting-edge AI-powered astrology platform. Our mission is to blend ancient astrological wisdom with modern artificial intelligence to provide accurate, personalized guidance for our users. With TrustAstrology, anyone can explore insights into their life's questions through an intuitive, private, and 24/7 available AI astrologer.
 
-Our services encompass a wide range of astrological and spiritual services, all accessible online. Whether you're seeking a detailed horoscope reading, a palmistry analysis, numerology, Vastu Shastra tips for your home, relationship compatibility reports, or even AI-based face reading insights, TrustAstrology has you covered. We leverage advanced technology and reputable astrological data sources to generate real-time predictions and advice tailored to your unique profile.
+    Our services encompass a wide range of astrological and spiritual services, all accessible online. Whether you're seeking a detailed horoscope reading, a palmistry analysis, numerology, Vastu Shastra tips for your home, relationship compatibility reports, or even AI-based face reading insights, TrustAstrology has you covered. We leverage advanced technology and reputable astrological data sources to generate real-time predictions and advice tailored to your unique profile.
 
-At TrustAstrology, we value trust, accuracy, and user privacy. Our system is unbiased and non-judgmental—ask anything freely and confidentially. We are constantly learning and improving, updating our algorithms with the latest celestial data and user feedback. Our goal is to empower you with cosmic insights for better decision-making in life, love, career, and more—conveniently and affordably.
+    At TrustAstrology, we value trust, accuracy, and user privacy. Our system is unbiased and non-judgmental—ask anything freely and confidentially. We are constantly learning and improving, updating our algorithms with the latest celestial data and user feedback. Our goal is to empower you with cosmic insights for better decision-making in life, love, career, and more—conveniently and affordably.
 
-Join us on a journey to connect technology with the cosmos, and experience astrology like never before.
-`;
+    Join us on a journey to connect technology with the cosmos, and experience astrology like never before.
+    `;
 
       addParagraphsWithStyle(doc, bodyText, margin + 25, margin + 170, pageWidth - 2 * (margin + 25), 20, 14, "#333");
 
@@ -3564,53 +4502,53 @@ Join us on a journey to connect technology with the cosmos, and experience astro
     function createCosmicBannerSVG(width: number, height: number): string {
       // Keep it responsive using viewBox; use golden accents & subtle stars
       return `
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0b0c1a"/>
-      <stop offset="100%" stop-color="#1a1c33"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="40%" r="70%">
-      <stop offset="0%" stop-color="#d4af37" stop-opacity="0.25"/>
-      <stop offset="100%" stop-color="#d4af37" stop-opacity="0"/>
-    </radialGradient>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="1.2"/>
-    </filter>
-    <style>
-      .star{ fill:#fff; opacity:.9 }
-      .sml{ opacity:.65 }
-      .gold{ stroke:#d4af37; stroke-width:1.2; fill:none; opacity:.7 }
-      .gold-dot{ fill:#d4af37; opacity:.85 }
-      .title{ fill:#f7f2e8; font-family: Helvetica, Arial, sans-serif; font-weight:700; }
-      .tag{ fill:#d4af37; font-family: Helvetica, Arial, sans-serif; font-style:italic; }
-    </style>
-  </defs>
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <defs>
+        <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#0b0c1a"/>
+          <stop offset="100%" stop-color="#1a1c33"/>
+        </linearGradient>
+        <radialGradient id="glow" cx="50%" cy="40%" r="70%">
+          <stop offset="0%" stop-color="#d4af37" stop-opacity="0.25"/>
+          <stop offset="100%" stop-color="#d4af37" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="1.2"/>
+        </filter>
+        <style>
+          .star{ fill:#fff; opacity:.9 }
+          .sml{ opacity:.65 }
+          .gold{ stroke:#d4af37; stroke-width:1.2; fill:none; opacity:.7 }
+          .gold-dot{ fill:#d4af37; opacity:.85 }
+          .title{ fill:#f7f2e8; font-family: Helvetica, Arial, sans-serif; font-weight:700; }
+          .tag{ fill:#d4af37; font-family: Helvetica, Arial, sans-serif; font-style:italic; }
+        </style>
+      </defs>
 
-  <!-- background -->
-  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#g1)"/>
-  <ellipse cx="${width / 2}" cy="${height * 0.55}" rx="${width * 0.45}" ry="${height * 0.9}" fill="url(#glow)"/>
+      <!-- background -->
+      <rect x="0" y="0" width="${width}" height="${height}" fill="url(#g1)"/>
+      <ellipse cx="${width / 2}" cy="${height * 0.55}" rx="${width * 0.45}" ry="${height * 0.9}" fill="url(#glow)"/>
 
-  <!-- scattered stars -->
-  ${generateStars(width, height, 70, 2)}
-  ${generateStars(width, height, 80, 1, true)}
+      <!-- scattered stars -->
+      ${generateStars(width, height, 70, 2)}
+      ${generateStars(width, height, 80, 1, true)}
 
-  <!-- simple constellation lines -->
-  ${constellationPath(width * 0.15, height * 0.35, 7, width * 0.12, height * 0.18)}
-  ${constellationPath(width * 0.72, height * 0.25, 6, width * 0.1, height * 0.16)}
+      <!-- simple constellation lines -->
+      ${constellationPath(width * 0.15, height * 0.35, 7, width * 0.12, height * 0.18)}
+      ${constellationPath(width * 0.72, height * 0.25, 6, width * 0.1, height * 0.16)}
 
-  <!-- center glyph logo (stylized astro + AI node orbit) -->
-  <g transform="translate(${width / 2}, ${height * 0.52})">
-    <circle r="${Math.min(width, height) * 0.07}" fill="none" stroke="#d4af37" stroke-width="2.5"/>
-    <ellipse rx="${Math.min(width, height) * 0.11}" ry="${Math.min(width, height) * 0.04}" fill="none" stroke="#d4af37" stroke-width="1.5" transform="rotate(-15)"/>
-    <ellipse rx="${Math.min(width, height) * 0.11}" ry="${Math.min(width, height) * 0.04}" fill="none" stroke="#d4af37" stroke-width="1.5" transform="rotate(15)"/>
-    <circle r="3.2" fill="#d4af37"/>
-  </g>
+      <!-- center glyph logo (stylized astro + AI node orbit) -->
+      <g transform="translate(${width / 2}, ${height * 0.52})">
+        <circle r="${Math.min(width, height) * 0.07}" fill="none" stroke="#d4af37" stroke-width="2.5"/>
+        <ellipse rx="${Math.min(width, height) * 0.11}" ry="${Math.min(width, height) * 0.04}" fill="none" stroke="#d4af37" stroke-width="1.5" transform="rotate(-15)"/>
+        <ellipse rx="${Math.min(width, height) * 0.11}" ry="${Math.min(width, height) * 0.04}" fill="none" stroke="#d4af37" stroke-width="1.5" transform="rotate(15)"/>
+        <circle r="3.2" fill="#d4af37"/>
+      </g>
 
-  <!-- optional heading inside banner (kept subtle; main text is drawn by jsPDF) -->
-  <text x="${width / 2}" y="${height * 0.22}" text-anchor="middle" class="title" font-size="18">TrustAstrology.ai</text>
-  <text x="${width / 2}" y="${height * 0.22 + 18}" text-anchor="middle" class="tag" font-size="12">Cosmic Intelligence, Human Clarity</text>
-</svg>`;
+      <!-- optional heading inside banner (kept subtle; main text is drawn by jsPDF) -->
+      <text x="${width / 2}" y="${height * 0.22}" text-anchor="middle" class="title" font-size="18">TrustAstrology.ai</text>
+      <text x="${width / 2}" y="${height * 0.22 + 18}" text-anchor="middle" class="tag" font-size="12">Cosmic Intelligence, Human Clarity</text>
+    </svg>`;
     }
 
     // Ribbon footer with repeating celestial motif
@@ -3618,22 +4556,22 @@ Join us on a journey to connect technology with the cosmos, and experience astro
       const h = height;
       const w = width;
       return `
-<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-  <defs>
-    <linearGradient id="rb" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#2a2540"/>
-      <stop offset="100%" stop-color="#1b1630"/>
-    </linearGradient>
-    <pattern id="motif" width="60" height="60" patternUnits="userSpaceOnUse">
-      <circle cx="30" cy="30" r="1.6" fill="#d4af37" opacity=".8"/>
-      <path d="M10 30 Q30 8 50 30" stroke="#baa15a" stroke-width="0.8" fill="none" opacity=".55"/>
-      <path d="M10 30 Q30 52 50 30" stroke="#baa15a" stroke-width="0.8" fill="none" opacity=".55"/>
-    </pattern>
-  </defs>
-  <rect x="0" y="0" width="${w}" height="${h}" fill="url(#rb)"/>
-  <rect x="${w * 0.02}" y="${h * 0.18}" width="${w * 0.96}" height="${h * 0.64}" rx="${h * 0.12}" fill="url(#motif)" opacity="0.35"/>
-  <rect x="${w * 0.02}" y="${h * 0.18}" width="${w * 0.96}" height="${h * 0.64}" rx="${h * 0.12}" fill="none" stroke="#d4af37" stroke-width="1.4" opacity="0.8"/>
-</svg>`;
+    <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+      <defs>
+        <linearGradient id="rb" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#2a2540"/>
+          <stop offset="100%" stop-color="#1b1630"/>
+        </linearGradient>
+        <pattern id="motif" width="60" height="60" patternUnits="userSpaceOnUse">
+          <circle cx="30" cy="30" r="1.6" fill="#d4af37" opacity=".8"/>
+          <path d="M10 30 Q30 8 50 30" stroke="#baa15a" stroke-width="0.8" fill="none" opacity=".55"/>
+          <path d="M10 30 Q30 52 50 30" stroke="#baa15a" stroke-width="0.8" fill="none" opacity=".55"/>
+        </pattern>
+      </defs>
+      <rect x="0" y="0" width="${w}" height="${h}" fill="url(#rb)"/>
+      <rect x="${w * 0.02}" y="${h * 0.18}" width="${w * 0.96}" height="${h * 0.64}" rx="${h * 0.12}" fill="url(#motif)" opacity="0.35"/>
+      <rect x="${w * 0.02}" y="${h * 0.18}" width="${w * 0.96}" height="${h * 0.64}" rx="${h * 0.12}" fill="none" stroke="#d4af37" stroke-width="1.4" opacity="0.8"/>
+    </svg>`;
     }
 
     // --- tiny SVG generators used above ---
@@ -3651,7 +4589,7 @@ Join us on a journey to connect technology with the cosmos, and experience astro
     }
 
     function constellationPath(sx: number, sy: number, nodes: number, spreadX: number, spreadY: number): string {
-      let pts: Array<{ x: number; y: number }> = [];
+      const pts: Array<{ x: number; y: number }> = [];
       for (let i = 0; i < nodes; i++) {
         pts.push({
           x: sx + (Math.random() - 0.5) * spreadX * 2,
@@ -3667,21 +4605,49 @@ Join us on a journey to connect technology with the cosmos, and experience astro
     }
 
     await generateAboutCompanyPage(doc);
-    // --- Save PDF ---
-    const fileName = `Cosmic_Report_${name}_${new Date().toISOString().split('T')[0]}.pdf`;
-    doc.save(fileName);
 
-    return {
-      success: true,
-      fileName,
-      message: "Report generated successfully with Avakahada Chakra table and AI-generated content"
-    };
+    // ========== FINALIZE: FILL TOC & SAVE ==========
+    const filename = `Cosmic_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
 
+    // Fill the reserved TOC pages (page 2,3)
+    fillComplexTOC(doc, tocPageStart, tocPageEnd, tocText);
+
+    doc.save(filename);
+
+    return { success: true };
   } catch (err: unknown) {
     console.error("Error generating report:", err);
     return {
       success: false,
-      error: err instanceof Error ? err.message : String(err)
+      error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+// (Optional leftover helpers, no longer used directly, safe to keep/remove)
+function normalizeLabel(lbl: string) {
+  return String(lbl || "")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .toLowerCase();
+}
+
+function findSectionForLabel(label: string) {
+  if (!Array.isArray(__sectionRegistry)) return null;
+  const norm = normalizeLabel(label);
+  let found = __sectionRegistry.find(
+    (e) => normalizeLabel(e.tocLabel || e.title) === norm
+  );
+  if (found) return found;
+  found = __sectionRegistry.find((e) => {
+    const s = normalizeLabel(e.tocLabel || e.title);
+    return s.startsWith(norm) || norm.startsWith(s);
+  });
+  if (found) return found;
+  found = __sectionRegistry.find((e) => {
+    const s = normalizeLabel(e.tocLabel || e.title);
+    return s.includes(norm) || norm.includes(s);
+  });
+  return found || null;
 }
