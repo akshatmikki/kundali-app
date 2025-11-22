@@ -4,7 +4,9 @@ import "../../public/fonts/NotoSans-VariableFont_wdth,wght-normal.js";
 import { readAstroJSON } from "@/server/readastrofile";
 import removeMarkdown from "remove-markdown";
 import { start } from "repl";
-
+import { ToolChoice } from "@aws-sdk/client-bedrock-runtime";
+console.log("📄 Loaded CosmicDMReport_Fixed.tsx");
+window.DEBUG_PDF = [];
 // ========================================
 // 🔥 FIXED TOC & OUTLINE SYSTEM
 // ========================================
@@ -162,297 +164,26 @@ interface UserData {
   longitude: number;
   language: string;
 }
-// function normalizeBedrockText(xmlText: string): string {
-//   return xmlText
-//     // Remove invisible characters & excess whitespace
-//     .replace(/[\u200B-\u200D\uFEFF]/g, "")
-//     .replace(/\r?\n\s*\r?\n/g, "\n") // collapse multiple newlines
-//     .replace(/\s{2,}/g, " ") // compress spaces
-//     .trim();
-// }
 
-// function addParagraphs(
-//   doc: jsPDF,
-//   rawText: string,
-//   startX: number,
-//   startY: number,
-//   maxWidth: number
-// ) {
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const pageHeight = doc.internal.pageSize.getHeight();
-//   const margin = 25;
+function debugLog(message: string, data?: any) {
+  const entry = { message, data, timestamp: new Date().toISOString() };
+  window.DEBUG_PDF.push(entry);
+  console.log(message, data); // Still log to console
 
-//   const lineHeight = 20;
-//   const bottomLimit = pageHeight - margin;
-//   const usableWidth = maxWidth;
+  // Also append to page for visibility
+  const debugDiv = document.getElementById('pdf-debug') || (() => {
+    const div = document.createElement('div');
+    div.id = 'pdf-debug';
+    div.style.cssText = 'position:fixed;top:0;right:0;width:400px;height:100vh;overflow:auto;background:#000;color:#0f0;font-family:monospace;font-size:10px;padding:10px;z-index:99999;';
+    document.body.appendChild(div);
+    return div;
+  })();
 
-//   let cursorY = startY;
-
-//   // -------------------------------
-//   // Draw border for new page
-//   // -------------------------------
-//   const drawBorder = () => {
-//     doc.setDrawColor("#a16a21");
-//     doc.setLineWidth(1.5);
-//     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
-//   };
-
-//   // -------------------------------
-//   // Page break helper
-//   // Returns the (possibly updated) cursorY so callers can assign it.
-//   // -------------------------------
-//   const addNewPageIfNeeded = (estimatedHeight = 40): number => {
-//     if (cursorY + estimatedHeight > bottomLimit - 10) {
-//       doc.addPage();
-//       if (typeof addHeaderFooter === "function") {
-//         addHeaderFooter(doc, doc.getNumberOfPages());
-//       }
-//       drawBorder();
-//       cursorY = margin + 40;
-//     }
-//     return cursorY;
-//   };
-
-//   // -------------------------------
-//   // Clean raw text but KEEP tags
-//   // -------------------------------
-//   const text = rawText
-//     .replace(/[\u200B-\u200D\uFEFF]/g, "")
-//     .trim();
-
-//   if (!text) return cursorY;
-
-//   // Tag regex
-//   const tagRegex = /(<<<heading>>>|<<subheading>>|<content>|<\/content>)/g;
-//   const segments = text.split(tagRegex).filter(Boolean);
-
-//   let currentTag: string | null = null;
-
-//   for (const segment of segments) {
-//     const trimmed = segment.trim();
-//     if (!trimmed) continue;
-
-//     // -------------------------------
-//     // Detect tags
-//     // -------------------------------
-//     if (trimmed === "<<<heading>>>") { currentTag = "heading"; continue; }
-//     if (trimmed === "<<subheading>>") { currentTag = "subheading"; continue; }
-//     if (trimmed === "<content>") { currentTag = "content"; continue; }
-//     if (trimmed === "</content>") { currentTag = null; continue; }
-
-//     // -------------------------------
-//     // HEADINGS
-//     // -------------------------------
-//     if (currentTag === "heading") {
-//       const cleanHeading = trimmed.replace(/<\/?[^>]+(>|$)/g, "");
-
-//       doc.setFont("NotoSans", "bold");
-//       doc.setFontSize(20);
-//       doc.setTextColor("#000");
-
-//       addNewPageIfNeeded(lineHeight * 2);
-
-//       const wrappedHeading = doc.splitTextToSize(cleanHeading, usableWidth);
-//       wrappedHeading.forEach((line:string) => {
-//         cursorY = addNewPageIfNeeded(lineHeight);
-//         doc.text(line, pageWidth / 2, cursorY, { align: "center" });
-//         cursorY += lineHeight * 1.1;
-//       });
-
-//       cursorY += lineHeight * 0.6;
-//       currentTag = null;
-//       continue;
-//     }
-
-//     // -------------------------------
-//     // SUBHEADINGS
-//     // -------------------------------
-//     if (currentTag === "subheading") {
-//       const cleanSub = trimmed.replace(/<\/?[^>]+(>|$)/g, "");
-
-//       doc.setFont("NotoSans", "semibold");
-//       doc.setFontSize(17);
-//       doc.setTextColor("#a16a21");
-
-//       addNewPageIfNeeded(lineHeight * 2);
-
-//       const wrappedSub = doc.splitTextToSize(cleanSub, usableWidth);
-//       wrappedSub.forEach((line:string) => {
-//         cursorY = addNewPageIfNeeded(lineHeight);
-//         doc.text(line, pageWidth / 2, cursorY, { align: "center" });
-//         cursorY += lineHeight * 1.1;
-//       });
-
-//       cursorY += lineHeight * 0.4;
-//       currentTag = null;
-//       continue;
-//     }
-
-//     // -------------------------------
-//     // CONTENT
-//     // -------------------------------
-//     if (currentTag === "content") {
-//       const listItems = trimmed.split(/<\/?li>/).filter((t) => t.trim() !== "");
-
-//       for (let item of listItems) {
-//         item = item.trim();
-//         if (!item) continue;
-
-//         // Extract bold segments
-//         const boldParts = item.split(/<\/?b>/);
-//         const lineParts: { text: string; bold: boolean }[] = [];
-//         let isBold = false;
-
-//         for (const part of boldParts) {
-//           if (part.trim() === "") {
-//             isBold = !isBold;
-//             continue;
-//           }
-//           lineParts.push({ text: part.trim(), bold: isBold });
-//           isBold = !isBold;
-//         }
-
-//         // --------------------
-//         // Bullet
-//         // --------------------
-//         const x = startX;
-
-//         addNewPageIfNeeded(lineHeight);
-
-//         doc.setFont("NotoSans", "normal");
-//         doc.setFontSize(15);
-//         doc.setTextColor("#a16a21");
-//         doc.text("•", x - 8, cursorY);
-
-//         // --------------------
-//         // Text of item
-//         // --------------------
-//         for (const part of lineParts) {
-//           const wrappedLines = doc.splitTextToSize(
-//             part.text,
-//             usableWidth - 25
-//           );
-
-//           for (const wLine of wrappedLines) {
-//             addNewPageIfNeeded(lineHeight);
-
-//             doc.setFont("NotoSans", part.bold ? "bold" : "normal");
-//             doc.setFontSize(15);
-//             doc.setTextColor("#000");
-
-//             doc.text(wLine, x, cursorY);
-//             cursorY += lineHeight * 0.9;
-//           }
-//         }
-
-//         cursorY += lineHeight * 0.4;
-//       }
-//     }
-//   }
-
-//   return cursorY;
-// }
-
-
-// function addParagraphss(
-//   doc: jsPDF,
-//   text: string,
-//   x: number,
-//   y: number,
-//   maxWidth: number,
-//   lineHeight = 14
-// ) {
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const pageHeight = doc.internal.pageSize.getHeight();
-//   const margin = 25;
-//   const bottomLimit = pageHeight - margin;
-//   let currentY = y;
-
-//   // --- Draw border on first page ---
-//   const drawPageBorder = () => {
-//     doc.setDrawColor("#a16a21");
-//     doc.setLineWidth(1.5);
-//     doc.rect(margin, margin, pageWidth - 2 * margin, pageHeight - 2 * margin, "S");
-//   };
-
-//   drawPageBorder();
-
-//   // --- Split paragraphs by double line breaks ---
-//   const paragraphs = text
-//     .replace(/\r/g, "")
-//     .split(/\n\s*\n/) // preserve real paragraphs
-//     .map((p) => p.trim())
-//     .filter((p) => p.length > 0);
-
-//   for (const para of paragraphs) {
-//     // handle bold segments inside paragraph
-//     const segments = para.split(/(<b>.*?<\/b>)/g).filter(Boolean);
-
-//     for (const seg of segments) {
-//       const isBold = seg.startsWith("<b>") && seg.endsWith("</b>");
-//       const clean = seg.replace(/<\/?b>/g, "");
-
-//       doc.setFont("NotoSans", isBold ? "bold" : "normal");
-//       doc.setFontSize(16);
-//       doc.setTextColor("#a16a21");
-
-//       const lines = doc.splitTextToSize(clean, maxWidth);
-
-//       const adjustedLineHeight = lineHeight + 4;
-
-//       for (const line of lines) {
-//         if (currentY + adjustedLineHeight > bottomLimit) {
-//           doc.addPage();
-//           drawPageBorder();
-//           currentY = margin + 20;
-//         }
-
-//         doc.text(line, x, currentY);
-//         currentY += adjustedLineHeight;
-//       }
-//     }
-
-//     // paragraph spacing
-//     currentY += 10;
-//   }
-
-//   return currentY;
-// }
-
-
-// // --- Utilities for header/footer ---
-// const addHeaderFooter = (doc: jsPDF, pageNum: number) => {
-//   // Skip first page (no header/footer)
-//   if (pageNum === 1) return;
-
-//   const pageWidth = doc.internal.pageSize.getWidth();
-//   const pageHeight = doc.internal.pageSize.getHeight();
-
-//   // Save the current font and style
-//   const prevFont = doc.getFont().fontName;
-//   const prevStyle = doc.getFont().fontStyle;
-//   const prevColor = doc.getTextColor();
-//   const prevSize = doc.getFontSize();
-
-//   // Footer style
-//   doc.setFont("Times", "normal");
-//   doc.setTextColor("#a16a21");
-//   doc.setFontSize(12);
-
-//   // Footer text
-//   doc.text(
-//     "© 2025 TrustAstrology. All rights reserved.",
-//     pageWidth / 2,
-//     pageHeight - 30,
-//     { align: "center" }
-//   );
-
-//   // Restore previous font and style
-//   doc.setFont(prevFont, prevStyle);
-//   doc.setFontSize(prevSize);
-//   doc.setTextColor(prevColor);
-// };
-
+  const logLine = document.createElement('div');
+  logLine.textContent = `${message} ${data ? JSON.stringify(data) : ''}`;
+  debugDiv.appendChild(logLine);
+  debugDiv.scrollTop = debugDiv.scrollHeight;
+}
 export function svgToBase64PNG(svgText: string, width: number, height: number): Promise<string> {
   return new Promise((resolve, reject) => {
     if (typeof window === 'undefined') return reject(new Error('window not available'));
@@ -491,6 +222,53 @@ export function svgToBase64PNG(svgText: string, width: number, height: number): 
     };
     img.src = url;
   });
+}
+
+function drawTOCPage(doc, tocLines, startLineIndex, linesPerPage) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 40;
+  let y = 110;
+
+  // --- Always draw border for TOC pages ---
+  const margin = 25;
+  doc.setDrawColor("#a16a21");
+  doc.setLineWidth(1.5);
+  doc.rect(margin, margin, pageWidth - 2 * margin, pageWidth - 50, "S");
+
+  // --- TOC Title (top of each TOC page) ---
+  doc.setFont("NotoSans-VariableFont_wdth,wght", "bold");
+  doc.setFontSize(28);
+  doc.setTextColor(0, 0, 0);
+  doc.text("TABLE OF CONTENTS", pageWidth / 2, 70, { align: "center" });
+
+  // --- Print all lines ---
+  for (let i = 0; i < linesPerPage; i++) {
+    const line = tocLines[startLineIndex + i];
+    if (!line) break;
+
+    const trimmed = line.trim();
+    const dotCount = (trimmed.match(/\./g) || []).length;
+
+    if (/^\d+\./.test(trimmed) && dotCount === 1) {
+      doc.setFontSize(20);
+      doc.setFont("NotoSans-VariableFont_wdth,wght", "bold");
+      doc.setTextColor(0, 0, 0);
+      doc.text(trimmed, marginX, y);
+      y += 28;
+    } else if (/^\d+\.\d+/.test(trimmed)) {
+      doc.setFontSize(14);
+      doc.setFont("NotoSans-VariableFont_wdth,wght", "normal");
+      doc.setTextColor("#a16a21");
+      doc.text(trimmed, marginX + 12, y);
+      y += 20;
+    } else {
+      doc.setFontSize(14);
+      doc.setFont("NotoSans-VariableFont_wdth,wght", "normal");
+      doc.setTextColor(0, 0, 0);
+      doc.text(trimmed, marginX, y);
+      y += 20;
+    }
+  }
 }
 
 const generatePlanetReportsWithImages = async (
@@ -583,9 +361,10 @@ Write in ${userData.language || "English"}.
     } catch {
       text = `Report for ${planetName} could not be generated.`;
     }
-
+    startSection(doc, `${planetName} Report`, `${planetName} Report`);
     // === PDF Page Setup ===
     doc.addPage();
+    markSectionPage(doc);
     addHeaderFooter(doc, doc.getNumberOfPages());
     drawBorder();
 
@@ -910,81 +689,127 @@ interface DivisionalChart {
   chart_num: number;
   chart_data: Record<string, any>;
 }
+const DIVISIONAL_CHART_TITLES: Record<string, string> = {
+  D1: "Birth Chart (D1)",
+  D2: "Hora Chart (D2 – Wealth)",
+  D3: "Drekkana (D3 – Siblings & Courage)",
+  D4: "Chaturthamsa (D4 – Property & Mother)",
+  D5: "Panchamsa (D5 – Power, Talent, Fame)",
+  D7: "Saptamsa (D7 – Children)",
+  D8: "Ashtamsa (D8 – Longevity & Transformation)",
+  D9: "Navamsa (D9 – Marriage, Dharma)",
+  D10: "Dasamsa (D10 – Career)",
+  D12: "Dwadasamsa (D12 – Parents)",
+  D16: "Shodasamsa (D16 – Comforts)",
+  D20: "Vimsamsa (D20 – Spiritual)",
+  D24: "Chaturvimshamsa (D24 – Education)",
+  D27: "Bhamsha (D27 – Strengths)",
+  D30: "Trimsamsa (D30 – Misfortune)",
+  D40: "Khavedamsa (D40 – Maternal Lineage)",
+  D45: "Akshavedamsa (D45 – Paternal Lineage)",
+  D60: "Shashtiamsa (D60 – Karma)",
+
+  chalit: "Chalit Chart (General House Correction)",
+  kp_chalit: "KP Chalit Chart",
+  sun: "Sun Chart",
+  moon: "Moon Chart",
+  transit: "Transit Chart (Gochar)"
+};
+
 
 async function addAllDivisionalChartsFromAstroData(
   doc: jsPDF,
-  chartList: { chart_name: string; data: Record<string, any> }[], // ✅ accept full chart data
+  chartList: { chart_name: string; data: Record<string, any> }[],
   astroData: Record<string, any>
 ) {
   const chartsPerPage = 2;
   const imgWidth = 340;
   const imgHeight = 300;
   const spacingY = 50;
-  const marginTop = 100;
+  const marginTop = 120;
+
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  const borderMargin = 25;
   const textColor = "#a16a21";
 
-  // Prepare chart objects (now from chartList.data)
+  // Convert chart list to usable objects
   const divisionalCharts: DivisionalChart[] = chartList
     .map((item) => {
-      const chartData = item.data;
-      if (!chartData) return null;
+      if (!item.data) return null;
 
       const chartNum = parseInt(item.chart_name.replace(/[^0-9]/g, ""), 10) || 0;
       return {
         chart_name: item.chart_name.toUpperCase(),
         chart_num: chartNum,
-        chart_data: chartData,
+        chart_data: item.data,
       };
     })
     .filter((x): x is DivisionalChart => x !== null);
 
-  // Sort numerically (D1, D2, D9, etc.)
+  // Sort numerically (D1 → D2 → D9 → etc.)
   divisionalCharts.sort((a, b) => a.chart_num - b.chart_num);
 
-  // Render each chart
-  for (let i = 0; i < divisionalCharts.length; i++) {
-    const chartData = divisionalCharts[i];
-    if (!chartData) continue;
+  // Draw border helper
+  const drawBorder = () => {
+    doc.setDrawColor("#a16a21");
+    doc.setLineWidth(1.5);
+    doc.rect(borderMargin, borderMargin, pageWidth - 2 * borderMargin, pageHeight - 2 * borderMargin);
+  };
 
-    if (i % chartsPerPage === 0) {
-      if (i > 0) startSection(doc, `DIVISIONAL CHARTS`);
+  // MAIN LOOP
+  for (let i = 0; i < divisionalCharts.length; i++) {
+    const chart = divisionalCharts[i];
+
+    // Start a new section every chart (like house)
+    let cleanName = chart.chart_name.replace(".PNG", "").trim();
+    const fullTitle = DIVISIONAL_CHART_TITLES[cleanName] || cleanName;
+
+    // Register correct section name in TOC
+    startSection(doc, fullTitle, fullTitle);
+
+
+    // Add new page for each chart group (2 charts per page)
+    if (i === 0 || i % chartsPerPage === 0) {
       doc.addPage();
       markSectionPage(doc);
-      doc.setDrawColor("#a16a21");
-      doc.setLineWidth(1.5);
-      doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+      addHeaderFooter(doc, doc.getNumberOfPages());
+      drawBorder();
 
+      // Big main heading (only once per page)
       doc.setFont("NotoSans", "bold");
       doc.setFontSize(26);
       doc.setTextColor("#a16a21");
       doc.text("DIVISIONAL CHARTS", pageWidth / 2, 70, { align: "center" });
     }
 
+    // Position inside the page (first or second chart)
     const posInPage = i % chartsPerPage;
     const currentY = marginTop + posInPage * (imgHeight + spacingY);
     const xPos = (pageWidth - imgWidth) / 2;
 
+    // Chart subtitle
     doc.setFont("NotoSans", "bold");
-    doc.setFontSize(16);
+    doc.setFontSize(18);
     doc.setTextColor(textColor);
-    doc.text(`DIVISIONAL CHART - ${chartData.chart_name}`, pageWidth / 2, currentY - 10, { align: "center" });
+    cleanName = chart.chart_name.replace(".PNG", "").trim();
+    const title = DIVISIONAL_CHART_TITLES[cleanName] || `Chart - ${cleanName}`;
 
+    doc.text(title, pageWidth / 2, currentY - 15, { align: "center" });
+
+    // Render Kundli chart image
     try {
-      const svgText = generateKundliSVG(chartData.chart_data, 500);
+      const svgText = generateKundliSVG(chart.chart_data, 500);
       const base64 = await svgTextToPngBase64(svgText, imgWidth, imgHeight);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 30));
       doc.addImage(base64, "PNG", xPos, currentY, imgWidth, imgHeight);
     } catch (err) {
-      console.error(`Error rendering chart ${chartData.chart_name}`, err);
+      console.error(`Error rendering chart ${chart.chart_name}`, err);
       doc.text("Chart could not be loaded", pageWidth / 2, currentY + imgHeight / 2, { align: "center" });
     }
-
-    await new Promise((r) => setTimeout(r, 20));
   }
 
-  // Add header/footer on all pages
+  // Add header/footer to ALL pages at the end
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
@@ -1124,8 +949,9 @@ Rules:
   // 🔥 RENDER ALL HOUSES TO PDF
   // --------------------------------------------------------------------
   for (const { house, text } of reports) {
-
+    startSection(doc, `House ${house.house} Report`, `House ${house.house} Report`);
     doc.addPage();
+    markSectionPage(doc);
     addHeaderFooter(doc, doc.getNumberOfPages());
     drawBorder();
 
@@ -1287,6 +1113,7 @@ function startSection(
   if (existing) {
     existing.tocLabel = tocLabel || title;
     existing.outlineParent = outlineParent || existing.outlineParent;
+    debugLog("Updated section:", { title: existing.title, page: existing.page, tocLabel: existing.tocLabel });
     return existing;
   }
   const entry: SectionEntry = {
@@ -1297,6 +1124,7 @@ function startSection(
     outlineParent,
   };
   __sectionRegistry.push(entry);
+  debugLog("Registered section:", { title: entry.title, page: entry.page, tocLabel: entry.tocLabel });
   return entry;
 }
 
@@ -1306,7 +1134,9 @@ function startSection(
 function markSectionPage(doc: jsPDF) {
   const last = __sectionRegistry[__sectionRegistry.length - 1];
   if (!last) return;
+  const oldpage = last.page;
   last.page = doc.getNumberOfPages();
+  debugLog("Marked section page:", { title: last.title, oldpage: oldpage, newpage: last.page, anchor: last.anchor, tocLabel: last.tocLabel });
 }
 
 /**
@@ -1322,7 +1152,7 @@ function fillComplexTOC(doc: jsPDF, tocStart: number, tocEnd: number, tocText: s
   const leftX = 60;
   const rightX = pageWidth - 60;
   const mainTitleY = 70;
-  const lineHeight = 20;
+  const lineHeight = 18;
 
   const lines = tocText.split("\n").map(l => l.trim()).filter(Boolean);
 
@@ -1344,45 +1174,225 @@ function fillComplexTOC(doc: jsPDF, tocStart: number, tocEnd: number, tocText: s
       .trim();
   }
 
-  // Enhanced matching with multiple strategies
-  for (const item of items) {
-    const itemNorm = norm(item.title);
-
-    // Strategy 1: Exact match
-    let found = __sectionRegistry.find(
-      s => norm(s.tocLabel || s.title) === itemNorm
-    );
-
-    // Strategy 2: Title contains TOC label or vice versa
-    if (!found) {
-      found = __sectionRegistry.find(s => {
-        const sNorm = norm(s.tocLabel || s.title);
-        return sNorm.includes(itemNorm) || itemNorm.includes(sNorm);
-      });
-    }
-
-    // Strategy 3: Extract first meaningful words (more flexible)
-    if (!found) {
-      const itemWords = itemNorm.split(" ").slice(0, 3).join(" ");
-      found = __sectionRegistry.find(s => {
-        const sNorm = norm(s.tocLabel || s.title);
-        const sWords = sNorm.split(" ").slice(0, 3).join(" ");
-        return sWords === itemWords || sNorm.startsWith(itemWords) || itemNorm.startsWith(sWords);
-      });
-    }
-
-    // Strategy 4: Partial word matching (handles splits like "Your Basic" vs "Basic Details")
-    if (!found) {
-      const itemKeywords = itemNorm.split(" ").filter(w => w.length > 3);
-      found = __sectionRegistry.find(s => {
-        const sNorm = norm(s.tocLabel || s.title);
-        return itemKeywords.some(kw => sNorm.includes(kw)) &&
-          itemKeywords.filter(kw => sNorm.includes(kw)).length >= 2;
-      });
-    }
-
-    item.matches = found || null;
+  // Extract short title (before em-dash, en-dash, or hyphen with spaces)
+  function getShortTitle(fullTitle: string): string {
+    const parts = fullTitle.split(/\s+[–—-]\s+/);
+    return parts[0].trim();
   }
+
+  // Extract section number from text (e.g., "4.1 Your Emotional Side" → "4.1")
+  function extractNumber(text: string): string | null {
+    const match = text.match(/^(\d+(\.\d+)*)/);
+    return match ? match[1] : null;
+  }
+
+  debugLog("\n🔍 === TOC MATCHING DEBUG ===");
+  debugLog(`Total TOC items: ${items.length}`);
+  debugLog(`Total registered sections: ${__sectionRegistry.length}`);
+
+  // === BULLETPROOF MATCHING ===
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const itemNorm = norm(item.title);
+    const itemShort = getShortTitle(item.title);
+    const itemShortNorm = norm(itemShort);
+
+    debugLog(`\n🔎 [${i + 1}/${items.length}] Matching: "${item.number} ${item.title}"`);
+
+    try {
+      let bestMatch: SectionEntry | null = null;
+      let bestScore = 0;
+      let matchReason = "";
+
+      for (const section of __sectionRegistry) {
+        const sectionLabel = section.tocLabel || section.title;
+        const sectionNorm = norm(sectionLabel);
+        const sectionShort = getShortTitle(sectionLabel);
+        const sectionShortNorm = norm(sectionShort);
+        const sectionNumber = extractNumber(sectionLabel);
+
+        // PRIORITY 1: Exact number + title match (100 points)
+        if (sectionNumber === item.number && itemShortNorm === sectionShortNorm) {
+          bestMatch = section;
+          bestScore = 100;
+          matchReason = "exact number + title";
+          break; // Perfect match, stop searching
+        }
+
+        // PRIORITY 2: Exact number match only (95 points)
+        if (sectionNumber === item.number && bestScore < 95) {
+          bestMatch = section;
+          bestScore = 95;
+          matchReason = "exact number";
+        }
+
+        // PRIORITY 3: Exact short title match (90 points)
+        if (itemShortNorm === sectionShortNorm && bestScore < 90) {
+          bestMatch = section;
+          bestScore = 90;
+          matchReason = "exact short title";
+        }
+
+        // PRIORITY 4: Word similarity (70-85 points)
+        if (bestScore < 85) {
+          const itemWords = itemShortNorm.split(" ").filter(w => w.length > 2 || /^\d+$/.test(w));
+          const sectionWords = sectionShortNorm.split(" ").filter(w => w.length > 2 || /^\d+$/.test(w));
+
+          if (itemWords.length > 0 && sectionWords.length > 0) {
+            const matchedWords = itemWords.filter(w => sectionWords.includes(w));
+            const score = (matchedWords.length / itemWords.length) * 100;
+
+            // Only accept if similarity is high AND lengths are similar
+            // Only accept if similarity is high AND lengths are similar
+            const lengthRatio = Math.min(itemWords.length, sectionWords.length) /
+              Math.max(itemWords.length, sectionWords.length);
+
+            // Require exact match for 100% score (prevents "House 1" matching "House 2")
+            if (score === 100 && matchedWords.length === sectionWords.length && score > bestScore) {
+              bestMatch = section;
+              bestScore = score;
+              matchReason = `full word match (${matchedWords.length}/${itemWords.length})`;
+            } else if (score >= 80 && lengthRatio >= 0.8 && score > bestScore) {
+              bestMatch = section;
+              bestScore = score;
+              matchReason = `word overlap (${matchedWords.length}/${itemWords.length})`;
+            }
+          }
+        }
+      }
+
+      if (bestMatch && bestScore >= 70) {
+        item.matches = bestMatch;
+        debugLog(`   ✅ MATCHED (${matchReason}, score: ${bestScore.toFixed(0)}): "${getShortTitle(bestMatch.tocLabel || bestMatch.title)}" → page ${bestMatch.page}`);
+      } else {
+        debugLog(`   ❌ NO MATCH (best score: ${bestScore.toFixed(0)})`);
+      }
+
+    } catch (err) {
+      debugLog(`   ⚠️ ERROR: ${err}`);
+    }
+  }
+
+  // === DEBUG SUMMARY ===
+  const matchedCount = items.filter(i => i.matches).length;
+  debugLog(`\n📊 === MATCHING SUMMARY ===`);
+  debugLog(`Matched: ${matchedCount}/${items.length}`);
+
+  const unmatched = items.filter(i => !i.matches);
+  if (unmatched.length > 0) {
+    debugLog(`\n❌ Unmatched items:`);
+    unmatched.forEach(item => {
+      debugLog(`   ${item.number} ${item.title}`);
+    });
+  }
+
+  // Verify no duplicate page assignments
+  const pageMap = new Map<number, string[]>();
+  items.forEach(item => {
+    if (item.matches) {
+      const page = item.matches.page;
+      if (!pageMap.has(page)) {
+        pageMap.set(page, []);
+      }
+      pageMap.get(page)!.push(`${item.number} ${item.title}`);
+    }
+  });
+
+  const duplicates = Array.from(pageMap.entries()).filter(([_, items]) => items.length > 1);
+  if (duplicates.length > 0) {
+    debugLog(`\n⚠️ DUPLICATE PAGE ASSIGNMENTS:`);
+    duplicates.forEach(([page, itemTitles]) => {
+      debugLog(`   Page ${page}:`);
+      itemTitles.forEach(title => debugLog(`      - ${title}`));
+    });
+  }
+
+  // 🎨 === RENDER THE TOC ===
+  let currentPage = tocStart;
+  let currentY = mainTitleY + 50;
+
+  doc.setPage(currentPage);
+
+  doc.setDrawColor("#a16a21");
+  doc.setLineWidth(1.5);
+  doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+
+  doc.setFont("NotoSans", "bold");
+  doc.setFontSize(28);
+  doc.setTextColor("#000");
+  doc.text("TABLE OF CONTENTS", pageWidth / 2, mainTitleY, { align: "center" });
+
+  for (const item of items) {
+    if (currentY + lineHeight > pageHeight - 70) {
+      currentPage++;
+      if (currentPage > tocEnd) {
+        debugLog(`⚠️ TOC overflow at "${item.number} ${item.title}"`);
+        break;
+      }
+
+      doc.setPage(currentPage);
+      doc.setDrawColor("#a16a21");
+      doc.setLineWidth(1.5);
+      doc.rect(25, 25, pageWidth - 50, pageHeight - 50, "S");
+      currentY = 60;
+    }
+
+    const isMainSection = !item.number.includes(".");
+
+    if (isMainSection) {
+      doc.setFont("NotoSans", "bold");
+      doc.setFontSize(15);
+      doc.setTextColor("#a16a21");
+      currentY += 8;
+    } else {
+      doc.setFont("NotoSans", "normal");
+      doc.setFontSize(13);
+      doc.setTextColor("#000");
+    }
+
+    const displayText = `${item.number} ${item.title}`;
+    const maxTextWidth = rightX - leftX - 60;
+
+    let finalText = displayText;
+    if (doc.getTextWidth(displayText) > maxTextWidth) {
+      finalText = displayText.substring(0, 60) + "...";
+    }
+
+    doc.text(finalText, leftX, currentY);
+
+    if (item.matches) {
+      const pageNumText = String(item.matches.page);
+      const targetPage = item.matches.page;
+      doc.setFont("NotoSans", "normal");
+      doc.setFontSize(13);
+      doc.text(pageNumText, rightX, currentY, { align: "right" });
+
+      const textEnd = leftX + doc.getTextWidth(finalText) + 5;
+      const dotsStart = textEnd;
+      const dotsEnd = rightX - doc.getTextWidth(pageNumText) - 5;
+
+      if (dotsEnd > dotsStart) {
+        doc.setLineDash([2, 3]);
+        doc.setDrawColor("#ccc");
+        doc.setLineWidth(0.5);
+        doc.line(dotsStart, currentY - 2, dotsEnd, currentY - 2);
+        doc.setLineDash([]);
+      }
+      const linkWidth = rightX - leftX;
+      const linkHeight = lineHeight;
+      const linkY = currentY - lineHeight + 4;
+      doc.link(leftX, linkY, linkWidth, linkHeight, { pageNumber: targetPage });
+    }
+
+    currentY += lineHeight;
+  }
+
+  for (let p = tocStart; p <= tocEnd; p++) {
+    doc.setPage(p);
+    addHeaderFooter(doc, p);
+  }
+
+  debugLog(`\n✅ TOC rendering complete`);
 }
 
 // ========================================
@@ -1764,164 +1774,137 @@ export async function generateAndDownloadFullCosmicReportWithTable(
     const tocText = `
 1. About You
 
-1.1 Your Basic Birth Details 
-1.2 Your Lucky Number & Color 
-1.3 Numerology Insights 
-1.4 Your Personality Traits 
-1.5 Chara Karakas & Life Purpose
-1.6 Your Planet Overview 
+1.1 Your Basic Birth Details
+1.2 Your Lucky Number & Color
+1.3 Mulank (Birth Number)
+1.4 Bhagyank (Life Path Number)
+1.5 Success Number (Name Number)
+1.6 Connection Number
+1.7 Your Personality Traits
+1.8 Chara Karakas & Life Purpose
 
-2. Your Life Areas
+2. Chart
+2.1 Birth Chart (D1)
+2.2 Hora Chart (D2 – Wealth)
+2.3 Drekkana (D3 – Siblings & Courage)
+2.4 Chaturthamsa (D4 – Property & Mother)
+2.5 Panchamsa (D5 – Power, Talent, Fame)
+2.6 Saptamsa (D7 – Children)
+2.7 Ashtamsa (D8 – Longevity & Transformation)
+2.8 Navamsa (D9 – Marriage, Dharma)
+2.9 Dasamsa (D10 – Career)
+2.10 Dwadasamsa (D12 – Parents)
+2.11 Shodasamsa (D16 – Comforts)
+2.12 Vimsamsa (D20 – Spiritual)
+2.13 Chaturvimshamsa (D24 – Education)
+2.14 Bhamsha (D27 – Strengths)
+2.15 Trimsamsa (D30 – Misfortune)
+2.16 Khavedamsa (D40 – Maternal Lineage)
+2.17 Akshavedamsa (D45 – Paternal Lineage)
+2.18 Shashtiamsa (D60 – Karma)
 
-2.1 The 12 Life Areas 
-2.2 Main Influences 
-2.3 Your Life Balance
-2.4 Planet Effects 
-2.5 Detailed Life Area Review 
+3. Your Houses
 
-3. Your Planets and Their Impact
+3.1 House 1 Report
+3.2 House 2 Report
+3.3 House 3 Report
+3.4 House 4 Report
+3.5 House 5 Report
+3.6 House 6 Report
+3.7 House 7 Report
+3.8 House 8 Report
+3.9 House 9 Report
+3.10 House 10 Report
+3.11 House 11 Report
+3.12 House 12 Report
 
-3.1 Where Your Planets Are 
-3.2 How They Work Together 
-3.3 Your Strong Planets 
-3.4 Planet Energy Review 
-3.5 Planet Movements 
+4. Your Planets and Their Impact
 
-4. Love, Emotions & Relationships
+4.1 Sun Report
+4.2 Moon Report
+4.3 Mars Report
+4.4 Mercury Report
+4.5 Jupiter Report
+4.6 Venus Report
+4.7 Saturn Report
+4.8 Rahu Report
+4.9 Ketu Report
 
-4.1 Your Emotional Side 
-4.2 Your Compatibility 
-4.3 Your Relationship Style 
-4.4 Planets of Love 
-4.5 Marriage & Partnership 
-4.6 Timing in Love 
-4.7 Lessons in Love 
-4.8 Darakaraka & Soulmate Planet 
+5. Love, Emotions & Relationships
 
-5. Career & Success
+5.1 Your Emotional Side
+5.2 Your Compatibility
+5.3 Your Relationship Style
+5.4 Planets of Love
+5.5 Marriage & Partnership
+5.6 Timing in Love
+5.7 Lessons in Love
+5.8 Darakaraka & Soulmate Planet
 
-5.1 Your Career Strengths 
-5.2 Ideal Work Style 
-5.3 Success Factors 
-5.4 Turning Points 
-5.5 Your Professional Future 
-5.6 Mahadasha Career Influence 
+6. Career & Success
 
-6. Health & Wellbeing
+6.1 Your Career Strengths
+6.2 Ideal Work Style
+6.3 Success Factors
+6.4 Turning Points
+6.5 Your Professional Future
 
-6.1 Overall Health Picture 
-6.2 Planet Influence on Health 
-6.3 Mind-Body Connection 
-6.4 Stress Triggers 
-6.5 Simple Remedies 
-6.6 Sade Sati & Mangalik Analysis 
+7. Health & Wellbeing
 
-7. Life Lessons & Purpose
+7.1 Overall Health Picture
+7.2 Planet Influence on Health
+7.3 Mind-Body Connection
+7.4 Stress Triggers
+7.5 Simple Remedies
+7.6 Sade Sati & Mangalik Analysis
 
-7.1 Your Life Purpose 
-7.2 Growth Phases 
-7.3 Past-Life Connections 
-7.4 Key Turning Points 
-7.5 Learning Through Challenges 
-7.6 Rahu-Ketu Axis 
+8. Life Lessons & Purpose
 
-8. Timing & Future Outlook
+8.1 Your Life Purpose
+8.2 Growth Phases
+8.3 Past-Life Connections
+8.4 Key Turning Points
+8.5 Learning Through Challenges
+8.6 Rahu-Ketu Axis
 
-8.1 Major Life Phases 
-8.2 Upcoming Events 
-8.3 Year Ahead Forecast 
-8.4 Planet Movements 
-8.5 Overall Outlook 
+9. Timing & Future Outlook
 
-9. Remedies & Positive Actions
+9.1 Major Life Phases
+9.2 Upcoming Events
+9.3 Year Ahead Forecast
+9.4 Planet Movements
+9.5 Overall Outlook
 
-9.1 Lucky Stones & Crystals 
-9.2 Powerful Mantras 
-9.3 Helpful Rituals 
-9.4 Good Deeds & Charity 
-9.5 Protection & Peace Tips 
-9.6 Ishtdev & Yantra Guidance 
-9.7 Rudraksha & Gemstone Remedies 
+10. Remedies & Positive Actions
 
-10. Deeper Insights 
+10.1 Lucky Stones & Crystals
+10.2 Powerful Mantras
+10.3 Helpful Rituals
+10.4 Good Deeds & Charity
+10.5 Protection & Peace Tips
 
-10.1 Your Strength Map 
-10.2 Planet Power Levels 
-10.3 Detailed Life Charts 
-10.4 Fine Timing Review 
-10.5 Special Planet Effects 
-10.6 Raj Yogas & Karmic Doshas 
+11. Deeper Insights
 
-11. Important Timings
+11.1 Your Strength Map
+11.2 Planet Power Levels
+11.3 Detailed Life Charts
+11.4 Fine Timing Review
+11.5 Special Planet Effects
+11.6 Raj Yogas & Karmic Doshas
 
-11.1 Sunrise & Sunset on Birth Day 
-11.2 Moonrise & Moonset
-11.3 Auspicious Hours 
-11.4 Planetary Hours 
+12. Important Timings
 
-12. Your Personal Guidance
+12.1 Sunrise & Sunset on Birth Day
+12.2 Moonrise & Moonset
+12.3 Auspicious Hours
+12.4 Planetary Hours
 
-12.1 Common Questions Answered
-12.2 Next Steps: Using Insights & Remedies for Personal Growth
-12.3 Personalized Astro Guidance & Conclusion
+13. Your Personal Guidance
+
+13.1 Common Questions Answered
+13.2 Next Steps: Using Insights & Remedies for Personal Growth
+13.3 Personalized Astro Guidance & Conclusion
 `;
-    // startSection(doc, `Table of Contents`);
-    // doc.addPage();
-    // markSectionPage(doc);
-    // doc.setDrawColor("#a16a21");
-    //     doc.setLineWidth(1.5);
-    //     doc.rect(25, 25, 545, 792, "S");
-
-    //     doc.setFont("NotoSans", "bold");
-    //     doc.setFontSize(26);
-    //     doc.setTextColor("#000");
-    //     doc.text("Table of Contents", pageWidth / 2, 70, { align: "center" });
-
-    // --- Variables for layout ---
-    // doc.setFont("NotoSans", "normal");
-    // doc.setFontSize(14);
-    // const lines = tocText.trim().split("\n");
-    // let z = 100;
-    // const lineHeights = 18;
-    // const marginTop = 50;
-    // const marginBottoms = 50;
-    // const pageHeights = doc.internal.pageSize.getHeight();
-
-    // // --- Helper to add new bordered page ---
-    // function addNewPage() {
-    //   doc.addPage();
-    //   doc.setDrawColor("#a16a21");
-    //   doc.setLineWidth(1.5);
-    //   doc.rect(25, 25, 545, 792, "S");
-    //   z = marginTop + 50; // Reset y for new page
-    // }
-
-    // // --- Draw each line ---
-    // lines.forEach(line => {
-    //   if (line.trim() === "") {
-    //     z += 10;
-    //     return;
-    //   }
-
-    //   // Check if next line will overflow page height
-    //   if (z + lineHeights > pageHeights - marginBottoms) {
-    //     addNewPage();
-    //   }
-
-    //   const isSubtopic = /^\s*\d+\.\d+/.test(line);
-    //   const x = isSubtopic ? 80 : 50;
-
-    //   if (!isSubtopic) {
-    //     doc.setFont("NotoSans", "bold");
-    //     doc.setTextColor("#a16a21");
-    //   } else {
-    //     doc.setFont("NotoSans", "normal");
-    //     doc.setTextColor("#000");
-    //   }
-
-    //   doc.text(line.trim(), x, z);
-    //   z += lineHeights;
-    // });
 
     // decide how many TOC pages we need
     const tocLines = tocText
@@ -1929,32 +1912,29 @@ export async function generateAndDownloadFullCosmicReportWithTable(
       .split("\n")
       .filter((l) => l.trim() !== "");
 
+    // ============= FIXED TOC GENERATION =============
     const tocLineHeight = 18;
     const firstLineY = 110;
     const bottomMarginTOC = 60;
     const usableHeight = pageHeight - firstLineY - bottomMarginTOC;
     const linesPerPage = Math.max(1, Math.floor(usableHeight / tocLineHeight));
+const tocPageStart = doc.getNumberOfPages() + 1;
+    const tocPagesCount = Math.ceil(tocLines.length / linesPerPage);
 
-    const tocPagesCount = Math.max(1, Math.ceil(tocLines.length / linesPerPage));
+    let currentLineIndex = 0;
 
-    const tocPageStart = doc.getNumberOfPages() + 1;
-    for (let i = 0; i < tocPagesCount; i++) {
-      doc.addPage(); // these become TOC pages right after cover
+    // --- CREATE TOC PAGES PROPERLY ---
+    for (let page = 0; page < tocPagesCount; page++) {
+      doc.addPage(); 
+      doc.setPage(tocPageStart + page);                        // <---- FIX #1
+      drawTOCPage(doc, tocLines, currentLineIndex, linesPerPage);
+      currentLineIndex += linesPerPage;
     }
+
     const tocPageEnd = doc.getNumberOfPages();
 
-    // ========= RESERVE TOC PAGES RIGHT AFTER COVER =========
-    // const tocPagesCount = 2; // adjust if you expect more TOC content
-    // const tocPageStart = doc.getNumberOfPages() + 1;
-    // for (let i = 0; i < tocPagesCount; i++) {
-    //   doc.addPage(); // these become page 2 and 3
-    // }
-    // const tocPageEnd = doc.getNumberOfPages();
 
-    // ========== DISCLAIMER PAGE ==========
-    startSection(doc, "Disclaimer", "Disclaimer");
     doc.addPage();
-    markSectionPage(doc);
 
     const margin = 25;
     doc.setDrawColor("#a16a21");
@@ -2090,7 +2070,7 @@ ${JSON.stringify(minimalAstroData, null, 2)}
 `;
 
     const response = await callBedrock(fullPrompt, { minimalAstroData });
-    // console.log("RAW BEDROCK:", response);
+    // debugLog("RAW BEDROCK:", response);
 
     let text =
       typeof response === "string"
@@ -2107,7 +2087,7 @@ ${JSON.stringify(minimalAstroData, null, 2)}
     text = sanitizeText(String(text));
     text = removeMarkdown(String(text));
 
-    // console.log("After cleaning:", text);
+    // debugLog("After cleaning:", text);
 
     startSection(doc, "Your Lucky Number & Color", "Your Lucky Number & Color");
     doc.addPage();
@@ -2122,10 +2102,10 @@ ${JSON.stringify(minimalAstroData, null, 2)}
     addParagraphss(doc, text, 50, 100, pageWidth - 100);
     // doc.addPage();
     const numerologySections = [
-      "3.1 Mulank (Birth Number): Explain the influence of the Birth Number (radical_number) and its ruling planet (radical_ruler), personality traits, thinking patterns, emotional tendencies, favorable colors, metals, gemstones, friendly numbers, favorite deity, and mantra. End with how this number defines the person’s core identity and how to strengthen it.",
-      "3.2 Bhagyank (Life Path Number): Describe the meaning of the Life Path (destiny) number — the person’s purpose, karmic journey, strengths, and challenges. Mention its harmony or contrast with the Birth Number and conclude with a practical insight for alignment.",
-      "3.3 Success Number (Name Number): Explain how the name number influences career success, fame, and personal magnetism. Discuss compatibility using friendly, evil, and neutral numbers. Conclude with insights on how name vibrations affect destiny.",
-      "3.4 Connection Number: Analyze the relationship between Birth, Destiny, and Name Numbers. Include the Personal Day Number interpretation and offer guidance for balancing energies using gemstones, colors, or affirmations. End with a motivational summary of their overall vibration."
+      "Mulank (Birth Number): Explain the influence of the Birth Number (radical_number) and its ruling planet (radical_ruler), personality traits, thinking patterns, emotional tendencies, favorable colors, metals, gemstones, friendly numbers, favorite deity, and mantra. End with how this number defines the person’s core identity and how to strengthen it.",
+      "Bhagyank (Life Path Number): Describe the meaning of the Life Path (destiny) number — the person’s purpose, karmic journey, strengths, and challenges. Mention its harmony or contrast with the Birth Number and conclude with a practical insight for alignment.",
+      "Success Number (Name Number): Explain how the name number influences career success, fame, and personal magnetism. Discuss compatibility using friendly, evil, and neutral numbers. Conclude with insights on how name vibrations affect destiny.",
+      "Connection Number: Analyze the relationship between Birth, Destiny, and Name Numbers. Include the Personal Day Number interpretation and offer guidance for balancing energies using gemstones, colors, or affirmations. End with a motivational summary of their overall vibration."
     ];
 
     async function fetchNumerologySection(sectionPrompt: string) {
@@ -2175,7 +2155,8 @@ FORMATTING RULES:
 
     for (const sectionPrompt of numerologySections) {
       const texts = await fetchNumerologySection(sectionPrompt);
-      startSection(doc, "Numerology Insights", "Numerology Insights");
+      const sectionTitle = sectionPrompt.split(":")[0].trim();
+      startSection(doc, `${sectionTitle}`, `${sectionTitle}`);
       doc.addPage();
       markSectionPage(doc);
       doc.setDrawColor("#a16a21");
@@ -2293,7 +2274,7 @@ FORMATTING RULES:
     doc.text("1.5 Chara Karakas & Life Purpose", pageWidth / 2, 70, { align: "center" });
     doc.setTextColor("#a16a21");
     addParagraphss(doc, charaText, 50, 100, pageWidth - 100);
-    doc.addPage();
+    //doc.addPage();
 
     // Generate SVG
     const allCharts = [
@@ -3686,11 +3667,11 @@ Begin with a clear overview explaining the main astrological theme of this secti
     // === Generate All Subsections Sequentially ===
     const resultAdvanced: string[] = [];
     for (const section of advancedSections) {
-      console.log(`🔭 Generating Deeper Insights → ${section.split("–")[0].trim()} ...`);
+      debugLog(`🔭 Generating Deeper Insights → ${section.split("–")[0].trim()} ...`);
       const text = await fetchAdvancedSection(section);
       resultAdvanced.push(text);
     }
-    console.log("✨ All Deeper Insights sections generated successfully!");
+    debugLog("✨ All Deeper Insights sections generated successfully!");
 
     // === Render All Sections in PDF ===
     for (let i = 0; i < advancedSections.length; i++) {
@@ -4327,7 +4308,7 @@ STYLE & CONTENT REQUIREMENTS:
       for (let i = 0; i < growthSections.length; i++) {
         const sectionTitle = growthSections[i];
         const text = resultGrowth[i];
-        startSection(doc, sectionTitle, sectionTitle);
+        startSection(doc, `${sectionTitle}`, `${sectionTitle}`);
         doc.addPage();
         markSectionPage(doc);
         doc.setDrawColor("#a16a21");
@@ -4335,28 +4316,54 @@ STYLE & CONTENT REQUIREMENTS:
         doc.rect(25, 25, 545, 792, "S");
 
         // === Title ===
+        // === Title ===
         const maxTitleWidth = pageWidth - 120;
+
+        // Split into lines normally
         let titleLines = doc.splitTextToSize(sectionTitle, maxTitleWidth);
 
-        // If title has more than 2 lines, limit to 2
+        // Force maximum 2 lines ONLY
         if (titleLines.length > 2) {
-          // Merge excess lines into 2nd line with ellipsis
-          titleLines = [titleLines[0], titleLines.slice(1).join(" ").slice(0, 60) + "..."];
+          const firstLine = titleLines[0];
+
+          // Merge all remaining text into 2nd line
+          let secondLineText = titleLines.slice(1).join(" ");
+
+          // Re-wrap second line to fit inside width
+          let secondLine = doc.splitTextToSize(secondLineText, maxTitleWidth)[0];
+
+          // If still too long, trim and add ellipsis
+          if (secondLine.length > 80) {
+            secondLine = secondLine.substring(0, 77) + "...";
+          }
+
+          titleLines = [firstLine, secondLine];
         }
 
-        // Adjust font size dynamically
-        const titleFontSize = titleLines.length > 1 ? 20 : 24;
+        // Pick safe font size
+        const titleFontSize = titleLines.length === 1 ? 24 : 20;
         const titleLineHeight = 26;
 
         doc.setFont("NotoSans", "bold");
         doc.setFontSize(titleFontSize);
         doc.setTextColor("#000");
 
-        // Center both lines
+        // Center both lines safely
         titleLines.forEach((line: string, idx: number) => {
           const yPos = 60 + idx * titleLineHeight;
           doc.text(line, pageWidth / 2, yPos, { align: "center" });
         });
+
+
+        // doc.setFont("NotoSans", "bold");
+        // doc.setFontSize(titleFontSize);
+        // doc.setTextColor("#000");
+
+        // // Center both lines
+        // titleLines.forEach((line: string, idx: number) => {
+        //   const yPos = 60 + idx * titleLineHeight;
+        //   doc.text(line, pageWidth / 2, yPos, { align: "center" });
+        // });
 
         // === Body ===
         if (text && text.trim().length > 0) {
